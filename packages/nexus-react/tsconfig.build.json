@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": false,
+    "baseUrl": ".",
+    "paths": {
+      "@nexus-ui/core": ["../../packages/nexus-core/dist/index.d.ts"]
+    }
+  },
+  "//": "react build 使用 core 的 dist 声明，避免把 workspace TS 源码拉进本包 rootDir。",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["tests", "src/**/*.test.ts", "src/**/*.test.tsx"]
+}

@@ -1,0 +1,6 @@
+{
+  "extension": ["ts"],
+  "spec": ["tests/**/*.test.ts"],
+  "timeout": 5000,
+  "bail": false
+}

@@ -1,0 +1,38 @@
+{
+  "name": "nexus-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexus UI —— 消费 A2UI v0.9 流式协议、渐进渲染为原生 UI 的运行时框架（参考实现 + 对话式生成示例）",
+  "type": "module",
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "dev:web": "pnpm --filter @nexus-ui/playground dev",
+    "dev:server": "pnpm --filter @nexus-ui/server dev",
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "build:packages": "pnpm --filter \"./packages/*\" build",
+    "build:web": "pnpm --filter @nexus-ui/playground build",
+    "test": "pnpm -r --if-present test",
+    "test:coverage": "pnpm --filter @nexus-ui/core test:coverage",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint . --ext .ts,.tsx,.cjs",
+    "lint:fix": "eslint . --ext .ts,.tsx,.cjs --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "pnpm -r --if-present exec rm -rf dist .tsbuildinfo coverage"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "only-allow": "^1.2.1",
+    "prettier": "^3.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}

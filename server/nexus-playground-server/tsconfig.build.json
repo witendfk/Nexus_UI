@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "composite": false,
+    "baseUrl": ".",
+    "paths": {
+      "@nexus-ui/core": ["../../packages/nexus-core/dist/index.d.ts"]
+    }
+  },
+  "//": "server build 使用 core 的 dist 声明，避免把 workspace TS 源码拉进本包 rootDir。",
+  "include": ["src/**/*.ts"],
+  "exclude": ["tests"]
+}

@@ -1,0 +1,9 @@
+{
+  "//": "仓库根 tsconfig：仅供编辑器全局解析 paths。各包各自 typecheck（pnpm -r typecheck）。",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [],
+  "files": []
+}
