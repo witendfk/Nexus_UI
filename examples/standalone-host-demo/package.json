@@ -1,0 +1,40 @@
+{
+  "name": "@nexus-ui/standalone-host-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexus UI standalone host demo with an LLM-backed external JSONL Agent.",
+  "type": "module",
+  "scripts": {
+    "agent": "tsx scripts/run-agent.ts",
+    "host": "tsx scripts/run-host.ts",
+    "web": "vite",
+    "dev": "tsx scripts/dev.ts",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "test": "tsx --test tests/*.test.ts && vitest run --environment jsdom tests/browser-app.test.tsx",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src scripts tests --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@nexus-ui/core": "workspace:*",
+    "@nexus-ui/react": "workspace:*",
+    "@nexus-ui/server": "workspace:*",
+    "koa": "^2.15.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^15.0.7",
+    "@types/koa__cors": "^5.0.0",
+    "@types/koa": "^2.15.0",
+    "@types/node": "^18.19.50",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^24.1.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^1.6.0"
+  }
+}

@@ -39,7 +39,7 @@ Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Button, Column, Row, Lis
 
 这不是 A2UI 协议上限，而是 MVP 的实现白名单。服务端通过 `CatalogRegistry` 查询组件边界；generate 请求默认使用 Basic Catalog，也可显式选择已注册的 task 或 Workbench catalog。
 
-M6 已提供 registry 架构和端到端 task 样例：core 可注册多个 `catalogId`，server 可按请求选择 catalog 并约束 LLM 输出，React 可按 surface 选择对应 renderMap。自定义组件必须由宿主显式提供渲染函数；P6-a 起，registry 还可为自定义组件注册 props schema，runtime 与 server guard 会统一执行组件名和 props 契约校验。
+M6 已提供 registry 架构和端到端 task 样例：core 可注册多个 `catalogId`，server 可按请求选择 catalog 并约束 LLM 输出，React 可按 surface 选择对应 renderMap。自定义组件必须由宿主显式提供渲染函数；P6-a 起，registry 还可为自定义组件注册 props schema，runtime 与 server guard 会统一执行组件名和 props 契约校验。P7-a 起，宿主还可在 `CatalogDefinition.actions` 中声明 action 白名单；这是 Nexus 的宿主边界扩展，不是新增 A2UI wire 字段，core runtime 与 server guard 都会在声明存在时拒绝未声明的组件 action。
 
 task catalog 是 `TaskSummary`、`TaskButton` 两个组件的最小接入样例，用于证明设计系统可以按 A2UI Catalog 边界接入，不代表所有自定义组件都能自动渲染。
 
@@ -52,7 +52,7 @@ Workbench catalog 是企业跟进任务样例，只允许 `CustomerSummary`、`T
 server 内置 Agent Adapter，用来隔离 HTTP 传输与 Agent 实现：
 
 - 生成链路负责创建 `surfaceId`、解析已注册 catalog、选择宿主注入生成源 / LLM / fallback 输出；宿主 source 与 LLM 成功后会记录 surface catalog 和 history。
-- action 链路按 `catalogId + action.name` 查找业务 action handler；当前内置 Basic `call / search / submit`、Task `start / complete` 与 Workbench `submit`。
+- action 链路按 `catalogId + action.name` 查找业务 action handler；action 白名单优先来自 `CatalogDefinition.actions`，未显式声明的旧定义保持内置 Basic 兼容边界。当前内置 Basic `call / search / submit`、Task `start / complete` 与 Workbench `submit`。
 - 业务 handler 可以返回同步或异步 A2UI 消息源，并接收同 surface 的 catalog、action 白名单与成功生成 history 只读上下文；输出仍必须通过同一个结构和生命周期 guard。
 - 未注册 catalog 或未注册 action 在进入 SSE 前返回 400；Agent 输出失败则通过 SSE `error` 返回。
 - `historyStore` 可注入且支持异步读取 / 提交：默认内存实现保留最近 64 个 surface、每 surface 最近 20 条 turn；显式配置 `NEXUS_HISTORY_FILE` 时可使用本地文件适配器，重启后恢复 catalog 与 turn。catalog 与 turn 通过一次 `commitGeneration` 提交，生成源与 action handler 只接收拷贝后的只读 history。
@@ -80,12 +80,15 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 - 请求级 `catalogId` 选择与 task catalog 自定义 renderMap。
 - 宿主进程内注入自定义 generation source；其输出必须经过同一 Agent guard。
 - 外部业务 Agent 的最小 HTTP JSONL RPC helper，可同时接入初始生成与 action 响应；输出仍必须经过同一 Agent guard。
+- `examples/standalone-host-demo`：仓库内可运行的三进程独立宿主 Demo。外部 Demo Agent 默认真实调用 OpenAI-compatible LLM，生成与 action 输出仍必须通过同一 guard；自定义 catalog、React renderMap、Koa generate / event 装配与测试都归属根部 examples，不放入 server 子包。
 - SSE `message` / `error` / `done`。
 - 参考 server 请求入口要求 JSON Content-Type，限制请求体字节数并设置读取超时；默认 1 MiB / 10s，可显式配置。
 - 服务端按 surface 保存成功 LLM / 宿主 source 生成流的内存 history。
 - 宿主可替换 surface history 存储；当前提供异步与原子提交边界、进程内默认实现、可选本地单进程文件持久化和“commit 成功后才 `done`”的 SSE 语义，不包含数据库、多实例或租户持久化。
 - Catalog 诊断以结构化 `{ path, message, dataPath? }` 从 core runtime、React Provider `onError` 和 SSE `error` payload 上浮；宿主可直接定位组件 props 或 dataModel 来源。
 - `@nexus-ui/core` 与 `@nexus-ui/react` 只承诺根入口 API；React 提供当前 core 范围的兼容诊断。server 是参考组合根，不承诺 npm SDK 稳定性。
+
+P8-a 已完成。`examples/standalone-host-demo` 的外部 Agent 默认调用真实 LLM，初始生成和 `approve` action 均返回候选 A2UI JSONL 并通过统一 guard。真实 HTTP 验收记录生成流与 action 流均以 `done` 结束且 `surfaceId` 不变；真实浏览器验收记录页面生成审批卡、点击后按钮禁用、显示 `action: approve`、同一 DOM surface 原地 patch，且无 pageerror / console error。浏览器装配层已修复重复创建 catalog registry 导致 action 后 runtime 重建的问题，并有 React DOM 回归测试锁定：action 触发宿主重渲染后，runtime 继续复用原 surface，action 请求携带原 `surfaceId`，同一 `section` 原地更新且按钮禁用。测试模式使用确定性输出或 mocked SSE，不读取 `.env` 或请求模型。
 
 ## 明确不支持
 
@@ -200,3 +203,5 @@ P6-a 已完成。core `CatalogRegistry` 支持自定义组件 `componentSchemas`
 P6-b 已完成。自定义组件 props 校验会聚合所有确定性 schema 诊断，而不是只返回第一个错误。`{ path }` 绑定保持 A2UI 渐进语义：路径尚未出现在 dataModel 时视为 pending；路径已有值时，resolved value 会继续执行类型、enum、range、length、pattern 与嵌套 object / array 校验。runtime 在 `updateComponents` 时使用当前模型校验，在 `updateDataModel` 时先计算下一版模型再反查现有组件，非法更新整条拒绝且不落 state；server stream guard 复用同一套 diagnostics，防止 Agent 端绕行。
 
 P6-c 已完成。core `A2UIError` 新增结构化 `diagnostics[]`，runtime `onError`、store error、React Provider `onError` 和参考 server SSE `error` payload 使用同一诊断形状。Agent Adapter 会把宿主注入的自定义 `CatalogRegistry` 传入生成与 action sequence guard，避免校验回落到默认 registry。Playground 会展示 `path <- dataPath`，便于区分组件 props 契约错误与动态绑定数据错误。
+
+P7-a 已完成。`CatalogDefinition` 支持注册期校验可选 action 白名单，空数组可表示纯展示 catalog。独立宿主示例通过本地 HTTP Agent 返回审批 JSONL，SSE 输出进入 core 后由 React renderMap 渲染；点击按钮解析 `/approvalId` 与 `/amount` context，外部 Agent action 响应将同一 surface patch 为已审批并禁用按钮。未在 catalog 声明的 action 在进入 SSE 前被拒绝。

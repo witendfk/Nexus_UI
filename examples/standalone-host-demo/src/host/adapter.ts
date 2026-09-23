@@ -1,0 +1,34 @@
+import { AgentAdapter } from '../../../../server/nexus-playground-server/src/agent/adapter';
+import type { ExternalAgentRpcConfig } from '../../../../server/nexus-playground-server/src/agent/external-agent';
+import {
+  createExternalAgentActionHandler,
+  createExternalAgentGenerationSource,
+} from '../../../../server/nexus-playground-server/src/agent/external-agent';
+import { InMemorySurfaceHistoryStore } from '../../../../server/nexus-playground-server/src/agent/history';
+import { DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION } from '../contract';
+import { createStandaloneHostRegistry } from '../shared/catalog';
+
+export interface StandaloneHostAdapterOptions extends ExternalAgentRpcConfig {
+  createSurfaceId?: () => string;
+}
+
+/**
+ * Assemble a host-owned Agent Adapter with a custom catalog and external JSONL RPC Agent.
+ * Every remote message still passes the same server guard as the playground.
+ */
+export function createStandaloneHostAdapter(options: StandaloneHostAdapterOptions): AgentAdapter {
+  const adapter = new AgentAdapter({
+    registry: createStandaloneHostRegistry(),
+    actionHandlers: new Map(),
+    historyStore: new InMemorySurfaceHistoryStore(),
+    useLlm: () => false,
+    createSurfaceId: options.createSurfaceId,
+    createGenerationSource: createExternalAgentGenerationSource(options),
+  });
+  adapter.registerActionHandler(
+    DEMO_AGENT_CATALOG_ID,
+    DEMO_AGENT_ACTION,
+    createExternalAgentActionHandler(options),
+  );
+  return adapter;
+}

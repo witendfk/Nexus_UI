@@ -84,6 +84,34 @@ Current display scope:
 
 An external enterprise host can either reuse this architecture internally or implement the same boundary in its own backend. The public package API for catalog registration and action handlers has not been stabilized yet.
 
+The standalone HTTP assembly pattern lives in:
+
+```text
+examples/standalone-host-demo/src/host
+  adapter.ts  custom catalog + external JSONL RPC Agent + action loop
+  app.ts      Koa /health, /api/a2ui/generate, /api/a2ui/event
+```
+
+It is an example-owned assembly, not part of the server package. Deployment credentials, authentication, tenant policy, rate limits, and audit logging are intentionally outside the MVP.
+
+### Runnable standalone demo
+
+The repository also includes a three-process demo under:
+
+```text
+examples/standalone-host-demo
+```
+
+Run it from the repository root:
+
+```bash
+pnpm demo:standalone
+```
+
+It starts an LLM-backed external Agent, a standalone host API, and a React host page. Open `http://127.0.0.1:3100/`, use the default approval request, generate the surface, and click the generated approval button. The same surface patches to the approved state and the button is disabled. See [examples/standalone-host-demo/README.md](../examples/standalone-host-demo/README.md) for configuration, ports, environment variables, and acceptance steps.
+
+The demo Agent reads the repository's development LLM configuration and emits candidate A2UI JSONL. Its model output still passes the unified guard before SSE. A future full Agent project only needs to replace the JSONL RPC endpoint.
+
 ### Replaceable in-process generation source
 
 P5-a adds a local host seam in the reference `AgentAdapter`. A host can replace the built-in LLM / fallback selection without changing core, React, or HTTP routing:
@@ -345,12 +373,27 @@ https://example.com/catalogs/nexus-workbench/v1
 
 A host custom catalog must satisfy four conditions:
 
-1. Server registers a stable `catalogId`, component-name whitelist, and, for custom components, props schemas.
+1. Server registers a stable `catalogId`, component-name whitelist, optional `actions` whitelist, and, for custom components, props schemas.
 2. React supplies a matching `catalogRenderMaps[catalogId]`.
 3. Every supported action has a business handler registered by `catalogId + action.name`.
 4. Guard tests reject unregistered components, cross-catalog components, unsupported actions, and action responses that change surface lifecycle.
 
 Current boundary: Catalog Registry enforces component names, Basic component-specific field rules (`Image`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`), Workbench submit-loop rules, and a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy). Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. It is not a complete standard JSON Schema engine and does not provide cross-field validation. Enterprises should not treat catalog registration alone as a full security policy.
+
+`CatalogDefinition.actions` is a Nexus host-boundary extension, not a new A2UI wire field:
+
+```ts
+const catalog = new CatalogRegistry([
+  {
+    catalogId: 'https://example.com/catalogs/host-approval/v1',
+    components: ['ApprovalSummary', 'Text', 'Button'],
+    actions: ['approve'],
+    componentSchemas: { /* ... */ },
+  },
+]);
+```
+
+The reference `AgentAdapter` and stream guard use the declared action list for generation-source requests, action-handler context, and component action validation. An `A2UIRuntime` with the same `catalogRegistry` also rejects an undeclared component action before it enters state, including direct JSONL / dispatch consumption. An empty list declares a display-only catalog. Core does not force a fallback when `actions` is omitted; the reference server retains the built-in Basic-compatible fallback for pre-P7-a assemblies.
 
 ## 6. Supported Subset
 

@@ -21,6 +21,7 @@ import type {
   A2UIError,
   A2UIMessage,
   ActionEvent,
+  Component,
   ParseResult,
   VNode,
 } from '../protocol/types';
@@ -209,9 +210,10 @@ export class A2UIRuntime {
       const catalogId = surface?.catalogId;
       if (!catalogId) return null;
       const dataModel = state.dataModelBySurface[surfaceId];
-      diagnostics = message.updateComponents.components.flatMap((component) =>
-        registry.getComponentDiagnostics(catalogId, component, dataModel),
-      );
+      diagnostics = message.updateComponents.components.flatMap((component) => [
+        ...registry.getComponentDiagnostics(catalogId, component, dataModel),
+        ...this.getActionDiagnostics(registry, catalogId, component),
+      ]);
     } else if ('updateDataModel' in message) {
       const surfaceId = message.updateDataModel.surfaceId;
       const surface = state.surfaces[surfaceId];
@@ -228,6 +230,25 @@ export class A2UIRuntime {
     }
 
     return diagnostics.length > 0 ? { message: formatDiagnostics(diagnostics), diagnostics } : null;
+  }
+
+  private getActionDiagnostics(
+    registry: CatalogRegistry,
+    catalogId: string,
+    component: Component,
+  ): readonly ComponentSchemaDiagnostic[] {
+    const actions = registry.get(catalogId)?.actions;
+    if (actions === undefined) return [];
+
+    const actionName = component.action?.event?.name;
+    if (actionName === undefined || actions.includes(actionName)) return [];
+
+    return [
+      {
+        path: `components.${component.id}.action.event.name`,
+        message: `Catalog ${catalogId} 不支持 action: ${actionName}`,
+      },
+    ];
   }
 
   private reportError(error: A2UIError): void {

@@ -13,7 +13,7 @@
 - `{ path }` 动态值和 action context 解析。
 - Basic `TextField` / `CheckBox` / `ChoicePicker` / `DateTimeInput` 的双向输入写回 seam。
 - 框架无关 `ActionEvent` 出口。
-- `CatalogRegistry`：登记 `catalogId`、组件名边界和可选的自定义组件 props schema。
+- `CatalogRegistry`：登记 `catalogId`、组件名边界、可选 action 白名单和可选的自定义组件 props schema。
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
 - 单条坏消息记录错误并丢弃，不中断后续流。
 
@@ -34,7 +34,7 @@ src/
   runtime/        A2UIRuntime 编排
 ```
 
-Catalog Registry 不感知 React 或其他渲染器。未提供 schema 的组件仍只有组件名白名单；提供 schema 的组件会在注册时校验 schema 本身，并可在 runtime / server guard 中校验候选组件 props。
+Catalog Registry 不感知 React 或其他渲染器。未提供 schema 的组件仍只有组件名白名单；提供 schema 的组件会在注册时校验 schema 本身，并可在 runtime / server guard 中校验候选组件 props。`actions` 是可选宿主边界，不是 A2UI wire 字段；显式声明后 runtime 会在组件进入状态前校验 action 名称，空数组表示纯展示 catalog，未声明时 core 不强制内置 Basic fallback。
 
 ## 公开 API
 

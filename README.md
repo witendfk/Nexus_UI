@@ -65,6 +65,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 - A2UI Basic Catalog 14 组件子集：`Text`、`TextField`、`CheckBox`、`ChoicePicker`、`DateTimeInput`、`Button`、`Column`、`Row`、`List`、`Tabs`、`Image`、`Card`、`Icon`、`Divider`。API 未传 `catalogId` 时默认 Basic。
 - 示例 task catalog 自定义组件：`TaskSummary`、`TaskButton`，用于验证企业设计系统接入方式。
 - 自定义组件 props 契约：注册期校验 schema，runtime / server guard 聚合未知字段、非法类型、enum / range / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略诊断；绑定在 dataModel 已有值时继续校验 resolved value，缺失路径保持流式 pending。
+- Catalog 宿主边界：`CatalogDefinition.actions` 可声明自定义 action 白名单；core runtime、server Adapter / guard、外部 Agent RPC 请求和业务 handler 上下文使用同一套 action 边界。
 - 结构化 diagnostics：core runtime `onError`、store error、React Provider `onError` 与 SSE `error` payload 均可携带 `{ path, message, dataPath? }`，宿主无需解析错误文案即可定位组件 props 或 dataModel 问题。
 - Workbench catalog 企业跟进任务 Demo：`CustomerSummary` 复用 Basic 输入与提交能力，并包含任务优先级 `ChoicePicker` 和提醒时间 `DateTimeInput`。Playground 默认展示该场景。
 - 静态 `child` / `children` 引用。
@@ -79,6 +80,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 - 业务 action 通过 Agent Adapter 按 `catalogId + action.name` 分发；当前注册 Basic `call / search / submit`、Task `start / complete` 与 Workbench `submit`。
 - 宿主可在进程内注入自定义 generation source；输出仍经过同一服务端 guard，action handler 可读取同 surface 的 catalog 与成功生成 history。
 - 外部业务 Agent 可通过最小 HTTP JSONL RPC helper 接入初始生成与 action 响应；请求携带 catalog / action / surface history 边界，输出仍必须经过同一服务端 guard。
+- `examples/standalone-host-demo` 提供仓库内可运行的三进程独立宿主 Demo：LLM-backed 外部 Agent、独立 Koa 宿主 API、React 宿主页面、SSE guard、action 回流与同 surface 原地更新。它验证 Runtime 接入边界，不是完整业务 Agent 工程；server 子包不再承载 demo 目录。
 - `@nexus-ui/core` 与 `@nexus-ui/react` 只承诺根入口 API；根导出面有测试锁定，React 提供 core/renderer 兼容诊断。server 是参考组合根，不是公开 SDK。
 - React 包提供可测试的最小宿主接入示例；参考 server 请求入口要求 JSON Content-Type，并支持请求体大小与读取超时配置。
 - 宿主可注入异步 surface history store；catalog 与 turn 通过一次原子 `commitGeneration` 提交，默认进程内实现保留最近 64 个 surface、每 surface 最近 20 条 turn。显式配置 `NEXUS_HISTORY_FILE` 时可启用本地单进程文件持久化，重启后恢复 catalog 与 history；SSE 只有在完整流通过最终 guard 且 history 提交成功后才发送 `done`。
@@ -121,6 +123,14 @@ pnpm dev:web
 - Server health: `http://localhost:3001/health`
 
 未配置 key 时 `/health` 返回 `agentMode: "fallback"`；配置后应返回 `agentMode: "llm"`。
+
+### Run The Standalone Host Demo
+
+```bash
+pnpm demo:standalone
+```
+
+访问 `http://127.0.0.1:3100/`，默认输入保持 `创建营销活动审批任务`，点击“生成任务面”后继续点击模型生成的审批按钮。预期同一张审批卡原地更新为 `Approved: approval-demo-001`，按钮禁用，页面显示 `action: approve`。该 Demo 默认读取根目录 `.env` 并真实调用 LLM；详细说明见 [examples/standalone-host-demo/README.md](examples/standalone-host-demo/README.md)。
 
 ## MVP 验收
 
@@ -179,6 +189,9 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P6-a | 自定义组件 Catalog 工程化与 props schema 校验 | 完成 |
 | P6-b | Catalog 诊断聚合与动态绑定值校验 | 完成 |
 | P6-c | 结构化 diagnostics 上浮到 runtime / React / SSE / Playground | 完成 |
+| P7-a | 独立宿主接入证明面与自定义 Catalog action 契约 | 完成 |
+| P7-b | 独立宿主 HTTP 装配模板 | 完成 |
+| P8-a | 仓库内可运行独立宿主 Demo | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
@@ -230,6 +243,12 @@ P6-a 验收记录：core `CatalogRegistry` 支持 `componentSchemas`，runtime �
 P6-b 验收记录：props schema 校验升级为结构化诊断聚合；`updateComponents` 用当前 dataModel 校验组件绑定，`updateDataModel` 先计算下一版模型再反查现有组件绑定，非法 resolved value 会拒绝整条消息且不写入 state。server stream guard 复用同一套 Catalog diagnostics，Agent 输出没有绕行通道。dataModel 中尚未出现的绑定路径保持 pending，以保留 A2UI 渐进流式语义。
 
 P6-c 验收记录：Catalog schema 诊断已从 core runtime 上浮到 React Provider、SSE error payload 和 Playground 展示。core `onError` 与 store errors 保留完整 `A2UIError.diagnostics`；React 通过 `onError` 原样透传；参考 server 在 `AGENT_STREAM_ERROR` 中输出 `diagnostics[]`。同时修复 Agent Adapter 自定义 `CatalogRegistry` 未传入 SSE guard 的问题，宿主注入的 catalog 契约在生成与 action 链路均生效。
+
+P7-a 验收记录：`CatalogDefinition` 支持可选宿主 action 白名单，内置 Basic / task / Workbench catalog 显式登记 actions，core runtime、Agent Adapter 与 guard 优先使用宿主 catalog 声明；空白名单表示纯展示 catalog，未声明时 core 不强制内置 Basic fallback，server 参考实现保留旧兼容行为。新增独立宿主审批示例，覆盖外部 JSONL RPC 生成、自定义 props schema、SSE guard、core 渐进渲染、React renderMap、action context 回流、外部 Agent action 响应、同 surface 原地更新与未声明 action 拒绝。
+
+P7-b 验收记录：独立宿主 Koa 装配模板收敛在 `examples/standalone-host-demo/src/host/app.ts`，复用自定义审批 catalog、外部 JSONL RPC Agent、统一 guard 与请求边界，不加载 Playground 内置 catalog / LLM / fallback。测试通过真实 HTTP `/health`、`/api/a2ui/generate`、`/api/a2ui/event` 验证外部 Agent 边界请求、SSE 输出、action context 回流和同 surface patch；health 可显式报告 `external-rpc` 模式。
+
+P8-a 验收记录（2026-09-23）：新增 `examples/standalone-host-demo` workspace，一条命令同时启动 LLM-backed 外部 Agent、独立宿主 API 和 React 独立宿主页面。Agent health 返回 `agentMode: "llm"` 且 `llmConfigured: true`，Host health 返回 `agentMode: "external-rpc"`。真实模型请求已验证初始生成与 approve action 均以 SSE `done` 结束，且 action 保持同一 `surfaceId`；真实浏览器验收验证任务生成、按钮点击、按钮禁用、`action: approve`、同一 DOM surface 原地 patch，且无 pageerror / console error。验收中修复浏览器装配层重复创建 catalog registry 导致 action 后 runtime 重建、原 surface 丢失的问题；新增 React DOM 回归测试通过 mocked SSE 验证 action 重渲染后 runtime 稳定、请求携带原 `surfaceId`，并确认同一 `section` 原地更新。自动化测试显式隔离 deterministic 输出，不读取 `.env` 或消耗模型请求；后续完整 Agent 独立建仓后只需替换 RPC endpoint。
 
 ## 后续路线
 

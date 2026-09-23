@@ -14,6 +14,8 @@ import {
 export interface CatalogDefinition {
   readonly catalogId: string;
   readonly components: readonly string[];
+  /** Optional host-declared action whitelist; display-only catalogs may use []. */
+  readonly actions?: readonly string[];
   /** Catalog-specific props contracts; components without a schema are name-only. */
   readonly componentSchemas?: Readonly<Record<string, ComponentPropsSchema>>;
 }
@@ -39,6 +41,13 @@ function validateDefinition(definition: CatalogDefinition): void {
       throw new Error(`Catalog component schema 引用了未注册组件: ${component}`);
     }
     validateComponentSchema(schema, `Catalog ${definition.catalogId}.${component} schema`);
+  }
+
+  const actions = new Set<string>();
+  for (const action of definition.actions ?? []) {
+    if (!action) throw new Error('Catalog action 名称不能为空');
+    if (actions.has(action)) throw new Error(`Catalog action 重复: ${action}`);
+    actions.add(action);
   }
 }
 
@@ -74,6 +83,14 @@ export class CatalogRegistry {
 
   supportsComponent(catalogId: string, component: string): boolean {
     return this.get(catalogId)?.components.includes(component) ?? false;
+  }
+
+  getActions(catalogId: string): readonly string[] {
+    return this.get(catalogId)?.actions ?? [];
+  }
+
+  supportsAction(catalogId: string, action: string): boolean {
+    return this.getActions(catalogId).includes(action);
   }
 
   getComponentSchema(catalogId: string, component: string): ComponentPropsSchema | undefined {

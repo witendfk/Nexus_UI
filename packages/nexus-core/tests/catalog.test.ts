@@ -5,13 +5,21 @@ import type { ComponentPropsSchema } from '../src/catalog/schema';
 
 describe('CatalogRegistry', () => {
   it('注册并查询 catalog 与组件', () => {
-    const registry = new CatalogRegistry([{ catalogId: 'basic', components: ['Text', 'Button'] }]);
+    const registry = new CatalogRegistry([
+      { catalogId: 'basic', components: ['Text', 'Button'], actions: ['call'] },
+    ]);
 
     assert.equal(registry.has('basic'), true);
     assert.equal(registry.supportsComponent('basic', 'Text'), true);
     assert.equal(registry.supportsComponent('basic', 'TextField'), false);
     assert.equal(registry.supportsComponent('unknown', 'Text'), false);
-    assert.deepEqual(registry.list(), [{ catalogId: 'basic', components: ['Text', 'Button'] }]);
+    assert.equal(registry.getActions('basic'), registry.getActions('basic'));
+    assert.deepEqual([...registry.getActions('basic')], ['call']);
+    assert.equal(registry.supportsAction('basic', 'call'), true);
+    assert.equal(registry.supportsAction('basic', 'submit'), false);
+    assert.deepEqual(registry.list(), [
+      { catalogId: 'basic', components: ['Text', 'Button'], actions: ['call'] },
+    ]);
   });
 
   it('拒绝非法和重复定义', () => {
@@ -23,6 +31,22 @@ describe('CatalogRegistry', () => {
 
     const registry = new CatalogRegistry([{ catalogId: 'basic', components: ['Text'] }]);
     assert.throws(() => registry.register({ catalogId: 'basic', components: ['Button'] }));
+    assert.throws(() =>
+      registry.register({ catalogId: 'empty-action', components: ['Text'], actions: [''] }),
+    );
+    assert.throws(() =>
+      registry.register({
+        catalogId: 'duplicate-action',
+        components: ['Text'],
+        actions: ['call', 'call'],
+      }),
+    );
+    assert.deepEqual(
+      new CatalogRegistry([
+        { catalogId: 'display-only', components: ['Text'], actions: [] },
+      ]).getActions('display-only'),
+      [],
+    );
   });
 
   it('注册并执行自定义组件 props schema', () => {

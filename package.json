@@ -13,6 +13,7 @@
     "preinstall": "npx only-allow pnpm",
     "dev:web": "pnpm --filter @nexus-ui/playground dev",
     "dev:server": "pnpm --filter @nexus-ui/server dev",
+    "demo:standalone": "pnpm --filter @nexus-ui/standalone-host-demo dev",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "build:packages": "pnpm --filter \"./packages/*\" build",
     "build:web": "pnpm --filter @nexus-ui/playground build",

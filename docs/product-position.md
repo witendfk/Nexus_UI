@@ -620,14 +620,79 @@ Agent Adapter
 
 The implementation intentionally omits retries, remote secret management, tenant routing, audit logs, and durable sessions. Those are deployment hardening, not the first integration slice.
 
-### Step P5-c: Host Integration Hardening
+### Step P7-a: Standalone Host Integration Proof — Completed
+
+Completed on 2026-09-22 as the first assembly-level proof that Nexus UI is not tied to the playground:
+
+```text
+host-owned approval catalog
+  -> external business Agent JSONL RPC
+  -> unified catalog / lifecycle / action guard
+  -> SSE stream
+  -> core runtime
+  -> React renderMap
+  -> resolved approval action
+  -> external business Agent action response
+  -> same surface patched in place
+```
+
+- `CatalogDefinition.actions` lets a host declare an action whitelist; an empty list describes a display-only catalog.
+- The core runtime, reference `AgentAdapter`, stream guard, RPC request contract, and action-handler context all use that same action boundary.
+- The root `examples/standalone-host-demo/src/host/adapter.ts` assembles the custom approval catalog and external RPC helpers without reusing playground Agent handlers.
+- The integration test renders through the actual React renderer, resolves the latest `/approvalId` and `/amount` action context, and patches the same surface to an approved, disabled state.
+- An undeclared action is rejected before it reaches SSE.
+
+This milestone strengthens the interview claim: Nexus UI can be assembled by a host application around its own design system and business Agent while preserving one guarded execution path.
+
+### Step P7-b: Standalone Host HTTP Assembly — Completed
+
+Completed on 2026-09-22 as the follow-up integration slice:
+
+```text
+standalone Koa host
+  -> custom approval catalog
+  -> external JSONL RPC Agent
+  -> unified guard
+  -> HTTP POST + SSE
+  -> action event
+  -> external Agent action response
+  -> same surface patched
+```
+
+- `examples/standalone-host-demo/src/host/app.ts` assembles the host application without loading the playground's built-in catalogs, LLM selection, or fallback agents.
+- The app exposes `/health`, `/api/a2ui/generate`, and `/api/a2ui/event`; health reports `external-rpc`.
+- The integration test exercises real HTTP routes, not only in-process function calls.
+- External-Agent requests still receive the resolved catalog, component whitelist, action whitelist, and surface history; responses still pass the same guard before SSE.
+
+This turns the P7-a proof into a copyable host integration template while keeping deployment policy in the host.
+
+### Step P8-a: Runnable Standalone LLM Host Demo — Completed
+
+Completed on 2026-09-23 as the repository-level proof that the integration path can be run by a reviewer:
+
+```text
+LLM-backed external Agent
+  -> HTTP JSONL RPC
+  -> standalone host API
+  -> catalog / lifecycle / action guard
+  -> POST + SSE
+  -> React standalone host page
+  -> approve action
+  -> same surface patched in place
+```
+
+- One workspace command starts the browser page, standalone host API, and external demo Agent.
+- The Agent defaults to a real OpenAI-compatible LLM request; its health reports `llm` and whether configuration is present.
+- Real browser acceptance passed for generation, approval, same-DOM patching, button disabling, `action: approve`, and empty page/console error collections.
+- A browser-assembly bug found during acceptance was fixed by keeping the demo catalog registry stable across host rerenders; otherwise the action could rebuild the runtime and lose the existing surface.
+- A React DOM regression test now mounts the actual demo app and mocks both SSE streams. It verifies runtime stability after action rerender, the original `surfaceId`, same-section patching, and the disabled approval button without reading `.env` or consuming an LLM request.
+
+### Step P5-c: Deployment Hardening After The MVP
 
 Only after the product path is clear:
 
-- Public package APIs.
-- Versioning and compatibility policy.
 - Permission and tenant boundaries.
-- Persistent surface history.
+- Durable multi-instance surface history.
 - Multi-surface strategy.
 - Deployment-grade external-agent operations.
 

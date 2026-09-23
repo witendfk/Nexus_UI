@@ -172,7 +172,7 @@ export class AgentAdapter {
         ? request.message
         : '生成一张联系人卡片';
     const useLlm = this.useLlm();
-    const supportedActions = getCatalogActions(catalogId);
+    const supportedActions = getCatalogActions(catalogId, catalog);
     const history = (await this.historyStore.getHistory(surfaceId)).map((turn) => ({ ...turn }));
     let source: AgentMessageSource;
     try {
@@ -215,7 +215,7 @@ export class AgentAdapter {
           surfaceId,
           catalogId,
           registry: this.registry,
-          supportedActions: getCatalogActions(catalogId),
+          supportedActions: getCatalogActions(catalogId, catalog),
           message,
         },
         commit: async (messages) => {
@@ -261,7 +261,7 @@ export class AgentAdapter {
       source = await handler(action, {
         catalogId,
         catalog,
-        supportedActions: getCatalogActions(catalogId),
+        supportedActions: getCatalogActions(catalogId, catalog),
         history,
       });
     } catch (error) {
@@ -280,7 +280,7 @@ export class AgentAdapter {
           surfaceId: action.surfaceId,
           catalogId,
           registry: this.registry,
-          supportedActions: getCatalogActions(catalogId),
+          supportedActions: getCatalogActions(catalogId, catalog),
         },
         commit: () => undefined,
       },

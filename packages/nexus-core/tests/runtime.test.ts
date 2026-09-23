@@ -67,6 +67,90 @@ describe('A2UIRuntime', () => {
     });
   });
 
+  it('catalogRegistry 校验显式声明的 action 边界', () => {
+    const registry = new CatalogRegistry([
+      { catalogId: 'approval', components: ['Button', 'Text'], actions: ['approve'] },
+      { catalogId: 'display-only', components: ['Button', 'Text'], actions: [] },
+      { catalogId: 'legacy', components: ['Button', 'Text'] },
+    ]);
+    const errors: string[] = [];
+    const runtime = new A2UIRuntime({
+      catalogRegistry: registry,
+      onError: (error) => errors.push(error.message),
+    });
+
+    runtime.dispatch({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'approval', catalogId: 'approval' },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 'approval',
+        components: [
+          {
+            component: 'Button',
+            id: 'submit',
+            child: 'label',
+            action: { event: { name: 'reject' } },
+          },
+          { component: 'Text', id: 'label', text: 'Reject' },
+        ],
+      },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'display', catalogId: 'display-only' },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 'display',
+        components: [
+          {
+            component: 'Button',
+            id: 'confirm',
+            child: 'label',
+            action: { event: { name: 'approve' } },
+          },
+          { component: 'Text', id: 'label', text: 'Confirm' },
+        ],
+      },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'legacy', catalogId: 'legacy' },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 'legacy',
+        components: [
+          {
+            component: 'Button',
+            id: 'confirm',
+            child: 'label',
+            action: { event: { name: 'legacy-call' } },
+          },
+          { component: 'Text', id: 'label', text: 'Confirm' },
+        ],
+      },
+    });
+
+    expect(errors).to.have.length(2);
+    expect(errors[0]).to.equal('Catalog approval 不支持 action: reject');
+    expect(errors[1]).to.equal('Catalog display-only 不支持 action: approve');
+    expect(runtime.store.getState().errors[0]?.diagnostics).to.deep.equal([
+      {
+        path: 'components.submit.action.event.name',
+        message: 'Catalog approval 不支持 action: reject',
+      },
+    ]);
+    expect(runtime.store.getState().componentsBySurface.approval?.submit).to.equal(undefined);
+    expect(runtime.store.getState().componentsBySurface.display?.confirm).to.equal(undefined);
+    expect(runtime.store.getState().componentsBySurface.legacy?.confirm).to.exist;
+  });
+
   it('setInputValue → 写回 TextField.value 绑定并触发 Button action 取最新值', () => {
     const events: unknown[] = [];
     const rt = new A2UIRuntime({ onAction: (e) => events.push(e) });

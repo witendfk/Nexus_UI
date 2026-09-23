@@ -25,14 +25,14 @@ Stable root-entry exports in `0.1.x`:
 
 - Runtime: `A2UIRuntime`, `RuntimeOptions`.
 - Protocol: `JSONLBuffer`, `isA2UIMessage`, `validateA2UIMessage`, `PROTOCOL_VERSION`, `A2UIError`, `A2UIDiagnostic`, and the A2UI v0.9 message / payload / component / action types.
-- Catalog boundary: `CatalogRegistry`, `CatalogDefinition`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
+- Catalog boundary: `CatalogRegistry`, `CatalogDefinition` with optional host-declared `actions`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
 - State and render seams: `createCoreStore`, `CoreState`, `CoreStore`, `buildTree`, `VNode`, `Surface`, `RenderFn`, and `RenderMap`.
 - Interaction and data helpers: `buildActionEvent`, `ActionEvent`, `getByPath`, `setValueAtPath`, `removeAtPath`, `applyDataModelUpdate`, `resolveDynamic`, `resolveContext`, and `toDisplayString`.
 - Compatibility metadata: `VERSION`, `CORE_API_VERSION`.
 
 Core remains framework-neutral. It must not import React, DOM APIs, Node-only APIs, SSE, Koa, or a business Agent.
 
-Runtime errors use `A2UIError`. Catalog schema failures may include structured `A2UIDiagnostic[]` in `error.diagnostics`; each item has `path`, `message`, and optional `dataPath`. Runtime `onError` and store error records preserve these diagnostics so hosts can locate the failing props or data binding without parsing message text.
+Runtime errors use `A2UIError`. Catalog schema and explicitly declared action-boundary failures may include structured `A2UIDiagnostic[]` in `error.diagnostics`; each item has `path`, `message`, and optional `dataPath`. Runtime `onError` and store error records preserve these diagnostics so hosts can locate the failing props, action, or data binding without parsing message text.
 
 ## `@nexus-ui/react`
 

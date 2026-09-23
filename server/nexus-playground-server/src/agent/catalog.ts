@@ -78,7 +78,11 @@ const workbenchComponentSchemas = {
   },
 } as const;
 
-export function getCatalogActions(catalogId: string): readonly string[] {
+export function getCatalogActions(
+  catalogId: string,
+  catalog?: { actions?: readonly string[] },
+): readonly string[] {
+  if (catalog?.actions !== undefined) return catalog.actions;
   if (catalogId === TASK_CATALOG) return TASK_CATALOG_ACTIONS;
   if (catalogId === WORKBENCH_CATALOG) return WORKBENCH_CATALOG_ACTIONS;
   return BASIC_CATALOG_ACTIONS;
@@ -88,15 +92,18 @@ export const agentCatalogRegistry = new CatalogRegistry([
   {
     catalogId: BASIC_CATALOG,
     components: BASIC_CATALOG_COMPONENTS,
+    actions: BASIC_CATALOG_ACTIONS,
   },
   {
     catalogId: TASK_CATALOG,
     components: TASK_CATALOG_COMPONENTS,
+    actions: TASK_CATALOG_ACTIONS,
     componentSchemas: taskComponentSchemas,
   },
   {
     catalogId: WORKBENCH_CATALOG,
     components: WORKBENCH_CATALOG_COMPONENTS,
+    actions: WORKBENCH_CATALOG_ACTIONS,
     componentSchemas: workbenchComponentSchemas,
   },
 ]);

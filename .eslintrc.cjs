@@ -40,7 +40,7 @@ module.exports = {
   overrides: [
     // 调试专用工具目录：允许 console
     {
-      files: ['**/dev-only/**', 'scripts/**', 'tools/**'],
+      files: ['**/dev-only/**', '**/scripts/**', '**/tools/**'],
       rules: { 'no-console': 'off' },
     },
     // 测试代码：允许 console（断言/排障），但禁止进入 src
