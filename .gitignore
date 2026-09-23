@@ -38,6 +38,9 @@ Thumbs.db
 !.vscode/extensions.json
 !.vscode/settings.json
 
+# Local-only project notes
+docs/interview-narrative.md
+
 # Logs
 *.log
 npm-debug.log*
