@@ -15,12 +15,20 @@ LLM-backed external business Agent
 
 这个 Demo 的业务 Agent 默认真实调用 OpenAI-compatible LLM，并把模型输出作为候选 A2UI JSONL 交给宿主 guard。它不是完整业务 Agent 工程；后续完整 Agent 可以独立建仓，只要实现相同的 JSONL RPC endpoint，宿主侧替换 `NEXUS_DEMO_AGENT_ENDPOINT` 即可接入。
 
+外部宿主最小复制路径、catalog / renderMap / action 替换点和坏输出验收见 [../../docs/host-quickstart.md](../../docs/host-quickstart.md)。
+
 ## Run
 
 在仓库根目录执行：
 
 ```bash
 pnpm demo:standalone
+```
+
+验证宿主本地 action 模式时使用：
+
+```bash
+NEXUS_DEMO_AGENT_MODE=deterministic NEXUS_DEMO_ACTION_MODE=local pnpm demo:standalone
 ```
 
 默认地址：
@@ -31,7 +39,7 @@ pnpm demo:standalone
 | Host API health | http://127.0.0.1:3101/health |
 | External Agent RPC | http://127.0.0.1:3102/agent |
 
-外部 Agent 的 `/health` 默认返回 `agentMode: "llm"`；宿主 `/health` 返回 `agentMode: "external-rpc"`，表示 UI Runtime 当前接的是外部 RPC Agent。
+外部 Agent 的 `/health` 默认返回 `agentMode: "llm"`；宿主 `/health` 返回 `agentMode: "external-rpc"`，表示初始生成始终接外部 RPC Agent，并通过 `actionMode` 报告 action 策略。
 
 LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。不要提交或泄露 key；部署时由外部 Agent 服务使用自己的安全环境变量。
 
@@ -44,8 +52,13 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 | `NEXUS_DEMO_AGENT_PORT` | `3102` | Demo Agent port |
 | `NEXUS_DEMO_AGENT_ENDPOINT` | `http://127.0.0.1:3102/agent` | Host-to-Agent RPC endpoint |
 | `NEXUS_DEMO_AGENT_MODE` | `llm` | `llm` 为默认真实模型模式；`deterministic` 仅用于隔离测试 |
+| `NEXUS_DEMO_ACTION_MODE` | `external` | `external` 把 action 回传外部 Agent；`local` 由宿主本地 handler 处理 |
+
+显式配置 `NEXUS_DEMO_AGENT_ENDPOINT` 时，`pnpm demo:standalone` 只启动 web 和 host，不再启动内置 demo Agent；未配置时才使用内置三进程编排。
 
 ## Acceptance
+
+### External action
 
 1. Open http://127.0.0.1:3100/.
 2. Keep the default request and click `生成任务面`.
@@ -54,11 +67,19 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 5. Confirm the same surface changes to `Approved: approval-demo-001`, the button becomes disabled, and the page reports `action: approve`.
 6. Confirm the host health endpoint reports `agentMode: "external-rpc"`.
 
-The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. A React DOM regression test also mocks both SSE streams and mounts the actual browser app: after the action rerenders the host, the runtime must remain stable, the action request must carry the original `surfaceId`, the same `section` must patch in place, and the approval button must be disabled.
+### Local action
+
+1. Start the demo with `NEXUS_DEMO_ACTION_MODE=local`.
+2. Open http://127.0.0.1:3100/ and confirm the controls show `action: local handler`.
+3. Generate the approval surface and click the approval button.
+4. Confirm the same surface changes to `Approved locally: approval-demo-001`, the button reads `Approved locally`, and it is disabled.
+5. Confirm host health reports `agentMode: "external-rpc"` and `actionMode: "local"`.
+
+The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled.
 
 ## Boundary
 
-- The host owns the catalog, render map, HTTP entrypoints, and action forwarding policy.
+- The host owns the catalog, render map, HTTP entrypoints, and action forwarding policy; an action can be sent back to the external Agent or handled by a local business handler.
 - The demo Agent can only return candidate A2UI JSONL; LLM output still passes the unified guard.
 - The catalog allows only `ApprovalSummary`, `Text`, and `Button`, and only the `approve` action.
 - No Playground catalog, built-in fallback, or browser-generated code is used.

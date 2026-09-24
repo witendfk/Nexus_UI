@@ -4,6 +4,8 @@
 适用版本：Nexus UI MVP `0.1.0`。  
 目的：说明宿主应用如何接入 Agent Task Surface，以及当前实现公开承诺的范围。
 
+如果你要从一个可复制模板开始接入，先读 [host-quickstart.md](host-quickstart.md)；本文件保留完整契约和边界。
+
 ## 1. Integration Model
 
 Nexus UI is inserted between an untrusted UI producer and a trusted host application:
@@ -74,15 +76,13 @@ Current display scope:
 
 ### Reference server implementation
 
-`server/nexus-playground-server` is a reference assembly, not yet a production server SDK:
+`server/nexus-playground-server` exposes a limited host-assembly API from its root entry (`SERVER_API_VERSION = 1`) and keeps its executable reference assembly in `src/main.ts`:
 
-- It shows how to register catalogs.
-- It shows how to constrain an LLM prompt.
-- It validates each message before it reaches SSE.
-- It dispatches actions by `catalogId + action.name`.
-- It keeps successful LLM / host-source generation history in memory.
+- A host can import `AgentAdapter`, external JSONL RPC helpers, `InMemorySurfaceHistoryStore`, and `createAgentRouter` without starting the reference listener.
+- The public root entry is import-only.
+- The root entry does not export built-in catalogs, LLM selection, mock business handlers, the module-global history store, or the reference Koa app.
 
-An external enterprise host can either reuse this architecture internally or implement the same boundary in its own backend. The public package API for catalog registration and action handlers has not been stabilized yet.
+An external enterprise host can use the limited assembly API or implement the same boundary in its own backend. The wider reference server remains a composition example, not a production SDK; authentication, tenant policy, durable storage, retries, and audit remain host responsibilities.
 
 The standalone HTTP assembly pattern lives in:
 
@@ -108,9 +108,11 @@ Run it from the repository root:
 pnpm demo:standalone
 ```
 
-It starts an LLM-backed external Agent, a standalone host API, and a React host page. Open `http://127.0.0.1:3100/`, use the default approval request, generate the surface, and click the generated approval button. The same surface patches to the approved state and the button is disabled. See [examples/standalone-host-demo/README.md](../examples/standalone-host-demo/README.md) for configuration, ports, environment variables, and acceptance steps.
+Without an explicit `NEXUS_DEMO_AGENT_ENDPOINT`, it starts an LLM-backed external demo Agent, a standalone host API, and a React host page. When that endpoint is configured, the same command starts only the host and web processes and connects them to the external Agent. Open `http://127.0.0.1:3100/`, use the default approval request, generate the surface, and click the generated approval button. The same surface patches to the approved state and the button is disabled. See [examples/standalone-host-demo/README.md](../examples/standalone-host-demo/README.md) for configuration, ports, environment variables, and acceptance steps.
 
 The demo Agent reads the repository's development LLM configuration and emits candidate A2UI JSONL. Its model output still passes the unified guard before SSE. A future full Agent project only needs to replace the JSONL RPC endpoint.
+
+The template also supports mixed ownership with `NEXUS_DEMO_ACTION_MODE=local`: initial generation comes from the external Agent while an action is handled by a host-local business handler. The browser shows `action: local handler`, and the local result reads `Approved locally` to make the policy visible. `tests/local-action.test.ts` locks the RPC boundary with a custom catalog and React render map; the local handler output still passes the unified guard and patches the same surface.
 
 ### Replaceable in-process generation source
 
@@ -415,10 +417,10 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 | `CheckBox` | Supported | Boolean `{ path }` write-back. |
 | `ChoicePicker` | Supported | Single or multiple selection, `checkbox` / `chips`, filtering, and `string[]` `{ path }` write-back. |
 | `DateTimeInput` | Supported | Date, time, or date-time input; `min` / `max`; ISO 8601 string `{ path }` write-back. |
+| `Slider` | Supported | Finite numeric range with `min` / `max`; numeric `{ path }` write-back; no `checks` or component action. |
 | `Video` | Not open | No runtime or renderMap implementation. |
 | `AudioPlayer` | Not open | No runtime or renderMap implementation. |
 | `Modal` | Not open | No runtime or renderMap implementation. |
-| `Slider` | Not open | Deferred until a workflow needs numeric control. |
 
 ### Protocol features
 

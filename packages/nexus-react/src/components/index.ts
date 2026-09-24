@@ -1,4 +1,4 @@
-/** 标准组件 renderMap：Text / TextField / CheckBox / ChoicePicker / DateTimeInput / Button / Column / Row / List / Tabs / Image / Card / Icon / Divider。 */
+/** 标准组件 renderMap：Text / TextField / CheckBox / ChoicePicker / Slider / DateTimeInput / Button / Column / Row / List / Tabs / Image / Card / Icon / Divider。 */
 import type { RenderMap } from '../types';
 import { Button } from './Button';
 import { CheckBox } from './CheckBox';
@@ -11,6 +11,7 @@ import { Icon } from './Icon';
 import { Image } from './Image';
 import { List } from './List';
 import { Row } from './Row';
+import { Slider } from './Slider';
 import { Tabs } from './Tabs';
 import { Text } from './Text';
 import { TextField } from './TextField';
@@ -21,6 +22,7 @@ export const standardRenderMap: RenderMap = {
   CheckBox,
   ChoicePicker,
   DateTimeInput,
+  Slider,
   Button,
   Column,
   Row,
@@ -37,6 +39,7 @@ export {
   CheckBox,
   ChoicePicker,
   DateTimeInput,
+  Slider,
   Column,
   Divider,
   Icon,

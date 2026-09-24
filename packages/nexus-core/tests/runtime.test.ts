@@ -253,6 +253,31 @@ describe('A2UIRuntime', () => {
     });
   });
 
+  it('setInputValue → 写回 Slider.value 数字绑定并触发 submit 取最新值', () => {
+    const events: unknown[] = [];
+    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    rt.push('{"version":"v0.9","createSurface":{"surfaceId":"slider","catalogId":"basic"}}\n');
+    rt.push(
+      '{"version":"v0.9","updateComponents":{"surfaceId":"slider","components":[{"id":"root","component":"Column","children":["threshold","submit"]},{"id":"threshold","component":"Slider","label":"阈值","min":0,"max":1,"value":{"path":"/threshold"}},{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"threshold":{"path":"/threshold"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
+    );
+    rt.push(
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"slider","value":{"threshold":0.2}}}\n',
+    );
+
+    expect(rt.setInputValue('threshold', 'slider', 0.7)).to.equal(true);
+    expect(rt.setInputValue('threshold', 'slider', '0.7')).to.equal(false);
+    expect(rt.store.getState().dataModelBySurface.slider).to.deep.equal({ threshold: 0.7 });
+
+    rt.triggerAction('submit', 'slider');
+    expect(events).to.have.length(1);
+    expect(events[0]).to.deep.equal({
+      name: 'submit',
+      surfaceId: 'slider',
+      sourceComponentId: 'submit',
+      context: { threshold: 0.7 },
+    });
+  });
+
   it('畸形 JSON → onError，不中断后续合法消息', () => {
     const errors: string[] = [];
     const rt = new A2UIRuntime({ onError: (e) => errors.push(e.message) });

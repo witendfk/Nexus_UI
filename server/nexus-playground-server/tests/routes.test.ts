@@ -7,7 +7,7 @@ import { TASK_CATALOG } from '../src/agent/catalog';
 process.env.NODE_ENV = 'test';
 delete process.env.OPENAI_API_KEY;
 
-const { app } = await import('../src/index');
+const { app } = await import('../src/main');
 const server = app.listen(0) as Server;
 const { port } = server.address() as AddressInfo;
 const baseUrl = `http://127.0.0.1:${port}`;

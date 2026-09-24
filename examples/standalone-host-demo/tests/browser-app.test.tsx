@@ -74,7 +74,7 @@ const actionMessages = [
           children: ['approve'],
         },
         { id: 'approve', component: 'Button', child: 'approveLabel', disabled: true },
-        { id: 'approveLabel', component: 'Text', text: 'Approved' },
+        { id: 'approveLabel', component: 'Text', text: 'Approved locally' },
       ],
     },
   },
@@ -83,7 +83,7 @@ const actionMessages = [
     updateDataModel: {
       surfaceId,
       value: {
-        title: 'Approved: approval-browser-001',
+        title: 'Approved locally: approval-browser-001',
         amount: 'USD 12,000',
       },
     },
@@ -114,9 +114,17 @@ function toSseResponse(messages: unknown[]): Response {
 }
 
 describe('standalone host browser app', () => {
-  it('keeps the runtime stable when an action rerenders the host and patches the same surface', async () => {
+  it('keeps the runtime stable when a local action rerenders the host and patches the same surface', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
       const url = String(input);
+      if (url.endsWith('/health')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ actionMode: 'local' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
       if (url.endsWith('/api/a2ui/generate')) {
         return Promise.resolve(toSseResponse(generationMessages));
       }
@@ -128,6 +136,10 @@ describe('standalone host browser app', () => {
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
 
     const { container } = render(createElement(DemoApp));
+
+    await waitFor(() => {
+      expect(screen.getByText('action: local handler')).to.exist;
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '生成任务面' }));
     await waitFor(() => {
@@ -142,8 +154,8 @@ describe('standalone host browser app', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Approved: approval-browser-001')).to.exist;
-      expect(screen.getByRole('button', { name: 'Approved' })).to.exist;
+      expect(screen.getByText('Approved locally: approval-browser-001')).to.exist;
+      expect(screen.getByRole('button', { name: 'Approved locally' })).to.exist;
     });
 
     expect(container.querySelector('p.status')?.textContent).to.equal(
@@ -151,15 +163,17 @@ describe('standalone host browser app', () => {
     );
 
     const approvedButton = screen.getByRole('button', {
-      name: 'Approved',
+      name: 'Approved locally',
     }) as HTMLButtonElement;
     expect(approvedButton.disabled).to.equal(true);
 
-    const surfaceAfter = screen.getByText('Approved: approval-browser-001').closest('section');
+    const surfaceAfter = screen
+      .getByText('Approved locally: approval-browser-001')
+      .closest('section');
     expect(surfaceAfter).to.equal(surfaceBefore);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const actionBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const actionBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
       action?: { name?: string; surfaceId?: string };
     };
     expect(actionBody.action?.name).to.equal(DEMO_AGENT_ACTION);

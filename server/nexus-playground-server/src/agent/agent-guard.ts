@@ -54,6 +54,17 @@ function isDynamicBoolean(value: unknown): boolean {
   );
 }
 
+function isDynamicNumber(value: unknown): boolean {
+  return (
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 1 &&
+      typeof (value as { path?: unknown }).path === 'string')
+  );
+}
+
 function getDataBindingPath(value: unknown): string | null {
   if (
     typeof value === 'object' &&
@@ -242,6 +253,34 @@ function validateChoicePicker(component: Component): string | null {
   return null;
 }
 
+function validateBasicSlider(component: Component): string | null {
+  if (component.component !== 'Slider') return null;
+  if (component.action !== undefined) return 'Slider 不支持挂载 action';
+  if (component.checks !== undefined) return '当前 Agent 线不支持 Slider.checks';
+  if (!hasOnlyComponentKeys(component, ['id', 'component', 'label', 'min', 'max', 'value'])) {
+    return 'Slider 只支持 id/component/label/min/max/value';
+  }
+  if (component.label !== undefined && !isDynamicString(component.label)) {
+    return 'Slider.label 必须是字符串或 { path } 绑定';
+  }
+  const min = component.min;
+  const max = component.max;
+  if (min !== undefined && !(typeof min === 'number' && Number.isFinite(min))) {
+    return 'Slider.min 必须是有限数字';
+  }
+  if (!(typeof max === 'number' && Number.isFinite(max))) {
+    return 'Slider.max 必须是有限数字';
+  }
+  if (typeof min === 'number' && min >= max) return 'Slider.min 必须小于 max';
+  if (getDataBindingPath(component.value) === null) {
+    return 'Slider.value 必须是 { path } 绑定';
+  }
+  if (!isDynamicNumber(component.value)) {
+    return 'Slider.value 必须是有限数字或 { path } 绑定';
+  }
+  return null;
+}
+
 function validateBasicDateTimeInput(component: Component): string | null {
   if (component.component !== 'DateTimeInput') return null;
   if (component.action !== undefined) return 'DateTimeInput 不支持挂载 action';
@@ -369,6 +408,8 @@ export function validateAgentSequence(
         if (checkBoxError) return checkBoxError;
         const choicePickerError = validateChoicePicker(component);
         if (choicePickerError) return choicePickerError;
+        const sliderError = validateBasicSlider(component);
+        if (sliderError) return sliderError;
         const dateTimeInputError = validateBasicDateTimeInput(component);
         if (dateTimeInputError) return dateTimeInputError;
         const textError = validateBasicText(component);

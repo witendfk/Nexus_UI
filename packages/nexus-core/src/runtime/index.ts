@@ -125,7 +125,7 @@ export class A2UIRuntime {
   setInputValue(
     componentId: string,
     surfaceId: string,
-    value: string | boolean | string[],
+    value: string | boolean | number | string[],
   ): boolean {
     const st = this.store.getState();
     const component = st.componentsBySurface[surfaceId]?.[componentId];
@@ -143,13 +143,16 @@ export class A2UIRuntime {
         component.component === 'TextField' ||
         component.component === 'CheckBox' ||
         component.component === 'ChoicePicker' ||
-        component.component === 'DateTimeInput'
+        component.component === 'DateTimeInput' ||
+        component.component === 'Slider'
       ) ||
       (component.component === 'TextField' && typeof value !== 'string') ||
       (component.component === 'CheckBox' && typeof value !== 'boolean') ||
       (component.component === 'ChoicePicker' &&
         (!Array.isArray(value) || !value.every((item) => typeof item === 'string'))) ||
       (component.component === 'DateTimeInput' && typeof value !== 'string') ||
+      (component.component === 'Slider' &&
+        (typeof value !== 'number' || !Number.isFinite(value))) ||
       Object.keys(binding ?? {}).length !== 1 ||
       typeof bindingPath !== 'string'
     ) {

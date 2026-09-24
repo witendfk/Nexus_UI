@@ -102,6 +102,23 @@ describe('createLlmMessages', () => {
     );
   });
 
+  it('Basic Catalog prompt 明确 Slider 的数值绑定契约', () => {
+    const messages = createLlmMessages({
+      kind: 'generate',
+      surfaceId: 'surface-basic',
+      message: 'create a threshold slider',
+    });
+    const systemPrompt = String(messages[0]?.content);
+
+    assert.match(systemPrompt, /Supported components:.*Slider/);
+    assert.match(
+      systemPrompt,
+      /Use Slider only with "id", "component", optional "label", optional "min", required "max", and required "value"/,
+    );
+    assert.match(systemPrompt, /"value" must be exactly \{ "path": "\.\.\." \}/);
+    assert.match(systemPrompt, /Do not use checks, minValue, maxValue, or an action on Slider/);
+  });
+
   it('Workbench prompt 固化企业任务 surface 的组件与绑定契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',

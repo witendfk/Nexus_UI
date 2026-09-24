@@ -7,7 +7,7 @@ process.env.NODE_ENV = 'test';
 process.env.OPENAI_API_KEY = 'test-key';
 process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9';
 
-const { app } = await import('../src/index');
+const { app } = await import('../src/main');
 const server = app.listen(0) as Server;
 const { port } = server.address() as AddressInfo;
 

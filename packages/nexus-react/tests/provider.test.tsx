@@ -48,6 +48,12 @@ const DATE_TIME_FORM = [
   '{"version":"v0.9","updateDataModel":{"surfaceId":"date-time","value":{"reminderAt":"2026-09-20T10:00:00"}}}',
 ];
 
+const SLIDER_FORM = [
+  '{"version":"v0.9","createSurface":{"surfaceId":"slider","catalogId":"basic"}}',
+  '{"version":"v0.9","updateComponents":{"surfaceId":"slider","components":[{"id":"root","component":"Column","children":["threshold","submitButton"]},{"id":"threshold","component":"Slider","label":"阈值","min":0,"max":1,"value":{"path":"/threshold"}},{"id":"submitButton","component":"Button","child":"submitLabel","action":{"event":{"name":"submit","context":{"threshold":{"path":"/threshold"}}}}},{"id":"submitLabel","component":"Text","text":"提交"}]}}',
+  '{"version":"v0.9","updateDataModel":{"surfaceId":"slider","value":{"threshold":0.25}}}',
+];
+
 function textFieldForm(surfaceId: string, props: Record<string, unknown>): string[] {
   return [
     `{"version":"v0.9","createSurface":{"surfaceId":"${surfaceId}","catalogId":"basic"}}`,
@@ -234,6 +240,38 @@ describe('A2UIProvider', () => {
       surfaceId: 'date-time',
       sourceComponentId: 'submitButton',
       context: { reminderAt: '2026-09-21T11:00:00' },
+    });
+  });
+
+  it('Slider 写回数字 dataModel，submit action 携带最新数值', () => {
+    const events: ActionEvent[] = [];
+    render(
+      createElement(
+        A2UIProvider,
+        { onAction: (event) => events.push(event) },
+        createElement(Harness, { lines: SLIDER_FORM }),
+      ),
+    );
+
+    const input = screen.getByRole('slider', { name: '阈值' }) as HTMLInputElement;
+    expect(input.type).to.equal('range');
+    expect(input.min).to.equal('0');
+    expect(input.max).to.equal('1');
+    expect(input.value).to.equal('0.25');
+    expect(input.step).to.equal('any');
+    expect(screen.getByText('0.25')).to.exist;
+
+    fireEvent.change(input, { target: { value: '0.75' } });
+    expect(input.value).to.equal('0.75');
+    expect(screen.getByText('0.75')).to.exist;
+
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(events).to.have.length(1);
+    expect(events[0]).to.deep.equal({
+      name: 'submit',
+      surfaceId: 'slider',
+      sourceComponentId: 'submitButton',
+      context: { threshold: 0.75 },
     });
   });
 

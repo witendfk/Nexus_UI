@@ -1,7 +1,7 @@
 # Nexus UI Product Position and Landing Scope
 
 状态：当前产品方向锚点。  
-日期：2026-09-19。  
+日期：2026-09-23。
 用途：后续迭代前先回到本文档校准方向，避免把项目做成组件画廊、UI 画板或无边界协议实现。
 
 ## 0. Project Success Mode
@@ -230,6 +230,28 @@ The playground is not the final product. It is the proof surface for:
 
 Its narrative should eventually move from "type a prompt and draw UI" to "a host application embeds an Agent Task Surface".
 
+### 4.5 Standalone Host Integration Demo
+
+Current implementation:
+
+```text
+examples/standalone-host-demo
+```
+
+This is the shortest proof that the product is a runtime, not a drawing board:
+
+```text
+external Agent
+  -> HTTP JSONL RPC
+  -> standalone host
+  -> unified guard
+  -> React host page
+  -> action returns to Agent or host handler
+  -> same surface patched
+```
+
+The host owns its catalog, render map, action policy, and HTTP composition. The Agent can only return candidate A2UI JSONL; local actions cannot bypass the same guard. `NEXUS_DEMO_ACTION_MODE` makes action ownership visible in both health output and the browser.
+
 ## 5. Primary Abstraction
 
 The reusable abstraction is:
@@ -438,17 +460,19 @@ Good-fit UI:
 
 ## 8. Current Capability Baseline
 
-As of P5-b:
+As of P11-a, the capability baseline is:
 
 - Real LLM streaming generation is working.
 - Invalid output is rejected by server guard.
 - Core progressively builds VNodes from JSONL.
 - React renders through standard renderMap.
 - Custom catalog render maps are supported.
+- Catalog component schemas and action whitelists are enforced by runtime and server guards.
 - TextField supports four variants and `validationRegexp`.
 - TextField and CheckBox write user state back to dataModel.
 - ChoicePicker writes single or multiple string selections back to dataModel.
 - DateTimeInput writes an ISO 8601 date, time, or date-time string back to dataModel.
+- Slider writes a finite number back to dataModel and supports decimal ranges with native range input.
 - Search and submit actions carry current context values.
 - The same surface is patched in place.
 - Basic Catalog current subset is implemented.
@@ -456,7 +480,11 @@ As of P5-b:
 - Workbench catalog demonstrates a customer follow-up task with customer context, task input, task priority, reminder time, submit handler, disabled submit button, and duplicate-submission rejection.
 - A host can inject an in-process generation source whose output still passes the same guard; action handlers receive surface-scoped catalog and successful-generation history.
 - A host-owned business Agent can integrate through a minimal HTTP JSONL RPC helper for both generation and actions; timeout, response size, content type, and remote errors are bounded.
-- Host integration contract, support matrix, and interview narrative are documented.
+- The standalone host demonstrates an LLM-backed external Agent, an independent Koa host API, a React host page, unified guard behavior, and same-surface patching.
+- Action policy is host-owned: `external` returns actions to the Agent, while `local` executes them in the host; both paths pass through the same guard.
+- Core, React, and the server host-assembly API expose locked root-entry surfaces; the server is still a reference composition root, not a production SDK.
+- Surface history is injectable and asynchronously committed before `done`; default memory and local single-process file adapters are provided.
+- Host integration contract, quickstart, support matrix, demo script, and interview narrative are documented.
 
 Real M10 acceptance:
 
@@ -687,6 +715,119 @@ LLM-backed external Agent
 - A browser-assembly bug found during acceptance was fixed by keeping the demo catalog registry stable across host rerenders; otherwise the action could rebuild the runtime and lose the existing surface.
 - A React DOM regression test now mounts the actual demo app and mocks both SSE streams. It verifies runtime stability after action rerender, the original `surfaceId`, same-section patching, and the disabled approval button without reading `.env` or consuming an LLM request.
 
+### Step P9-a: Host Quickstart And Bad-Output Regression — Completed
+
+Completed on 2026-09-23 to make the integration path product-facing instead of remaining an internal proof:
+
+```text
+copyable standalone host template
+  -> host-owned catalog and renderMap
+  -> replaceable external Agent endpoint
+  -> documented JSONL RPC contract
+  -> happy-path and bad-output acceptance
+  -> unified guard remains mandatory
+```
+
+- [host-quickstart.md](host-quickstart.md) identifies the minimum files to copy and the exact replacement points for catalog, renderMap, action handler, and external endpoint.
+- The quickstart states that the current server assembly is a reference composition root, not a full production SDK; an external host can copy the pattern or implement an equivalent assembly.
+- A real HTTP regression test replaces the external endpoint with a local Agent that returns malformed JSONL under the required content type.
+- The test verifies the outbound request carries `version`, `kind`, `surfaceId`, `catalogId`, supported components and actions, and history.
+- The same test requires SSE `error`, rejects `event: done`, and therefore protects the Quickstart promise that a custom Agent cannot bypass the unified guard.
+
+### Step P9-b: External Agent Startup Orchestration — Completed
+
+Completed on 2026-09-23 to remove a friction point from the Quickstart:
+
+```text
+default demo
+  -> built-in Agent + host + web
+
+external endpoint configured
+  -> host + web only
+```
+
+- `scripts/dev-plan.ts` makes process orchestration deterministic and testable.
+- An explicit, non-blank `NEXUS_DEMO_AGENT_ENDPOINT` skips the built-in demo Agent.
+- Any child process exiting unexpectedly shuts down the whole demo group instead of leaving a partial host.
+- Tests cover default mode, external-endpoint mode, and blank-endpoint compatibility.
+- `NEXUS_DEMO_AGENT_MODE` is now passed into the demo Agent; deterministic mode works and unknown modes are rejected.
+
+### Step P10-a: Limited Server Host-Assembly API — Completed
+
+Completed on 2026-09-23 to remove the hidden coupling that made the Quickstart pattern difficult to reuse:
+
+```text
+@nexus-ui/server root entry
+  -> AgentAdapter
+  -> external JSONL RPC helpers
+  -> injectable history
+  -> guarded Koa router
+  -> custom host assembly
+```
+
+- The server root entry is now import-only and reports `SERVER_API_VERSION = 1`.
+- The executable reference server moved to `src/main.ts`; package dev/start scripts use that entry.
+- The limited API intentionally omits built-in catalogs, LLM selection, mock handlers, the global default history, file history, and the reference Koa app.
+- The standalone host now imports only the server root entry and no longer references `server/*/src/**` internals.
+- A snapshot test locks the export surface and verifies importing the API does not expose or start the reference app.
+
+### Step P10-b: Minimal External Host Local Action Template — Completed
+
+Completed on 2026-09-23 to make the Quickstart's action ownership promise concrete:
+
+```text
+external Agent
+  -> initial A2UI JSONL generation
+
+host-local action handler
+  -> candidate update JSONL
+  -> unified guard
+  -> same React surface patched
+```
+
+- `createStandaloneHostAdapter` accepts an optional `actionHandler`.
+- Omitting the handler keeps the existing external Agent action loop.
+- Passing a local handler leaves generation with the external Agent while executing the action in the host process.
+- `src/host/local-action.ts` is a copyable fixture, not a hidden server API.
+- The regression test uses a custom catalog and React render map, verifies only one outbound Agent `generate` request occurs, and requires the local action to end with `done`, patch the same surface, and disable the button.
+
+### Step P10-c: Switchable Browser Action Policy — Completed
+
+Completed on 2026-09-23 to make action ownership directly observable in the browser:
+
+```text
+NEXUS_DEMO_ACTION_MODE=external
+  -> action returns to the external Agent
+
+NEXUS_DEMO_ACTION_MODE=local
+  -> generation stays with the external Agent
+  -> action executes in the host process
+```
+
+- `run-host.ts` validates the mode and rejects unknown values.
+- The default remains `external`, so existing demo behavior is unchanged.
+- Host health reports `agentMode: "external-rpc"` plus `actionMode: "external" | "local"`.
+- The browser reads health and displays either `action: external Agent` or `action: local handler`.
+- Local action output visibly reads `Approved locally` and still patches the same surface through the unified guard.
+- Tests cover mode parsing, health reporting, the local action RPC boundary, and the browser rendering path.
+
+### Step P10-d: MVP Product Closeout — Completed
+
+Completed on 2026-09-23 to stop feature drift and make the current project explainable:
+
+```text
+first screen
+  -> what capability is delivered
+  -> what is intentionally not delivered
+  -> shortest browser proof
+```
+
+- README now leads with the runtime capability, the Agent Task Surface loop, and the difference from a prompt-to-UI canvas.
+- The current MVP boundary is fixed at one active surface, the implemented Basic Catalog subset, custom catalogs, external Agent RPC, switchable action ownership, and guarded same-surface updates.
+- The deterministic standalone demo is the default no-key browser acceptance path; the LLM demo remains available for real-model validation.
+- Production concerns such as authentication, tenants, multi-instance persistence, multi-surface, and the remaining protocol features remain explicitly post-MVP.
+- Further work should first improve explainability, integration certainty, or workflow usefulness; it should not add components merely to increase catalog count.
+
 ### Step P5-c: Deployment Hardening After The MVP
 
 Only after the product path is clear:
@@ -700,7 +841,7 @@ Only after the product path is clear:
 
 Use [interview-narrative.md](interview-narrative.md) as the canonical explanation. Its core version is:
 
-> I am building an A2UI-based Agent UI Runtime. Instead of letting an agent generate HTML or frontend code, the agent emits declarative A2UI JSONL. The server validates catalog, lifecycle, component fields, and actions before the UI reaches the client. A framework-agnostic core parses the stream, maintains components and dataModel, builds VNodes, and resolves action bindings. React renders through a replaceable renderMap, so an enterprise design system can stay in control. User input writes back to the dataModel; Button actions return resolved context to a business handler, and the response patches the same surface instead of rebuilding the page. I have validated the path with real LLM generation, invalid-output guards, TextField validation, CheckBox boolean binding, ChoicePicker selection, submit action flow, and custom catalogs.
+> I am building an A2UI-based Agent UI Runtime. Instead of letting an agent generate HTML or frontend code, the agent emits declarative A2UI JSONL. The server validates catalog, lifecycle, component fields, and actions before the UI reaches the client. A framework-agnostic core parses the stream, maintains components and dataModel, builds VNodes, and resolves action bindings. React renders through a replaceable renderMap, so an enterprise design system can stay in control. User input writes back to the dataModel; Button actions return resolved context to an external Agent or a host-local business handler, and either response must pass the same guard before patching the same surface. I have validated the path with real LLM generation, invalid-output guards, input bindings, submit and approval loops, custom catalogs, and the standalone host integration demo.
 
 This is stronger than saying "I implemented A2UI components". The value is the safe execution path and business loop.
 

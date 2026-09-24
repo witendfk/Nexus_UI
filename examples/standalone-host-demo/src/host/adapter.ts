@@ -1,15 +1,16 @@
-import { AgentAdapter } from '../../../../server/nexus-playground-server/src/agent/adapter';
-import type { ExternalAgentRpcConfig } from '../../../../server/nexus-playground-server/src/agent/external-agent';
 import {
+  AgentAdapter,
   createExternalAgentActionHandler,
   createExternalAgentGenerationSource,
-} from '../../../../server/nexus-playground-server/src/agent/external-agent';
-import { InMemorySurfaceHistoryStore } from '../../../../server/nexus-playground-server/src/agent/history';
+  InMemorySurfaceHistoryStore,
+} from '@nexus-ui/server';
+import type { AgentActionHandler, ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION } from '../contract';
 import { createStandaloneHostRegistry } from '../shared/catalog';
 
 export interface StandaloneHostAdapterOptions extends ExternalAgentRpcConfig {
   createSurfaceId?: () => string;
+  actionHandler?: AgentActionHandler;
 }
 
 /**
@@ -17,6 +18,7 @@ export interface StandaloneHostAdapterOptions extends ExternalAgentRpcConfig {
  * Every remote message still passes the same server guard as the playground.
  */
 export function createStandaloneHostAdapter(options: StandaloneHostAdapterOptions): AgentAdapter {
+  const actionHandler = options.actionHandler ?? createExternalAgentActionHandler(options);
   const adapter = new AgentAdapter({
     registry: createStandaloneHostRegistry(),
     actionHandlers: new Map(),
@@ -25,10 +27,6 @@ export function createStandaloneHostAdapter(options: StandaloneHostAdapterOption
     createSurfaceId: options.createSurfaceId,
     createGenerationSource: createExternalAgentGenerationSource(options),
   });
-  adapter.registerActionHandler(
-    DEMO_AGENT_CATALOG_ID,
-    DEMO_AGENT_ACTION,
-    createExternalAgentActionHandler(options),
-  );
+  adapter.registerActionHandler(DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION, actionHandler);
   return adapter;
 }

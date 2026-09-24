@@ -15,6 +15,8 @@ export interface AgentRouterOptions {
   adapter: AgentAdapter;
   /** Optional health-report override for assemblies that replace the default Agent mode. */
   healthAgentMode?: string;
+  /** Optional health-report override for assemblies that replace the default action dispatch policy. */
+  healthActionMode?: string;
   maxRequestBodyBytes?: number;
   requestBodyTimeoutMs?: number;
 }
@@ -28,6 +30,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       service: '@nexus-ui/server',
       version: '0.1.0',
       agentMode: options.healthAgentMode ?? (isLlmAgentEnabled() ? 'llm' : 'fallback'),
+      actionMode: options.healthActionMode ?? 'adapter',
     };
   });
 

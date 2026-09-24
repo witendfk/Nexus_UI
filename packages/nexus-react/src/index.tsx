@@ -28,6 +28,7 @@ export {
   CheckBox,
   ChoicePicker,
   DateTimeInput,
+  Slider,
   Button,
   Column,
   Row,

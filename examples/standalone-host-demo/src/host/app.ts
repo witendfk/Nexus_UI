@@ -1,10 +1,16 @@
 import Koa from 'koa';
 import cors from '@koa/cors';
-import { createAgentRouter } from '../../../../server/nexus-playground-server/src/api/routes';
+import { createAgentRouter } from '@nexus-ui/server';
 import { createStandaloneHostAdapter } from './adapter';
 import type { StandaloneHostAdapterOptions } from './adapter';
+import { createLocalApprovalActionHandler } from './local-action';
+import type { StandaloneHostActionMode } from '../shared/action-mode';
 
-export interface StandaloneHostAppOptions extends StandaloneHostAdapterOptions {
+export interface StandaloneHostAppOptions extends Omit<
+  StandaloneHostAdapterOptions,
+  'actionHandler'
+> {
+  actionMode?: StandaloneHostActionMode;
   maxRequestBodyBytes?: number;
   requestBodyTimeoutMs?: number;
 }
@@ -14,10 +20,15 @@ export interface StandaloneHostAppOptions extends StandaloneHostAdapterOptions {
  * The host remains responsible for endpoint credentials and deployment policy.
  */
 export function createStandaloneHostApp(options: StandaloneHostAppOptions): Koa {
-  const adapter = createStandaloneHostAdapter(options);
+  const { actionMode = 'external', ...adapterOptions } = options;
+  const adapter = createStandaloneHostAdapter({
+    ...adapterOptions,
+    actionHandler: actionMode === 'local' ? createLocalApprovalActionHandler() : undefined,
+  });
   const router = createAgentRouter({
     adapter,
     healthAgentMode: 'external-rpc',
+    healthActionMode: actionMode,
     maxRequestBodyBytes: options.maxRequestBodyBytes,
     requestBodyTimeoutMs: options.requestBodyTimeoutMs,
   });

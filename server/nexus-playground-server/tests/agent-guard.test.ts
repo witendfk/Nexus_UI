@@ -596,6 +596,53 @@ describe('validateAgentSequence', () => {
     );
   });
 
+  it('Basic Catalog Slider 必须使用数字范围和双向绑定 value', () => {
+    const message = (component: unknown) =>
+      ({
+        version: 'v0.9',
+        updateComponents: { surfaceId: 'surface-1', components: [component] },
+      }) as A2UIMessage;
+    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
+    const valid = {
+      id: 'threshold',
+      component: 'Slider',
+      label: '阈值',
+      min: 0,
+      max: 1,
+      value: { path: '/threshold' },
+    };
+
+    assert.equal(validateAgentSequence(message(valid), 1, options), null);
+    assert.equal(
+      validateAgentSequence(message({ ...valid, value: 0.5 }), 1, options),
+      'Slider.value 必须是 { path } 绑定',
+    );
+    assert.equal(
+      validateAgentSequence(message({ ...valid, min: { path: '/min' } }), 1, options),
+      'Slider.min 必须是有限数字',
+    );
+    assert.equal(
+      validateAgentSequence(message({ ...valid, max: undefined }), 1, options),
+      'Slider.max 必须是有限数字',
+    );
+    assert.equal(
+      validateAgentSequence(message({ ...valid, min: 1 }), 1, options),
+      'Slider.min 必须小于 max',
+    );
+    assert.equal(
+      validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
+      '当前 Agent 线不支持 Slider.checks',
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({ ...valid, action: { event: { name: 'submit' } } }),
+        1,
+        options,
+      ),
+      'Slider 不支持挂载 action',
+    );
+  });
+
   it('Basic Catalog DateTimeInput 必须使用 ISO 时间和双向绑定 value', () => {
     const message = (component: unknown) =>
       ({

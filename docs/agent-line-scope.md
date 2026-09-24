@@ -2,7 +2,7 @@
 
 本文档是第一条 Agent 线的事实边界。协议本身以 [specification/v0_9](../specification/v0_9/README.md) 为准；本文档只描述 Nexus UI 当前实现范围。
 
-宿主接入契约、HTTP/SSE 参考协议和完整支持矩阵见 [host-integration.md](host-integration.md)。
+宿主接入契约、HTTP/SSE 参考协议和完整支持矩阵见 [host-integration.md](host-integration.md)；最小复制路径见 [host-quickstart.md](host-quickstart.md)。
 
 ## 目标
 
@@ -31,10 +31,10 @@ Row, Column, List, Card, Tabs, Modal, Divider,
 Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput
 ```
 
-Basic Catalog 只允许并实现 14 个：
+Basic Catalog 当前允许并实现 15 个：
 
 ```text
-Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Button, Column, Row, List, Tabs, Image, Card, Icon, Divider
+Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, Row, List, Tabs, Image, Card, Icon, Divider
 ```
 
 这不是 A2UI 协议上限，而是 MVP 的实现白名单。服务端通过 `CatalogRegistry` 查询组件边界；generate 请求默认使用 Basic Catalog，也可显式选择已注册的 task 或 Workbench catalog。
@@ -71,6 +71,7 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 - Basic Catalog `CheckBox` 的 `label` 与布尔 `value: { path }` 双向绑定。
 - Basic Catalog `ChoicePicker` 的单选 / 多选、`checkbox / chips` 展示、选项筛选和 `string[]` 形式 `value: { path }` 双向绑定。
 - Basic Catalog `DateTimeInput` 的 date / time / date-time 输入、`min` / `max` 和 ISO 8601 字符串形式的 `value: { path }` 双向绑定。
+- Basic Catalog `Slider` 的有限数字 `min` / `max` 范围和数字 `value: { path }` 双向绑定；`min` 缺省为 `0`，且必须小于 `max`。
 - Basic Catalog `search` action：Button 读取 TextField 绑定值并原地更新 `searchResult`。
 - Basic Catalog `submit` action：Button 同时读取 TextField 与 CheckBox 绑定值并原地更新 `submitResult`。
 - `{ path }` 数据绑定。
@@ -79,20 +80,34 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 - Workbench catalog 的企业跟进任务样例：客户摘要、任务标题、任务优先级、提醒时间、submit 创建任务、结果原地更新和重复提交拒绝。
 - 请求级 `catalogId` 选择与 task catalog 自定义 renderMap。
 - 宿主进程内注入自定义 generation source；其输出必须经过同一 Agent guard。
-- 外部业务 Agent 的最小 HTTP JSONL RPC helper，可同时接入初始生成与 action 响应；输出仍必须经过同一 Agent guard。
-- `examples/standalone-host-demo`：仓库内可运行的三进程独立宿主 Demo。外部 Demo Agent 默认真实调用 OpenAI-compatible LLM，生成与 action 输出仍必须通过同一 guard；自定义 catalog、React renderMap、Koa generate / event 装配与测试都归属根部 examples，不放入 server 子包。
+- 外部业务 Agent 的最小 HTTP JSONL RPC helper，可接入初始生成与 action 响应；宿主也可把 action 留在本地业务 handler，输出仍必须经过同一 Agent guard。
+- `examples/standalone-host-demo`：仓库内可运行的三进程独立宿主 Demo。外部 Demo Agent 默认真实调用 OpenAI-compatible LLM，生成与 action 输出仍必须通过同一 guard；自定义 catalog、React renderMap、Koa generate / event 装配、本地 action handler 与测试都归属根部 examples，不放入 server 子包。
 - SSE `message` / `error` / `done`。
 - 参考 server 请求入口要求 JSON Content-Type，限制请求体字节数并设置读取超时；默认 1 MiB / 10s，可显式配置。
 - 服务端按 surface 保存成功 LLM / 宿主 source 生成流的内存 history。
 - 宿主可替换 surface history 存储；当前提供异步与原子提交边界、进程内默认实现、可选本地单进程文件持久化和“commit 成功后才 `done`”的 SSE 语义，不包含数据库、多实例或租户持久化。
 - Catalog 诊断以结构化 `{ path, message, dataPath? }` 从 core runtime、React Provider `onError` 和 SSE `error` payload 上浮；宿主可直接定位组件 props 或 dataModel 来源。
-- `@nexus-ui/core` 与 `@nexus-ui/react` 只承诺根入口 API；React 提供当前 core 范围的兼容诊断。server 是参考组合根，不承诺 npm SDK 稳定性。
+- `@nexus-ui/core` 与 `@nexus-ui/react` 只承诺根入口 API；React 提供当前 core 范围的兼容诊断。server 根入口只承诺有限宿主装配 API（`SERVER_API_VERSION = 1`），完整参考 server 不是生产 SDK。
 
 P8-a 已完成。`examples/standalone-host-demo` 的外部 Agent 默认调用真实 LLM，初始生成和 `approve` action 均返回候选 A2UI JSONL 并通过统一 guard。真实 HTTP 验收记录生成流与 action 流均以 `done` 结束且 `surfaceId` 不变；真实浏览器验收记录页面生成审批卡、点击后按钮禁用、显示 `action: approve`、同一 DOM surface 原地 patch，且无 pageerror / console error。浏览器装配层已修复重复创建 catalog registry 导致 action 后 runtime 重建的问题，并有 React DOM 回归测试锁定：action 触发宿主重渲染后，runtime 继续复用原 surface，action 请求携带原 `surfaceId`，同一 `section` 原地更新且按钮禁用。测试模式使用确定性输出或 mocked SSE，不读取 `.env` 或请求模型。
 
+P9-a 已完成。`docs/host-quickstart.md` 将 standalone demo 收敛为外部宿主最小接入模板，说明 catalog / renderMap / action handler / external endpoint 的替换点，以及正常输出和坏输出的验收口径。standalone demo 的真实 HTTP 回归测试证明：endpoint 替换后，Agent 收到的请求仍包含完整 catalog、action、surface 与 history 边界；非法 JSONL 会被宿主转换为 SSE `error`，且没有 `done`。
+
+P9-b 已完成。standalone demo 的进程编排现在理解 `NEXUS_DEMO_AGENT_ENDPOINT`：未配置时启动内置 Agent、host 和 web；显式配置外部 endpoint 时跳过内置 Agent，只启动 host 和 web。子进程意外退出会关闭整组服务，编排行为由测试锁定。同时修复 `NEXUS_DEMO_AGENT_MODE` 未传入 Agent 进程的问题，`deterministic` 与非法模式均有测试覆盖。
+
+P10-a 已完成。server 根入口成为有限宿主装配 API，导出 Agent Adapter、external JSONL RPC helpers、内存 history、guarded router 和 `sendAgentRun` transport seam，并用 `SERVER_API_VERSION = 1` 标记。可执行参考服务移至 `src/main.ts`；standalone demo 已移除 server 内部源码路径引用，只依赖根入口。导出面快照测试同时锁定“import API 不启动参考 listener”。
+
+P10-b 已完成。standalone host 模板提供 `actionHandler` 注入点：默认 action 回传外部 Agent，传入本地 handler 时初始生成仍走 external JSONL RPC，action 在宿主进程内返回候选 A2UI JSONL。回归测试使用自定义 catalog 与 React renderMap，验证外部 Agent 只收到一次 generate 请求、本地 action 更新保持同一 `surfaceId`、按钮禁用并以 `done` 结束，且本地输出没有绕过统一 guard。
+
+P10-c 已完成。standalone demo 支持通过 `NEXUS_DEMO_ACTION_MODE=external | local` 切换 action 策略：`external` 保持 action 回传外部 Agent，`local` 保持初始生成走 external Agent RPC 但 action 由宿主本地 handler 处理。宿主 `/health` 返回 `agentMode: "external-rpc"` 与 `actionMode`；浏览器页面显示当前 action 策略。策略解析、health 契约和 local 模式浏览器回归均有测试。
+
+P10-d 已完成。MVP 产品收口将当前边界固定为：单 active surface、Basic Catalog 14 组件子集、task / Workbench 自定义 Catalog、外部 Agent JSONL RPC、可切换 action 归属、统一 guard 和同 surface 原地更新。README 首屏、产品定位、当前能力基线和面试演示路径已同步；剩余 Basic 组件、完整 schema、跨字段校验、多 surface 和生产部署能力都不属于当前 MVP。后续扩展必须先说明落地工作流和验收闭环，不做组件数量扩张。
+
+P11-a 已完成。Basic Catalog `Slider` 覆盖 core 字段与范围校验、React 原生 range 渲染、数字 `value: { path }` 写回和 Button action 最新数值解析；server Basic Catalog 强制 `value: { path }`，只允许 `id/component/label/min/max/value`，并拒绝非法范围、`checks` 和挂载 action。LLM prompt 明确 `min` 缺省为 `0`，禁止 `minValue/maxValue`。core / React / server 测试通过；全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
 ## 明确不支持
 
-- `Slider` 等剩余表单组件。
+- 剩余 Basic Catalog 组件：`Video`、`AudioPlayer`、`Modal`。
 - `checks`、FunctionCall、可定制校验错误文案与跨字段校验。
 - checks、FunctionCall、`sendDataModel`。
 - ChildList template 与相对路径作用域。
@@ -144,6 +159,7 @@ timestamp 和外层信封属于 web/server 适配层，不进入 core。
 | 布尔绑定 | CheckBox 切换写回 dataModel，submit context 携带最新布尔值 |
 | 选项绑定 | ChoicePicker 选择写回 dataModel，Workbench submit context 携带唯一优先级 |
 | 时间绑定 | DateTimeInput 输入写回 dataModel，Workbench submit context 携带 ISO 8601 提醒时间 |
+| 数值绑定 | Slider 输入写回 dataModel，Button action context 携带最新有限数字 |
 | 输入校验 | validationRegexp 失焦后显示错误，修正后错误清除 |
 | 非法 JSON | SSE `error`，无 `done` |
 | 多 payload | 服务端拒绝 |
@@ -194,7 +210,7 @@ P5-c-2 已完成。`SurfaceHistoryStore` 改为异步接口，catalog 与 turn �
 
 P5-c-3 已完成。新增 `FileSurfaceHistoryStore` 本地单进程持久化适配器：启动时加载文件，commit 串行执行并通过同目录临时文件加 `rename` 原子落盘；写入成功后才替换内存快照，写入失败保持上一次状态。默认仍为内存模式，只有 server 配置 `NEXUS_HISTORY_FILE` 才写磁盘。新 store 实例读取同一文件可模拟重启，并恢复 action 分发所需 catalog 和 history；容量淘汰、非法文件与写入失败边界均有测试。多实例协调、数据库、租户隔离和审计仍不属于本步。
 
-P5-d 已完成。core 和 React 公开 API 从“实际导出”收紧为“显式承诺的根入口”：core 移除协议模块通配导出并标记 `CORE_API_VERSION = 1`；React 导出全部 14 个标准组件并提供 `getReactCoreCompatibility()`，当前支持 core `0.1.x` / API `1` / A2UI `v0.9`。两个包的运行时导出面都有快照测试，文档明确内部路径不可依赖、server 不是公开 SDK。协议版本、包版本和 API 版本的边界已固定到 `docs/public-api.md`。
+P5-d 已完成。core 和 React 公开 API 从“实际导出”收紧为“显式承诺的根入口”：core 移除协议模块通配导出并标记 `CORE_API_VERSION = 1`；React 导出全部 14 个标准组件并提供 `getReactCoreCompatibility()`，当前支持 core `0.1.x` / API `1` / A2UI `v0.9`。两个包的运行时导出面都有快照测试，文档明确内部路径不可依赖；server 的公开承诺后续进一步收敛为有限宿主装配 API。协议版本、包版本和 API 版本的边界已固定到 `docs/public-api.md`。
 
 P5-e 已完成。`packages/nexus-react/examples/minimal-host.tsx` 提供可执行的最小宿主接入示例：只使用 core/react 根入口 API，本地 JSONL 输入 core，自定义 catalog 经 `catalogRenderMaps` 渲染，并把 action 上下文交回宿主；示例通过真实 React DOM 测试。参考 server 的 JSON 请求解析增加 Content-Type 校验、Content-Length 预检、流式字节数上限和读取超时，默认 1 MiB / 10s，可通过 `NEXUS_MAX_REQUEST_BODY_BYTES` / `NEXUS_REQUEST_TIMEOUT_MS` 配置。认证、租户、公网限流和审计仍明确属于宿主部署层。
 

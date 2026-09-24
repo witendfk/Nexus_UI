@@ -56,6 +56,13 @@ function isDynamicBoolean(value: unknown): boolean {
   );
 }
 
+function isDynamicNumber(value: unknown): boolean {
+  return (
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (isObject(value) && Object.keys(value).length === 1 && typeof value.path === 'string')
+  );
+}
+
 function isDynamicStringList(value: unknown): boolean {
   return (
     (Array.isArray(value) && value.every((item) => typeof item === 'string')) ||
@@ -196,6 +203,49 @@ function validateChoicePicker(component: Record<string, unknown>): string | null
   return null;
 }
 
+function validateSlider(component: Record<string, unknown>): string | null {
+  if (component.component !== 'Slider') return null;
+  if (component.action !== undefined) return 'Slider 不支持挂载 action';
+  if (component.checks !== undefined) return '当前 Agent 线不支持 Slider.checks';
+  if (component.label !== undefined && !isDynamicString(component.label)) {
+    return 'Slider.label 必须是字符串或 { path } 绑定';
+  }
+  if (
+    component.min !== undefined &&
+    !(typeof component.min === 'number' && Number.isFinite(component.min))
+  ) {
+    return 'Slider.min 必须是有限数字';
+  }
+  if (!(typeof component.max === 'number' && Number.isFinite(component.max))) {
+    return 'Slider.max 必须是有限数字';
+  }
+  if (!isDynamicNumber(component.value)) {
+    return 'Slider.value 必须是有限数字或 { path } 绑定';
+  }
+  if (
+    typeof component.min === 'number' &&
+    typeof component.max === 'number' &&
+    component.min >= component.max
+  ) {
+    return 'Slider.min 必须小于 max';
+  }
+  if (
+    typeof component.value === 'number' &&
+    typeof component.min === 'number' &&
+    component.value < component.min
+  ) {
+    return 'Slider.value 不能小于 min';
+  }
+  if (
+    typeof component.value === 'number' &&
+    typeof component.max === 'number' &&
+    component.value > component.max
+  ) {
+    return 'Slider.value 不能大于 max';
+  }
+  return null;
+}
+
 function validateDateTimeInput(component: Record<string, unknown>): string | null {
   if (component.component !== 'DateTimeInput') return null;
   if (component.action !== undefined) return 'DateTimeInput 不支持挂载 action';
@@ -246,6 +296,9 @@ function validateComponent(value: unknown): string | null {
 
   const choicePickerError = validateChoicePicker(value);
   if (choicePickerError) return choicePickerError;
+
+  const sliderError = validateSlider(value);
+  if (sliderError) return sliderError;
 
   const dateTimeInputError = validateDateTimeInput(value);
   if (dateTimeInputError) return dateTimeInputError;

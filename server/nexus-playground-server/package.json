@@ -2,7 +2,7 @@
   "name": "@nexus-ui/server",
   "version": "0.1.0",
   "private": true,
-  "description": "Nexus UI 对话式生成服务 —— Koa + OpenAI，产出 A2UI v0.9 JSONL 流（SSE）。",
+  "description": "Nexus UI server host-assembly API and reference Koa service.",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
@@ -15,8 +15,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "pnpm --filter @nexus-ui/core build && tsc -p tsconfig.build.json",
     "test": "tsx --test tests/*.test.ts",
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {

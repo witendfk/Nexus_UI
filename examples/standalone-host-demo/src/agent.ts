@@ -5,6 +5,12 @@ import type { DemoLlmRequest } from './llm';
 
 export type DemoAgentMode = 'llm' | 'deterministic';
 
+export function resolveDemoAgentMode(value: string | undefined): DemoAgentMode {
+  if (value === undefined || value === 'llm') return 'llm';
+  if (value === 'deterministic') return 'deterministic';
+  throw new Error('NEXUS_DEMO_AGENT_MODE 只支持 llm 或 deterministic');
+}
+
 interface DemoAgentRequest {
   version?: unknown;
   kind?: unknown;

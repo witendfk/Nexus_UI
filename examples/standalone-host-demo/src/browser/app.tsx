@@ -29,6 +29,7 @@ function DemoControls({ pendingAction }: { pendingAction: ActionEvent | null }) 
   const [message, setMessage] = useState('创建营销活动审批任务');
   const [status, setStatus] = useState('idle');
   const [busy, setBusy] = useState(false);
+  const [actionMode, setActionMode] = useState('external');
   const controllerRef = useRef<AbortController | null>(null);
 
   const run = async (url: string, body: unknown): Promise<void> => {
@@ -52,6 +53,19 @@ function DemoControls({ pendingAction }: { pendingAction: ActionEvent | null }) 
       controllerRef.current = null;
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/health')
+      .then(async (response) => {
+        const health = (await response.json()) as { actionMode?: string };
+        if (active && health.actionMode) setActionMode(health.actionMode);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!pendingAction) return;
@@ -91,6 +105,9 @@ function DemoControls({ pendingAction }: { pendingAction: ActionEvent | null }) 
           生成任务面
         </button>
         <span className="status">{status}</span>
+        <span className="action-mode">
+          action: {actionMode === 'local' ? 'local handler' : 'external Agent'}
+        </span>
       </div>
     </section>
   );

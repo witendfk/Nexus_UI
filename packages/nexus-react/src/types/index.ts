@@ -12,7 +12,7 @@ export interface RenderContext {
   setInputValue: (
     componentId: string,
     surfaceId: string,
-    value: string | boolean | string[],
+    value: string | boolean | number | string[],
   ) => boolean;
 }
 

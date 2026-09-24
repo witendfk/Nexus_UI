@@ -351,4 +351,34 @@ describe('validateA2UIMessage', () => {
       '当前 Agent 线不支持 DateTimeInput.checks',
     );
   });
+
+  it('校验 Slider 官方字段结构', () => {
+    const message = (component: unknown) => ({
+      version: 'v0.9',
+      updateComponents: { surfaceId: 'd', components: [component] },
+    });
+    const valid = {
+      id: 'threshold',
+      component: 'Slider',
+      label: '阈值',
+      min: 0,
+      max: 1,
+      value: { path: '/threshold' },
+    };
+
+    expect(validateA2UIMessage(message(valid)).ok).to.equal(true);
+    expect(validateA2UIMessage(message({ ...valid, min: undefined })).ok).to.equal(true);
+    expect(validateA2UIMessage(message({ ...valid, value: 0.5 })).ok).to.equal(true);
+    expect(error(message({ ...valid, max: undefined }))).to.equal('Slider.max 必须是有限数字');
+    expect(error(message({ ...valid, min: '0' }))).to.equal('Slider.min 必须是有限数字');
+    expect(error(message({ ...valid, value: '0.5' }))).to.equal(
+      'Slider.value 必须是有限数字或 { path } 绑定',
+    );
+    expect(error(message({ ...valid, min: 1, max: 1 }))).to.equal('Slider.min 必须小于 max');
+    expect(error(message({ ...valid, value: 1.2 }))).to.equal('Slider.value 不能大于 max');
+    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.equal(
+      'Slider 不支持挂载 action',
+    );
+    expect(error(message({ ...valid, checks: [] }))).to.equal('当前 Agent 线不支持 Slider.checks');
+  });
 });

@@ -62,6 +62,13 @@ Use DateTimeInput only with "id", "component", optional "label", "value", "enabl
 "value" must be exactly { "path": "..." }; "enableDate" and "enableTime" must be booleans, and at least one must be true.
 "min" and "max" may be an ISO 8601 date, time, or date-time string, or a { "path": "..." } binding. Do not use checks or an action on DateTimeInput.`
     : '';
+  const sliderRule = components.includes('Slider')
+    ? `
+Use Slider only with "id", "component", optional "label", optional "min", required "max", and required "value".
+"min" defaults to 0; "min" and "max" must be finite numbers, and min must be less than max.
+"value" must be exactly { "path": "..." } so user adjustments write a number back to the data model.
+Do not use checks, minValue, maxValue, or an action on Slider.`
+    : '';
   const checkBoxRule =
     components.includes('CheckBox') && !isWorkbench
       ? `
@@ -103,6 +110,7 @@ ${tabsRule}
 ${imageRule}
 ${textFieldRule}
 ${choicePickerRule}
+${sliderRule}
 ${dateTimeInputRule}
 ${checkBoxRule}
 ${workbenchRule}

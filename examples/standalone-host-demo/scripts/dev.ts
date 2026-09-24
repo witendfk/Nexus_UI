@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createDemoProcessPlan } from './dev-plan';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const children = [
-  spawn('pnpm', ['exec', 'tsx', 'scripts/run-agent.ts'], { cwd: root, stdio: 'inherit' }),
-  spawn('pnpm', ['exec', 'tsx', 'scripts/run-host.ts'], { cwd: root, stdio: 'inherit' }),
-  spawn('pnpm', ['exec', 'vite'], { cwd: root, stdio: 'inherit' }),
-];
+const processes = createDemoProcessPlan();
+const children = processes.map((processPlan) =>
+  spawn(processPlan.command, processPlan.args, { cwd: root, stdio: 'inherit' }),
+);
 
 let shuttingDown = false;
 
@@ -18,10 +18,10 @@ function shutdown(): void {
 
 for (const child of children) {
   child.on('exit', (code) => {
-    if (!shuttingDown && code !== 0) {
+    if (!shuttingDown) {
       console.error(`Demo process exited with code ${code ?? 'null'}.`);
       shutdown();
-      process.exitCode = 1;
+      process.exitCode = code ?? 1;
     }
   });
 }

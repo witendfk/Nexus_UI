@@ -13,6 +13,7 @@ export const BASIC_CATALOG_COMPONENTS = [
   'TextField',
   'CheckBox',
   'ChoicePicker',
+  'Slider',
   'DateTimeInput',
   'Button',
   'Column',

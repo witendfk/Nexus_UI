@@ -61,6 +61,7 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 button {
@@ -81,6 +82,16 @@ button:disabled {
 .status {
   color: #526274;
   font-size: 13px;
+}
+
+.action-mode {
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .nexus-surface {

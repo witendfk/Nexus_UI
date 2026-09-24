@@ -66,7 +66,11 @@ export function A2UIProvider({
   // ctx 需引用 runtime、runtime.onRender 需引用 ctx —— 用 ref 解循环依赖。
   const ctxRef = useRef<{
     triggerAction: (id: string, sid: string) => void;
-    setInputValue: (id: string, sid: string, value: string | boolean | string[]) => boolean;
+    setInputValue: (
+      id: string,
+      sid: string,
+      value: string | boolean | number | string[],
+    ) => boolean;
   }>({
     triggerAction: () => {},
     setInputValue: () => false,
@@ -91,7 +95,7 @@ export function A2UIProvider({
   const ctx = useMemo(
     () => ({
       triggerAction: (id: string, surfaceId: string) => runtime.triggerAction(id, surfaceId),
-      setInputValue: (id: string, surfaceId: string, value: string | boolean | string[]) =>
+      setInputValue: (id: string, surfaceId: string, value: string | boolean | number | string[]) =>
         runtime.setInputValue(id, surfaceId, value),
     }),
     [runtime],
