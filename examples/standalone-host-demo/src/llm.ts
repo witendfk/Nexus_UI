@@ -1,4 +1,5 @@
-import { JSONLBuffer } from '@nexus-ui/core';
+import { createCatalogPromptContract, JSONLBuffer } from '@nexus-ui/core';
+import { standaloneHostCatalog } from './shared/catalog-contract';
 
 export interface DemoLlmAction {
   name: string;
@@ -9,19 +10,9 @@ export type DemoLlmRequest =
   | { kind: 'generate'; surfaceId: string; message: string }
   | { kind: 'action'; surfaceId: string; action: DemoLlmAction };
 
-const SYSTEM_PROMPT = `You are the external business Agent behind an A2UI standalone host.
-Return newline-delimited JSON objects only. Do not use Markdown, prose, or a JSON array.
-The host guard will reject every invalid object, so follow the contract exactly.
+export const DEMO_SYSTEM_PROMPT = `${createCatalogPromptContract(standaloneHostCatalog)}
 
-Catalog ID: https://example.com/catalogs/host-approval/v1
-Allowed components: ApprovalSummary, Text, Button
-Allowed action: approve
-Use only flat component ids and static child/children references.
-
-For generation, return exactly these object shapes in order:
-1. {"version":"v0.9","createSurface":{"surfaceId":"<surfaceId>","catalogId":"https://example.com/catalogs/host-approval/v1"}}
-2. {"version":"v0.9","updateComponents":{"surfaceId":"<surfaceId>","components":[...root, approve, approveLabel...]}}
-3. {"version":"v0.9","updateDataModel":{"surfaceId":"<surfaceId>","value":{...}}}
+# Standalone Host Demo Rules
 
 Generation components must use ids root, approve, and approveLabel:
 - root is ApprovalSummary with title bound to /title, amount bound to /amount, and children ["approve"].
@@ -36,8 +27,7 @@ For an action response, return only updateComponents then updateDataModel for th
 - approveLabel becomes Text with text "Approved".
 - Set /title to "Approved: " plus action.context.approvalId when available.
 - Preserve action.context.amount as /amount.
-
-Every line must independently parse as JSON. Never emit comments, fences, HTML, React code, or extra fields.`;
+Never emit comments, fences, HTML, React code, or extra fields.`;
 
 function createUserPrompt(request: DemoLlmRequest): string {
   if (request.kind === 'generate') {
@@ -104,7 +94,7 @@ export async function* streamDemoLlmMessages(
       body: JSON.stringify({
         model: config.model,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: DEMO_SYSTEM_PROMPT },
           { role: 'user', content: 'Return the required NDJSON format for an initial generation.' },
           { role: 'assistant', content: GENERATION_EXAMPLE },
           { role: 'user', content: 'Return the required NDJSON format for an action response.' },

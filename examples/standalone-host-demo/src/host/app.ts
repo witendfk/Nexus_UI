@@ -5,6 +5,7 @@ import { createStandaloneHostAdapter } from './adapter';
 import type { StandaloneHostAdapterOptions } from './adapter';
 import { createLocalApprovalActionHandler } from './local-action';
 import type { StandaloneHostActionMode } from '../shared/action-mode';
+import { standaloneHostCatalog } from '../shared/catalog-contract';
 
 export interface StandaloneHostAppOptions extends Omit<
   StandaloneHostAdapterOptions,
@@ -31,6 +32,7 @@ export function createStandaloneHostApp(options: StandaloneHostAppOptions): Koa 
     healthActionMode: actionMode,
     maxRequestBodyBytes: options.maxRequestBodyBytes,
     requestBodyTimeoutMs: options.requestBodyTimeoutMs,
+    catalogContracts: [standaloneHostCatalog],
   });
   const app = new Koa();
 

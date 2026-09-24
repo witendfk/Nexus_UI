@@ -1,6 +1,6 @@
 # Host Quickstart
 
-状态：P10-c 可切换 action 策略浏览器验收。  
+状态：P12-b Catalog Contract HTTP 发布。
 适用版本：Nexus UI MVP `0.1.0`。  
 目标：让宿主开发者以 `examples/standalone-host-demo` 为模板，接入自己的 catalog、renderMap、action handler 和外部 Agent endpoint。
 
@@ -12,6 +12,7 @@
 
 ```text
 examples/standalone-host-demo/src/shared/catalog.tsx
+examples/standalone-host-demo/src/shared/catalog-contract.ts
 examples/standalone-host-demo/src/shared/action-mode.ts
 examples/standalone-host-demo/src/host/adapter.ts
 examples/standalone-host-demo/src/host/local-action.ts
@@ -25,11 +26,12 @@ examples/standalone-host-demo/scripts/run-host.ts
 
 | File | Host responsibility |
 | --- | --- |
-| `shared/catalog.tsx` | 声明 catalogId、组件白名单、action 白名单、props schema 和 React renderMap |
+| `shared/catalog-contract.ts` | 声明 catalogId、组件白名单、action 白名单和 props schema；宿主与 Agent 可共用 |
+| `shared/catalog.tsx` | 导入 CatalogDefinition、注册 Registry，并声明 React renderMap |
 | `shared/action-mode.ts` | 解析 external / local action 策略 |
 | `host/adapter.ts` | 组装 Agent Adapter、外部 JSONL RPC source、action handler 和 history store |
 | `host/local-action.ts` | 本地业务 action fixture，用于 action 留在宿主进程内处理 |
-| `host/app.ts` | 暴露 `/health`、`/api/a2ui/generate`、`/api/a2ui/event` |
+| `host/app.ts` | 暴露 `/health`、`/api/a2ui/generate`、`/api/a2ui/event`，并显式选择是否发布 catalog contract |
 | `browser/sse.ts` | 消费宿主 API 的 POST + SSE 流 |
 | `browser/app.tsx` | 挂载 React runtime，把 action 回传到宿主 API |
 | `scripts/run-host.ts` | 读取端口、external Agent endpoint 和 action 策略配置 |
@@ -52,7 +54,7 @@ import {
 
 ## 2. Replace The Catalog Contract
 
-打开复制后的 `shared/catalog.tsx`，先替换四个边界：
+打开复制后的 `shared/catalog-contract.ts`，先替换四个边界：
 
 ```ts
 export const hostCatalog: CatalogDefinition = {
@@ -93,6 +95,37 @@ export const hostRenderMap: RenderMap = {
 - `componentSchemas` 声明自定义组件 props 契约；Agent 不能输出未知字段。
 - renderMap 只由宿主持有；Agent 输出描述，不输出 React / HTML 源码。
 - 在 React 装配层保持 catalog registry 是稳定实例，不要在每次 render 时重建。
+
+外部 Agent 需要理解上述边界，但不要求复制 Nexus 的固定 prompt。core 提供可选生成器：
+
+```ts
+import { createCatalogPromptContract } from '@nexus-ui/core';
+
+const systemPrompt = [
+  createCatalogPromptContract(hostCatalog),
+  '# Host Business Rules',
+  'Describe the task-specific component ids, data paths, action semantics, and expected updates here.',
+].join('\n\n');
+```
+
+生成内容包括 A2UI NDJSON 生命周期、组件和 action 白名单、props schema、dynamic binding 语义，以及“宿主 guard 是最终边界”。宿主仍需为没有 schema 的标准组件和业务语义补充说明；prompt 不是放行条件，非法输出会被 guard 拒绝。
+
+如果希望把契约提供给外部 Agent 开发者或验收页面，必须在 HTTP 装配时显式发布；仅注册 Catalog 不会自动公开：
+
+```ts
+createAgentRouter({
+  adapter,
+  catalogContracts: [hostCatalog],
+});
+```
+
+随后可通过只读接口读取：
+
+```http
+GET /api/a2ui/catalog-contract?catalogId=https%3A%2F%2Fyour-host.example.com%2Fcatalogs%2Fworkbench%2Fv1
+```
+
+成功响应包含 `serverApiVersion: 1`、`kind: "catalog-contract"`、原始 `catalog` 和可注入 system prompt 的 `promptContract`。缺失或空 `catalogId` 返回 400；未显式传入 `catalogContracts` 的 catalog 返回 404；重复 `catalogId` 会在宿主装配期失败。
 
 ## 3. Register The Action Path
 
@@ -221,12 +254,13 @@ NEXUS_DEMO_AGENT_ENDPOINT=https://agent.your-domain.example/a2ui
 ### Happy Path
 
 1. Host `/health` 返回 `agentMode: "external-rpc"`；local 模式还返回 `actionMode: "local"`。
-2. 浏览器发起一次生成请求。
-3. SSE 输出 `message` 流，最终包含 `event: done`，不包含 `event: error`。
-4. 页面渲染的组件全部来自宿主 renderMap。
-5. 触发按钮 action 后，请求携带原 `surfaceId` 和最新 dataModel context。
-6. Agent 返回更新，同一个 DOM surface 原地 patch，不整页或整卡重建。
-7. action 流最终也是 `done`，按钮按业务需要禁用。
+2. 如已显式发布 catalog contract，浏览器或 curl 能读取同一份 Catalog 与 prompt。
+3. 浏览器发起一次生成请求。
+4. SSE 输出 `message` 流，最终包含 `event: done`，不包含 `event: error`。
+5. 页面渲染的组件全部来自宿主 renderMap。
+6. 触发按钮 action 后，请求携带原 `surfaceId` 和最新 dataModel context。
+7. Agent 返回更新，同一个 DOM surface 原地 patch，不整页或整卡重建。
+8. action 流最终也是 `done`，按钮按业务需要禁用。
 
 本地 action 浏览器验收额外要求：页面显示 `action: local handler`；外部 Agent 只收到一次 `generate` 请求，不收到 `action` 请求；本地 handler 返回的更新仍保持原 `surfaceId`，以 `done` 结束，React 后显示 `Approved locally` 且按钮禁用。
 

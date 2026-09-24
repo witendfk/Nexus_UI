@@ -24,6 +24,42 @@ function feedRuntime(runtime: A2UIRuntime, event: SseEvent): void {
   if (event.event === 'error') throw new Error(agentError(event.data));
 }
 
+function CatalogContractPanel(): ReactElement {
+  const [contract, setContract] = useState<string | null>(null);
+  const [status, setStatus] = useState('idle');
+  const [busy, setBusy] = useState(false);
+
+  const loadContract = async (): Promise<void> => {
+    setBusy(true);
+    setStatus('loading');
+    try {
+      const response = await fetch(
+        `/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(DEMO_CATALOG_ID)}`,
+      );
+      const payload = (await response.json()) as { promptContract?: string };
+      if (!response.ok || !payload.promptContract) throw new Error('Catalog contract 获取失败');
+      setContract(payload.promptContract);
+      setStatus('done');
+    } catch (error) {
+      setStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="contract-panel" aria-label="Catalog Contract">
+      <div className="command-row">
+        <button type="button" disabled={busy} onClick={() => void loadContract()}>
+          查看 Catalog Contract
+        </button>
+        <span className="status">{status}</span>
+      </div>
+      {contract ? <pre className="contract-text">{contract}</pre> : null}
+    </section>
+  );
+}
+
 function DemoControls({ pendingAction }: { pendingAction: ActionEvent | null }) {
   const runtime = useA2UI();
   const [message, setMessage] = useState('创建营销活动审批任务');
@@ -131,6 +167,7 @@ export function DemoApp(): ReactElement {
       }}
     >
       <DemoControls pendingAction={pendingAction} />
+      <CatalogContractPanel />
       {lastAction ? (
         <p className="status">
           action: {lastAction.name} · surface: {lastAction.surfaceId}

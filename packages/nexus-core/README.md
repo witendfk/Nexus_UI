@@ -15,6 +15,7 @@
 - Basic `TextField` / `Slider` / `Button` 的最小 A2UI `checks`：支持 `required` / `regex` / `length` / `numeric` / `email`，按当前 dataModel 求值并生成 `VNode.validation`；Button checks 失败会阻断 action。
 - 框架无关 `ActionEvent` 出口。
 - `CatalogRegistry`：登记 `catalogId`、组件名边界、可选 action 白名单和可选的自定义组件 props schema。
+- `createCatalogPromptContract`：从同一份 `CatalogDefinition` 生成外部 Agent 可选使用的确定性 A2UI 输出提示词；guard 仍是最终放行边界。
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
 - 单条坏消息记录错误并丢弃，不中断后续流。
 
@@ -40,7 +41,7 @@ Catalog Registry 不感知 React 或其他渲染器。未提供 schema 的组件
 
 ## 公开 API
 
-`src/index.ts` 是唯一公开入口，当前 `CORE_API_VERSION = 1`。协议类型与校验、`A2UIRuntime`、`JSONLBuffer`、`CatalogRegistry`、状态 / 渲染 / action seam 和 dataModel helper 均从根入口导出。`protocol/`、`state/`、`runtime/` 等内部路径不承诺兼容；新增或移除根导出必须同步更新 API 契约与测试。
+`src/index.ts` 是唯一公开入口，当前 `CORE_API_VERSION = 1`。协议类型与校验、`A2UIRuntime`、`JSONLBuffer`、`CatalogRegistry`、`createCatalogPromptContract`、状态 / 渲染 / action seam 和 dataModel helper 均从根入口导出。`protocol/`、`state/`、`runtime/` 等内部路径不承诺兼容；新增或移除根导出必须同步更新 API 契约与测试。
 
 ## API 示例
 
@@ -82,24 +83,25 @@ runtime.triggerAction(componentId, surfaceId);
 ```
 
 ```ts
-import { CatalogRegistry } from '@nexus-ui/core';
+import { CatalogRegistry, createCatalogPromptContract } from '@nexus-ui/core';
 
-const registry = new CatalogRegistry([
-  {
-    catalogId: 'https://example.com/catalogs/task/v1',
-    components: ['TaskSummary'],
-    componentSchemas: {
-      TaskSummary: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title'],
-        properties: {
-          title: { type: 'string', dynamic: 'required' },
-        },
+const hostCatalog = {
+  catalogId: 'https://example.com/catalogs/task/v1',
+  components: ['TaskSummary'],
+  componentSchemas: {
+    TaskSummary: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['title'],
+      properties: {
+        title: { type: 'string', dynamic: 'required' },
       },
     },
   },
-]);
+} as const;
+
+const registry = new CatalogRegistry([hostCatalog]);
+const agentPromptContract = createCatalogPromptContract(hostCatalog);
 ```
 
 ## 命令

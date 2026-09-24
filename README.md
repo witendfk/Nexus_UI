@@ -12,6 +12,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 | 流式运行时 | core 缓冲 JSONL、渐进解析消息、维护组件树和 dataModel，并以流式状态驱动 React 渲染。 |
 | 有状态交互 | TextField、CheckBox、ChoicePicker、DateTimeInput、Slider 可写回 dataModel；最小 A2UI checks 展示协议错误并阻断按钮 action；Button action 携带最新上下文。 |
 | 宿主设计系统控制 | A2UI 组件名通过 React renderMap 映射到宿主组件；自定义 Catalog 可声明组件 schema 和 action 白名单。 |
+| Agent 接入契约生成 | `createCatalogPromptContract` 可从同一份 Catalog 定义生成外部 Agent 的 A2UI 输出提示词契约，并可由宿主显式通过 HTTP 发布；guard 仍是最终边界。 |
 | 业务 action 归属 | action 可以回传外部 Agent，也可以由宿主本地 handler 执行；两种策略的输出都走同一 guard。 |
 | 可接入证明 | 提供独立宿主、外部 Agent RPC、有限 server 装配 API、坏输出回归和浏览器验收路径。 |
 
@@ -76,7 +77,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 
 ## MVP 边界
 
-当前能力基线到 P11-b；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
+当前能力基线到 P12-b；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
 
 当前包含：
 
@@ -85,6 +86,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 - Basic Catalog 最小 `checks`：`TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`，并展示协议错误文案；失败 Button checks 会阻断 action。
 - task / Workbench 自定义 Catalog：验证企业组件映射、props schema、action 白名单、结构化 diagnostics 和业务闭环。
 - 外部 Agent HTTP JSONL RPC：初始生成与 action 都可回传远端；宿主也可通过 `NEXUS_DEMO_ACTION_MODE=local` 把 action 留在本地，输出仍走统一 guard。
+- Catalog Contract：从宿主 `CatalogDefinition` 生成确定性的 A2UI NDJSON、组件、action、schema 与动态绑定提示词；宿主可显式发布只读 HTTP 契约，不强制外部 Agent 使用固定 prompt。
 - 独立宿主 Demo：LLM-backed Agent、Koa 宿主 API、React 宿主页面、health 策略展示和同 surface patch。
 - 有限公开装配面：core / React 根入口 API 与 server `SERVER_API_VERSION = 1` 均有测试锁定。
 - 可注入异步 surface history；默认内存容量策略，可选本地单进程文件持久化。
@@ -216,6 +218,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P10-d | MVP 产品收口与演示叙事 | 完成 |
 | P11-a | Basic `Slider` 数值绑定与 action 上下文闭环 | 完成 |
 | P11-b | Basic `checks` 最小校验与 action 阻断闭环 | 完成 |
+| P12-a | Catalog Prompt Contract Generator | 完成 |
+| P12-b | Catalog Contract HTTP 发布与浏览器验收 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
@@ -289,6 +293,12 @@ P10-d 验收记录（2026-09-23）：MVP 产品收口完成。README 首屏改�
 P11-a 验收记录（2026-09-24）：Basic Catalog `Slider` 接入 core 结构校验、React 原生 range 渲染、数字 `value: { path }` 双向绑定和 Button action 最新数值解析。server catalog、prompt 与 guard 要求有限数字 `min/max`、`min < max`、`value: { path }`，并拒绝 `checks`、未知字段和挂载 action。core / React / server 测试覆盖合法结构、非法范围、数字写回、DOM 交互、公开导出和 prompt 契约；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
 P11-b 验收记录（2026-09-24）：Basic Catalog 最小 A2UI `checks` 闭环完成。core 支持官方 `{ condition, message }`、5 个基础校验函数和 `VNode.validation`；React 在 `TextField` / `Slider` 展示协议错误文案，Button 失败 checks 禁用按钮，core 在 action 出口二次阻断；server guard 与 LLM prompt 仅对 Basic `TextField` / `Slider` / `Button` 放行，并限制函数、数量、文案和正则边界。core / React / server 测试覆盖协议结构、求值、DOM 恢复、action 阻断、guard 与 prompt 契约；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
+P12-a 验收记录（2026-09-24）：core 新增 `createCatalogPromptContract(catalog)`，复用 `CatalogRegistry` 的注册期校验，并从 `catalogId`、组件白名单、action 白名单和 JSON-Schema-like props schema 生成确定性的 A2UI NDJSON 输出契约；prompt 明确动态绑定语义并声明宿主 guard 是最终边界。standalone demo 将纯 Catalog 契约拆分到 `shared/catalog-contract.ts`，宿主继续注册同一 CatalogDefinition，外部 Demo Agent 用它生成 system prompt。core 覆盖确定性输出、display-only / 未声明 action 差异、非法定义拒绝和公开导出面；demo 覆盖 prompt 与 Catalog 同源。全仓 format / typecheck / lint / build / test 已通过；自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
+P12-a 真实模型补充验收：直连 standalone Demo Agent 触发生成与 `approve` action 两次真实 LLM 请求。生成返回 `createSurface -> updateComponents -> updateDataModel`，使用 `root/approve/approveLabel`、`ApprovalSummary` 动态绑定和 `USD 3,500`；action 返回同一 `surfaceId` 的 `updateComponents -> updateDataModel`，按钮禁用并更新为 `Approved: approval-demo-001`。
+
+P12-b 验收记录（2026-09-24）：server 宿主装配 API 新增 `catalogContracts` 显式发布边界，并提供 `GET /api/a2ui/catalog-contract?catalogId=...`，返回 `serverApiVersion`、原 `CatalogDefinition` 和 `createCatalogPromptContract` 生成的 prompt。缺失 `catalogId` 返回 400，未显式发布的 catalog 返回 404，重复发布在装配期失败；Catalog 注册本身不代表对外公开。standalone host 使用与 guard 相同的 `standaloneHostCatalog` 发布契约，浏览器提供“查看 Catalog Contract”验收入口。无头 Chrome 验收确认页面请求返回 200、面板状态为 `done`，契约包含生命周期、catalog、schema 与 guard 边界，且无 console error / pageerror；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
 ## 后续路线
 

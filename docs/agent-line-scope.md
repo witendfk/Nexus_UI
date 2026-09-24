@@ -82,6 +82,7 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 - 请求级 `catalogId` 选择与 task catalog 自定义 renderMap。
 - 宿主进程内注入自定义 generation source；其输出必须经过同一 Agent guard。
 - 外部业务 Agent 的最小 HTTP JSONL RPC helper，可接入初始生成与 action 响应；宿主也可把 action 留在本地业务 handler，输出仍必须经过同一 Agent guard。
+- `createCatalogPromptContract(catalog)`：从宿主 CatalogDefinition 生成外部 Agent 可选使用的 A2UI NDJSON、组件、action、schema 与动态绑定提示词；宿主可通过 `catalogContracts` 显式发布只读 HTTP 契约。生成的 prompt 不是放行边界，输出仍必须经过统一 guard。
 - `examples/standalone-host-demo`：仓库内可运行的三进程独立宿主 Demo。外部 Demo Agent 默认真实调用 OpenAI-compatible LLM，生成与 action 输出仍必须通过同一 guard；自定义 catalog、React renderMap、Koa generate / event 装配、本地 action handler 与测试都归属根部 examples，不放入 server 子包。
 - SSE `message` / `error` / `done`。
 - 参考 server 请求入口要求 JSON Content-Type，限制请求体字节数并设置读取超时；默认 1 MiB / 10s，可显式配置。
@@ -107,6 +108,12 @@ P10-d 已完成。MVP 产品收口将当前边界固定为：单 active surface�
 P11-a 已完成。Basic Catalog `Slider` 覆盖 core 字段与范围校验、React 原生 range 渲染、数字 `value: { path }` 写回和 Button action 最新数值解析；server Basic Catalog 强制 `value: { path }`，只允许 `id/component/label/min/max/value`，并拒绝非法范围、`checks` 和挂载 action。LLM prompt 明确 `min` 缺省为 `0`，禁止 `minValue/maxValue`。core / React / server 测试通过；全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
 P11-b 已完成。Basic Catalog 支持官方 `CheckRule` 最小子集：`TextField` / `Slider` / `Button` 可使用 `required`、`regex`、`length`、`numeric`、`email`；core 校验官方 `{ condition, message }` 形状并按当前 dataModel 派生 `VNode.validation`，React 展示第一条失败文案，Button 失败 checks 禁用按钮且 core 在 `triggerAction` 出口二次阻断。server guard 只对 Basic Catalog 放行这 5 个函数，限制规则数量、文案和正则长度，LLM prompt 明确动作按钮需要重复阻断条件；Workbench 与通用 FunctionCall 仍不支持。core / React / server 测试覆盖协议结构、求值、DOM 恢复、action 阻断、guard 与 prompt 契约；全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
+P12-a 已完成。core 提供 `createCatalogPromptContract(catalog)`，输入宿主 `CatalogDefinition`，先复用 Catalog 注册校验，再输出确定的 A2UI v0.9 NDJSON 生命周期、组件 / action 白名单、props schema、dynamic binding 规则和“guard 是最终边界”提示词。外部 Agent 不强制使用这段 prompt；它只是把宿主契约注入 Agent system prompt 的可选工具。standalone demo 的外部 LLM Agent 已改为与宿主共用同一份纯 CatalogDefinition 生成 system prompt。当前生成器只描述 Nexus 已支持的 JSON-Schema-like 子集；没有 schema 的组件仍需宿主在业务 prompt 中补充组件字段语义，且不承诺完整标准 JSON Schema。core / standalone demo 测试与全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
+P12-a 真实请求验收：standalone Demo Agent 使用生成后的 system prompt 完成 initial generation 与 `approve` action 两次真实模型调用。生成流返回正确的 surface、组件、动态绑定、action context 和金额；action 流保持同一 `surfaceId`，禁用按钮并更新审批结果。
+
+P12-b 已完成。server 装配 API 支持宿主显式传入 `catalogContracts`，guarded router 随之提供 `GET /api/a2ui/catalog-contract?catalogId=...`。响应包含 `serverApiVersion: 1`、原始 CatalogDefinition 和确定性 promptContract；缺失 ID 返回 400，未显式发布返回 404，重复发布在装配期失败。Catalog 注册只是 guard 边界，不等于对外公开契约。standalone demo 的宿主与浏览器均通过同一份 `standaloneHostCatalog` 验收该只读发布路径；自动化测试不读取 `.env` 或消耗模型请求。
 
 ## 明确不支持
 

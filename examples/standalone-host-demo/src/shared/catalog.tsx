@@ -1,26 +1,10 @@
 import { createElement } from 'react';
 import { CatalogRegistry, toDisplayString } from '@nexus-ui/core';
-import type { CatalogDefinition } from '@nexus-ui/core';
 import { standardRenderMap } from '@nexus-ui/react';
 import type { RenderMap } from '@nexus-ui/react';
-import { DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION } from '../contract';
+import { standaloneHostCatalog } from './catalog-contract';
 
-export const standaloneHostCatalog: CatalogDefinition = {
-  catalogId: DEMO_AGENT_CATALOG_ID,
-  components: ['ApprovalSummary', 'Text', 'Button'],
-  actions: [DEMO_AGENT_ACTION],
-  componentSchemas: {
-    ApprovalSummary: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['title', 'amount'],
-      properties: {
-        title: { type: 'string', dynamic: 'required' },
-        amount: { type: 'string', dynamic: 'required' },
-      },
-    },
-  },
-};
+export { standaloneHostCatalog } from './catalog-contract';
 
 export function createStandaloneHostRegistry(): CatalogRegistry {
   return new CatalogRegistry([standaloneHostCatalog]);

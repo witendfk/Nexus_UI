@@ -41,6 +41,16 @@ h1 {
   margin-bottom: 18px;
 }
 
+.contract-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .input-row {
   display: grid;
   gap: 5px;
@@ -92,6 +102,21 @@ button:disabled {
   color: #475569;
   font-size: 12px;
   line-height: 1;
+}
+
+.contract-text {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #26313d;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .nexus-surface {

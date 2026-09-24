@@ -1,10 +1,13 @@
 import type Koa from 'koa';
 import Router from '@koa/router';
+import type { CatalogDefinition } from '@nexus-ui/core';
+import { createCatalogPromptContract } from '@nexus-ui/core';
 import type { AgentAdapter } from '../agent/adapter';
 import { isLlmAgentEnabled } from '../agent/llm-agent';
 import { parseClientActionMessage } from './client-event';
 import { isRecord, readJsonBody } from './request';
 import { sendAgentRun } from './send-messages';
+import { SERVER_API_VERSION } from '../version';
 
 function invalidRequest(ctx: Koa.Context, message: string): void {
   ctx.status = 400;
@@ -19,10 +22,31 @@ export interface AgentRouterOptions {
   healthActionMode?: string;
   maxRequestBodyBytes?: number;
   requestBodyTimeoutMs?: number;
+  /** Catalogs the host explicitly publishes to external Agent developers. */
+  readonly catalogContracts?: readonly CatalogDefinition[];
+}
+
+export interface CatalogContractPayload {
+  readonly serverApiVersion: 1;
+  readonly kind: 'catalog-contract';
+  readonly catalog: CatalogDefinition;
+  readonly promptContract: string;
 }
 
 export function createAgentRouter(options: AgentRouterOptions): Router {
   const router = new Router();
+  const catalogContracts = new Map<string, CatalogContractPayload>();
+  for (const catalog of options.catalogContracts ?? []) {
+    if (catalogContracts.has(catalog.catalogId)) {
+      throw new Error(`Catalog contract 重复公开: ${catalog.catalogId}`);
+    }
+    catalogContracts.set(catalog.catalogId, {
+      serverApiVersion: SERVER_API_VERSION,
+      kind: 'catalog-contract',
+      catalog,
+      promptContract: createCatalogPromptContract(catalog),
+    });
+  }
 
   router.get('/health', (ctx) => {
     ctx.body = {
@@ -73,6 +97,26 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
 
     const surfaceId = plan.run.sequence.surfaceId;
     void sendAgentRun(ctx, plan.run, `${surfaceId}:generate-${Date.now().toString(36)}`);
+  });
+
+  router.get('/api/a2ui/catalog-contract', (ctx) => {
+    const catalogId = ctx.query.catalogId;
+    if (typeof catalogId !== 'string' || catalogId === '') {
+      invalidRequest(ctx, 'catalogId 必须是非空字符串');
+      return;
+    }
+
+    const contract = catalogContracts.get(catalogId);
+    if (!contract) {
+      ctx.status = 404;
+      ctx.body = {
+        error: 'CATALOG_CONTRACT_NOT_FOUND',
+        message: '该 catalog contract 未公开',
+      };
+      return;
+    }
+
+    ctx.body = contract;
   });
 
   router.post('/api/a2ui/event', async (ctx) => {

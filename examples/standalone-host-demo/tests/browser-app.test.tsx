@@ -131,6 +131,18 @@ describe('standalone host browser app', () => {
       if (url.endsWith('/api/a2ui/event')) {
         return Promise.resolve(toSseResponse(actionMessages));
       }
+      if (url.includes('/api/a2ui/catalog-contract')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              serverApiVersion: 1,
+              kind: 'catalog-contract',
+              promptContract: 'Published host catalog prompt contract',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -139,6 +151,11 @@ describe('standalone host browser app', () => {
 
     await waitFor(() => {
       expect(screen.getByText('action: local handler')).to.exist;
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '查看 Catalog Contract' }));
+    await waitFor(() => {
+      expect(screen.getByText('Published host catalog prompt contract')).to.exist;
     });
 
     fireEvent.click(screen.getByRole('button', { name: '生成任务面' }));
@@ -172,8 +189,8 @@ describe('standalone host browser app', () => {
       .closest('section');
     expect(surfaceAfter).to.equal(surfaceBefore);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const actionBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const actionBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body)) as {
       action?: { name?: string; surfaceId?: string };
     };
     expect(actionBody.action?.name).to.equal(DEMO_AGENT_ACTION);

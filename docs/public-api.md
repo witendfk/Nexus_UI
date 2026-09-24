@@ -26,7 +26,7 @@ Stable root-entry exports in `0.1.x`:
 
 - Runtime: `A2UIRuntime`, `RuntimeOptions`.
 - Protocol: `JSONLBuffer`, `isA2UIMessage`, `validateA2UIMessage`, `PROTOCOL_VERSION`, `A2UIError`, `A2UIDiagnostic`, and the A2UI v0.9 message / payload / component / action types.
-- Catalog boundary: `CatalogRegistry`, `CatalogDefinition` with optional host-declared `actions`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
+- Catalog boundary: `CatalogRegistry`, `CatalogDefinition` with optional host-declared `actions`, `createCatalogPromptContract`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
 - State and render seams: `createCoreStore`, `CoreState`, `CoreStore`, `buildTree`, `VNode`, `Surface`, `RenderFn`, and `RenderMap`.
 - Interaction and data helpers: `buildActionEvent`, `ActionEvent`, `getByPath`, `setValueAtPath`, `removeAtPath`, `applyDataModelUpdate`, `resolveDynamic`, `resolveContext`, and `toDisplayString`.
 - Compatibility metadata: `VERSION`, `CORE_API_VERSION`.
@@ -74,7 +74,7 @@ Stable host-assembly exports in `0.1.x`:
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
 - External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
-- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides.
+- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides and explicit `catalogContracts` publication; the guarded router can expose the read-only catalog-contract route.
 - Custom Koa transport seam: `sendAgentRun`, `SendMessagesResult`.
 - Compatibility metadata: `VERSION`, `SERVER_API_VERSION`.
 

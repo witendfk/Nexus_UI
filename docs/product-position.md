@@ -460,7 +460,7 @@ Good-fit UI:
 
 ## 8. Current Capability Baseline
 
-As of P11-b, the capability baseline is:
+As of P12-b, the capability baseline is:
 
 - Real LLM streaming generation is working.
 - Invalid output is rejected by server guard.
@@ -468,6 +468,7 @@ As of P11-b, the capability baseline is:
 - React renders through standard renderMap.
 - Custom catalog render maps are supported.
 - Catalog component schemas and action whitelists are enforced by runtime and server guards.
+- A catalog contract can be generated from the same CatalogDefinition used by guards and explicitly published through a host HTTP route, so an external Agent can consume the host boundary without copying Nexus's playground prompt.
 - TextField supports four variants and `validationRegexp`.
 - TextField and CheckBox write user state back to dataModel.
 - ChoicePicker writes single or multiple string selections back to dataModel.

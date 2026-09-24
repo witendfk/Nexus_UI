@@ -14,6 +14,7 @@ describe('core public API surface', () => {
       'applyDataModelUpdate',
       'buildActionEvent',
       'buildTree',
+      'createCatalogPromptContract',
       'createCoreStore',
       'getByPath',
       'isA2UIMessage',

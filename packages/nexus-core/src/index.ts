@@ -64,6 +64,7 @@ export { A2UIRuntime } from './runtime/index';
 export type { RuntimeOptions } from './runtime/index';
 export { CatalogRegistry } from './catalog/index';
 export type { CatalogDefinition } from './catalog/index';
+export { createCatalogPromptContract } from './catalog/prompt';
 export {
   validateComponentProps,
   validateComponentPropsDiagnostics,
