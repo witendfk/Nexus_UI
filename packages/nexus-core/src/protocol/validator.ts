@@ -2,8 +2,8 @@
  * A2UI v0.9 Agent 线第一版的结构校验。
  *
  * 这里刻意不引入 JSON Schema 运行时依赖：core 只校验信封、公共结构、生命周期安全所需的
- * 字段，以及当前实现显式支持的 A2UI 子集。完整 basic catalog / FunctionCall / checks
- * 的校验与求值属于后续能力，不在本模块扩散。
+ * 字段，以及当前实现显式支持的 A2UI 子集。FunctionCall 仍只允许出现在 checks.condition；
+ * checks 求值由 runtime/checks 模块执行。
  */
 import { PROTOCOL_VERSION } from './types';
 import type { A2UIMessage, ParseResult } from './types';
@@ -14,6 +14,9 @@ const MESSAGE_KEYS = [
   'updateDataModel',
   'deleteSurface',
 ] as const;
+
+const CHECKABLE_COMPONENTS = new Set(['TextField', 'Slider', 'Button']);
+const CHECK_FUNCTIONS = new Set(['required', 'regex', 'length', 'numeric', 'email']);
 
 type MessageKey = (typeof MESSAGE_KEYS)[number];
 
@@ -91,7 +94,14 @@ function containsUnsupportedFunctionCall(value: unknown, depth = 0): boolean {
     keys.every((key) => key === 'call' || key === 'args' || key === 'returnType');
   return (
     looksLikeFunctionCall ||
-    keys.some((key) => containsUnsupportedFunctionCall(value[key], depth + 1))
+    keys.some(
+      (key) =>
+        !(
+          key === 'checks' &&
+          typeof value.component === 'string' &&
+          CHECKABLE_COMPONENTS.has(value.component)
+        ) && containsUnsupportedFunctionCall(value[key], depth + 1),
+    )
   );
 }
 
@@ -112,6 +122,77 @@ function validateAction(value: unknown): string | null {
         return 'action.event.context 包含不支持的动态值';
       }
     }
+  }
+  return null;
+}
+
+function isDataBindingObject(value: unknown): boolean {
+  return isObject(value) && Object.keys(value).length === 1 && typeof value.path === 'string';
+}
+
+function validateCheckCondition(value: unknown): string | null {
+  if (typeof value === 'boolean' || isDataBindingObject(value)) return null;
+  if (!isObject(value) || !hasOnlyKeys(value, ['call', 'args', 'returnType'])) {
+    return 'checks.condition 必须是布尔值、{ path } 绑定或 FunctionCall';
+  }
+  if (typeof value.call !== 'string' || !CHECK_FUNCTIONS.has(value.call)) {
+    return `checks.condition.call 只支持 ${[...CHECK_FUNCTIONS].join('/')}`;
+  }
+  if (value.returnType !== undefined && value.returnType !== 'boolean') {
+    return 'checks.condition.returnType 必须是 boolean';
+  }
+  if (!isObject(value.args)) return 'checks.condition.args 必须是对象';
+
+  const args = value.args;
+  const expectedArgs: Record<string, readonly string[]> = {
+    required: ['value'],
+    regex: ['value', 'pattern'],
+    length: ['value', 'min', 'max'],
+    numeric: ['value', 'min', 'max'],
+    email: ['value'],
+  };
+  if (!hasOnlyKeys(args, expectedArgs[value.call as string])) {
+    return `checks.condition.args 字段不符合 ${value.call} 契约`;
+  }
+  if (!isSupportedDynamicValue(args.value)) {
+    return 'checks.condition.args.value 必须是合法动态值';
+  }
+  if (value.call === 'regex') {
+    if (typeof args.pattern !== 'string') return 'checks.condition.args.pattern 必须是字符串';
+    try {
+      new RegExp(args.pattern);
+    } catch {
+      return 'checks.condition.args.pattern 必须是合法正则表达式';
+    }
+  }
+  if (value.call === 'length' || value.call === 'numeric') {
+    if (args.min === undefined && args.max === undefined) {
+      return `checks.condition.args 必须提供 min 或 max`;
+    }
+    for (const key of ['min', 'max'] as const) {
+      const bound = args[key];
+      if (bound === undefined) continue;
+      if (value.call === 'length') {
+        if (!(typeof bound === 'number' && Number.isInteger(bound) && bound >= 0)) {
+          return `checks.condition.args.${key} 必须是非负整数`;
+        }
+      } else if (!(typeof bound === 'number' && Number.isFinite(bound))) {
+        return `checks.condition.args.${key} 必须是有限数字`;
+      }
+    }
+  }
+  return null;
+}
+
+function validateChecks(component: Record<string, unknown>): string | null {
+  if (!Array.isArray(component.checks)) return 'checks 必须是数组';
+  for (const check of component.checks) {
+    if (!isObject(check) || !hasOnlyKeys(check, ['condition', 'message'])) {
+      return 'checks[] 必须是只包含 condition 和 message 的对象';
+    }
+    if (typeof check.message !== 'string') return 'checks[].message 必须是字符串';
+    const conditionError = validateCheckCondition(check.condition);
+    if (conditionError) return conditionError;
   }
   return null;
 }
@@ -140,6 +221,10 @@ function validateTextField(component: Record<string, unknown>): string | null {
     } catch {
       return 'TextField.validationRegexp 必须是合法正则表达式';
     }
+  }
+  if (component.checks !== undefined) {
+    const checksError = validateChecks(component);
+    if (checksError) return checksError;
   }
   if (component.action !== undefined) return 'TextField 不支持挂载 action';
   return null;
@@ -206,7 +291,10 @@ function validateChoicePicker(component: Record<string, unknown>): string | null
 function validateSlider(component: Record<string, unknown>): string | null {
   if (component.component !== 'Slider') return null;
   if (component.action !== undefined) return 'Slider 不支持挂载 action';
-  if (component.checks !== undefined) return '当前 Agent 线不支持 Slider.checks';
+  if (component.checks !== undefined) {
+    const checksError = validateChecks(component);
+    if (checksError) return checksError;
+  }
   if (component.label !== undefined && !isDynamicString(component.label)) {
     return 'Slider.label 必须是字符串或 { path } 绑定';
   }
@@ -287,6 +375,9 @@ function validateComponent(value: unknown): string | null {
   if (!isObject(value)) return 'components[] 项必须是对象';
   if (typeof value.id !== 'string') return 'component.id 必须是字符串';
   if (typeof value.component !== 'string') return 'component.component 必须是字符串';
+  if (value.checks !== undefined && !CHECKABLE_COMPONENTS.has(value.component)) {
+    return `当前 Agent 线不支持 ${value.component}.checks`;
+  }
 
   const textFieldError = validateTextField(value);
   if (textFieldError) return textFieldError;
@@ -302,6 +393,11 @@ function validateComponent(value: unknown): string | null {
 
   const dateTimeInputError = validateDateTimeInput(value);
   if (dateTimeInputError) return dateTimeInputError;
+
+  if (value.component === 'Button' && value.checks !== undefined) {
+    const checksError = validateChecks(value);
+    if (checksError) return checksError;
+  }
 
   if (value.children !== undefined) {
     if (!Array.isArray(value.children) || !value.children.every((id) => typeof id === 'string')) {

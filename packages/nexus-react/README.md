@@ -16,7 +16,7 @@ Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, 
 
 `Image` 使用协议字段 `url` 渲染图片，`description` 映射为 HTML `alt`，远程图片以 `no-referrer` 加载以兼容防盗链 CDN；不兼容 HTML 风格 `src` / `alt`。
 
-A2UI v0.9 Basic Catalog 共有 18 个组件；当前只开放上述 15 个。`TextField` 支持 `shortText / longText / number / obscured`、`validationRegexp` 和 `{ path }` 双向绑定；`CheckBox` 支持布尔 `{ path }` 双向绑定；`ChoicePicker` 支持单选 / 多选、`checkbox / chips`、筛选和 `string[]` `{ path }` 双向绑定；`DateTimeInput` 支持 date / time / date-time、`min` / `max` 和 ISO 8601 字符串 `{ path }` 双向绑定；`Slider` 使用原生 range 输入、支持有限数字范围和小数步进，并把数字 `value: { path }` 写回 dataModel。`checks` 和 FunctionCall 属于后续版本。
+A2UI v0.9 Basic Catalog 共有 18 个组件；当前只开放上述 15 个。`TextField` 支持 `shortText / longText / number / obscured`、`validationRegexp`、`{ path }` 双向绑定和最小 `checks`；`CheckBox` 支持布尔 `{ path }` 双向绑定；`ChoicePicker` 支持单选 / 多选、`checkbox / chips`、筛选和 `string[]` `{ path }` 双向绑定；`DateTimeInput` 支持 date / time / date-time、`min` / `max` 和 ISO 8601 字符串 `{ path }` 双向绑定；`Slider` 使用原生 range 输入、支持有限数字范围、小数步进、数字 `value: { path }` 写回和最小 `checks`。`Button` 会根据失败 checks 禁用按钮；core 仍会在 action 出口二次阻断。`checks` 组合条件和通用 FunctionCall 属于后续版本。
 
 ## 源码结构
 

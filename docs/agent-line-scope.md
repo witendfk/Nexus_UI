@@ -72,6 +72,7 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 - Basic Catalog `ChoicePicker` 的单选 / 多选、`checkbox / chips` 展示、选项筛选和 `string[]` 形式 `value: { path }` 双向绑定。
 - Basic Catalog `DateTimeInput` 的 date / time / date-time 输入、`min` / `max` 和 ISO 8601 字符串形式的 `value: { path }` 双向绑定。
 - Basic Catalog `Slider` 的有限数字 `min` / `max` 范围和数字 `value: { path }` 双向绑定；`min` 缺省为 `0`，且必须小于 `max`。
+- Basic Catalog 最小 `checks`：仅 `TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`；输入组件展示第一条协议错误文案，Button checks 失败时禁用按钮并由 core 阻断 action。
 - Basic Catalog `search` action：Button 读取 TextField 绑定值并原地更新 `searchResult`。
 - Basic Catalog `submit` action：Button 同时读取 TextField 与 CheckBox 绑定值并原地更新 `submitResult`。
 - `{ path }` 数据绑定。
@@ -105,11 +106,13 @@ P10-d 已完成。MVP 产品收口将当前边界固定为：单 active surface�
 
 P11-a 已完成。Basic Catalog `Slider` 覆盖 core 字段与范围校验、React 原生 range 渲染、数字 `value: { path }` 写回和 Button action 最新数值解析；server Basic Catalog 强制 `value: { path }`，只允许 `id/component/label/min/max/value`，并拒绝非法范围、`checks` 和挂载 action。LLM prompt 明确 `min` 缺省为 `0`，禁止 `minValue/maxValue`。core / React / server 测试通过；全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
+P11-b 已完成。Basic Catalog 支持官方 `CheckRule` 最小子集：`TextField` / `Slider` / `Button` 可使用 `required`、`regex`、`length`、`numeric`、`email`；core 校验官方 `{ condition, message }` 形状并按当前 dataModel 派生 `VNode.validation`，React 展示第一条失败文案，Button 失败 checks 禁用按钮且 core 在 `triggerAction` 出口二次阻断。server guard 只对 Basic Catalog 放行这 5 个函数，限制规则数量、文案和正则长度，LLM prompt 明确动作按钮需要重复阻断条件；Workbench 与通用 FunctionCall 仍不支持。core / React / server 测试覆盖协议结构、求值、DOM 恢复、action 阻断、guard 与 prompt 契约；全仓 format / typecheck / lint / build / test 已于 2026-09-24 通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
 ## 明确不支持
 
 - 剩余 Basic Catalog 组件：`Video`、`AudioPlayer`、`Modal`。
-- `checks`、FunctionCall、可定制校验错误文案与跨字段校验。
-- checks、FunctionCall、`sendDataModel`。
+- `checks` 的 `and/or/not`、自定义函数、跨字段校验与 Workbench `checks`。
+- 通用 FunctionCall、`action.functionCall`、`sendDataModel`。
 - ChildList template 与相对路径作用域。
 - 多 surface 并发展示。
 - WebSocket、A2A、MCP 等其他传输。

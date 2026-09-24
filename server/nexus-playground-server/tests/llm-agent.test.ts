@@ -113,10 +113,11 @@ describe('createLlmMessages', () => {
     assert.match(systemPrompt, /Supported components:.*Slider/);
     assert.match(
       systemPrompt,
-      /Use Slider only with "id", "component", optional "label", optional "min", required "max", and required "value"/,
+      /Use Slider only with "id", "component", optional "label", optional "min", required "max", required "value", and optional "checks"/,
     );
     assert.match(systemPrompt, /"value" must be exactly \{ "path": "\.\.\." \}/);
-    assert.match(systemPrompt, /Do not use checks, minValue, maxValue, or an action on Slider/);
+    assert.match(systemPrompt, /required "value", and optional "checks"/);
+    assert.match(systemPrompt, /Do not use minValue, maxValue, or an action on Slider/);
   });
 
   it('Workbench prompt 固化企业任务 surface 的组件与绑定契约', () => {
@@ -132,6 +133,7 @@ describe('createLlmMessages', () => {
     const generationExample = String(messages[2]?.content);
 
     assert.match(systemPrompt, /Supported components: CustomerSummary/);
+    assert.match(systemPrompt, /Workbench does not support checks/);
     assert.match(systemPrompt, /Use CustomerSummary only with id, component, customerName/);
     assert.match(
       systemPrompt,
@@ -211,7 +213,22 @@ describe('createLlmMessages', () => {
     );
     assert.match(
       systemPrompt,
-      /Do not use placeholder, checks, accessibility, weight, or an action on TextField/,
+      /Do not use placeholder, accessibility, weight, or an action on TextField/,
+    );
+    assert.match(
+      systemPrompt,
+      /Use checks only in the Basic Catalog and only on TextField, Slider, and Button/,
+    );
+    assert.match(
+      systemPrompt,
+      /Each check must be exactly \{ "condition": \{ "call", "args", "returnType": "boolean" \}, "message": "\.\.\." \}/,
+    );
+    assert.match(systemPrompt, /never put "call" at the CheckRule root/);
+    assert.match(systemPrompt, /"call" may only be required, regex, length, numeric, or email/);
+    assert.match(systemPrompt, /do not use and, or, not, or custom functions/);
+    assert.match(
+      systemPrompt,
+      /repeat the same blocking condition on that action Button\.checks as well as the input component\.checks/,
     );
   });
 

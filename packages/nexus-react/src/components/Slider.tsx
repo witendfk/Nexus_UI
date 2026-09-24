@@ -11,6 +11,7 @@ interface SliderViewProps {
   value: number;
   min: number;
   max: number;
+  checkMessage?: string;
   setInputValue: RenderContext['setInputValue'];
 }
 
@@ -42,7 +43,22 @@ const valueStyle = {
   color: '#334155',
 } as const;
 
-function SliderView({ id, surfaceId, label, value, min, max, setInputValue }: SliderViewProps) {
+const errorStyle = {
+  color: '#dc2626',
+  fontSize: 12,
+  lineHeight: 1.4,
+} as const;
+
+function SliderView({
+  id,
+  surfaceId,
+  label,
+  value,
+  min,
+  max,
+  checkMessage,
+  setInputValue,
+}: SliderViewProps) {
   return createElement(
     'label',
     { key: id, style: labelStyle },
@@ -60,9 +76,14 @@ function SliderView({ id, surfaceId, label, value, min, max, setInputValue }: Sl
           setInputValue(id, surfaceId, Number(event.target.value)),
         style: sliderStyle,
         'aria-label': label || '数值',
+        'aria-invalid': Boolean(checkMessage),
+        'aria-describedby': checkMessage ? `${id}-error` : undefined,
       }),
       createElement('output', { style: valueStyle }, String(value)),
     ),
+    checkMessage
+      ? createElement('span', { id: `${id}-error`, style: errorStyle }, checkMessage)
+      : null,
   );
 }
 
@@ -83,6 +104,7 @@ export const Slider: RenderFn = (vnode, _children, ctx) => {
     value,
     min,
     max,
+    checkMessage: vnode.validation?.message,
     setInputValue: (componentId, _surfaceId, nextValue) =>
       ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
   });

@@ -38,6 +38,9 @@ export interface LocalFunctionCall {
   returnType?: string;
 }
 
+/** DynamicBoolean：字面布尔、数据绑定，或返回布尔值的本地函数调用。 */
+export type DynamicBoolean = boolean | DataBinding | LocalFunctionCall;
+
 /** 服务端 action 事件定义。 */
 export interface ServerActionEvent {
   name: string;
@@ -89,8 +92,16 @@ export interface Component {
   tabs?: TabItem[];
   /** 交互处理器（Button 等）。 */
   action?: Action;
+  /** Checkable 组件的客户端校验规则。 */
+  checks?: CheckRule[];
   /** 其余组件特定属性。 */
   [key: string]: unknown;
+}
+
+/** A2UI Checkable 规则；condition 为真表示校验通过。 */
+export interface CheckRule {
+  condition: DynamicBoolean;
+  message: string;
 }
 
 /** Tabs 的静态标签定义。 */
@@ -185,6 +196,14 @@ export interface VNode {
   props: Record<string, unknown>;
   children: VNode[] | null;
   surfaceId: string;
+  /** core 根据 checks 与当前 dataModel 派生的校验状态。 */
+  validation?: ComponentValidation;
+}
+
+/** 渲染层消费的 checks 派生状态。 */
+export interface ComponentValidation {
+  valid: boolean;
+  message?: string;
 }
 
 /** Surface：渲染隔离单元（独立 root / 组件表 / 数据模型）。 */

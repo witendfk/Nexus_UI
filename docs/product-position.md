@@ -460,7 +460,7 @@ Good-fit UI:
 
 ## 8. Current Capability Baseline
 
-As of P11-a, the capability baseline is:
+As of P11-b, the capability baseline is:
 
 - Real LLM streaming generation is working.
 - Invalid output is rejected by server guard.
@@ -473,6 +473,7 @@ As of P11-a, the capability baseline is:
 - ChoicePicker writes single or multiple string selections back to dataModel.
 - DateTimeInput writes an ISO 8601 date, time, or date-time string back to dataModel.
 - Slider writes a finite number back to dataModel and supports decimal ranges with native range input.
+- Minimal A2UI checks are supported on Basic TextField, Slider, and Button for required, regex, length, numeric, and email rules; React shows the first protocol-provided error and core blocks an invalid Button action.
 - Search and submit actions carry current context values.
 - The same surface is patched in place.
 - Basic Catalog current subset is implemented.

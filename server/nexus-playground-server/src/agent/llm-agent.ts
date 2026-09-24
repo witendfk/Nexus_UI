@@ -41,14 +41,22 @@ Never render or label the URL itself in Text, including through an updateDataMod
 If the request supplies an image URL, copy it exactly into Image.url. If an avatar is requested without a URL, use https://ui-avatars.com/api/?name=<name>&size=256; do not invent another domain.`
     : '';
   const textFieldRule = components.includes('TextField')
-    ? `\nUse TextField only with "id", "component", "label", "value", optional "variant", and optional "validationRegexp".
+    ? `\nUse TextField only with "id", "component", "label", "value", optional "variant", optional "validationRegexp", and optional "checks" (Basic Catalog only).
 "label" may be a string or { "path": "..." }; "value" must be exactly { "path": "..." } so user edits write back to the data model.
 "variant" may only be "shortText", "longText", "number", or "obscured". Use "validationRegexp" only when the user explicitly supplies a regular expression, and copy it exactly.
-Do not use placeholder, checks, accessibility, weight, or an action on TextField.
+Do not use placeholder, accessibility, weight, or an action on TextField.
 When the request asks for a search workflow, generate one TextField with value path /keyword, one Button with action name "search" and context keyword bound to /keyword, and one Text component with id "searchResult"; include searchResult in the rendered component tree.
 The search action handler will patch the searchResult component after the user submits.`
     : '';
   const isWorkbench = components.includes('CustomerSummary');
+  const checksRule = isWorkbench
+    ? '\nWorkbench does not support checks.'
+    : `
+Use checks only in the Basic Catalog and only on TextField, Slider, and Button.
+Each check must be exactly { "condition": { "call", "args", "returnType": "boolean" }, "message": "..." }; never put "call" at the CheckRule root.
+"call" may only be required, regex, length, numeric, or email; do not use and, or, not, or custom functions.
+required and email use args { "value": { "path": "..." } }; regex also includes a string "pattern"; length and numeric use args with "value" and at least one finite numeric "min" or "max" (length bounds must be non-negative integers).
+When a check should block an action, repeat the same blocking condition on that action Button.checks as well as the input component.checks.`;
   const choicePickerRule = components.includes('ChoicePicker')
     ? `
 Use ChoicePicker only with "id", "component", optional "label", optional "variant", "options", "value", optional "displayStyle", and optional "filterable".
@@ -64,10 +72,10 @@ Use DateTimeInput only with "id", "component", optional "label", "value", "enabl
     : '';
   const sliderRule = components.includes('Slider')
     ? `
-Use Slider only with "id", "component", optional "label", optional "min", required "max", and required "value".
+Use Slider only with "id", "component", optional "label", optional "min", required "max", required "value", and optional "checks".
 "min" defaults to 0; "min" and "max" must be finite numbers, and min must be less than max.
 "value" must be exactly { "path": "..." } so user adjustments write a number back to the data model.
-Do not use checks, minValue, maxValue, or an action on Slider.`
+Do not use minValue, maxValue, or an action on Slider.`
     : '';
   const checkBoxRule =
     components.includes('CheckBox') && !isWorkbench
@@ -109,12 +117,13 @@ Use flat component ids, static children/child references, and { "path": "..." } 
 ${tabsRule}
 ${imageRule}
 ${textFieldRule}
+${checksRule}
 ${choicePickerRule}
 ${sliderRule}
 ${dateTimeInputRule}
 ${checkBoxRule}
 ${workbenchRule}
-Use only action.event; do not use functionCall, checks, sendDataModel, or form components outside the supported component list.
+Use only action.event; do not use functionCall, sendDataModel, or form components outside the supported component list. If no checks rule above permits checks, do not use checks.
 Attach actions only to Button (Basic and Workbench catalogs) or TaskButton (task catalog), never to Text or other components.
 The first generation message must create the requested surface. Action responses may only update it.
 The createSurface catalogId must be exactly ${catalogId}.

@@ -27,6 +27,7 @@ import type {
 } from '../protocol/types';
 import { applyDataModelUpdate } from '../dataModel/index';
 import type { CatalogRegistry, ComponentSchemaDiagnostic } from '../catalog/index';
+import { getFirstFailedCheck } from '../checks';
 
 export { isA2UIMessage } from '../protocol/validator';
 
@@ -117,6 +118,7 @@ export class A2UIRuntime {
     const component = st.componentsBySurface[surfaceId]?.[sourceComponentId];
     if (!component) return;
     const model = st.dataModelBySurface[surfaceId];
+    if (getFirstFailedCheck(component.checks, model) !== null) return;
     const event = buildActionEvent(component, surfaceId, model);
     if (event) this.options.onAction?.(event);
   }

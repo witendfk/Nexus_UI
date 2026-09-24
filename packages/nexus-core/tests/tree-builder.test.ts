@@ -97,4 +97,42 @@ describe('buildTree', () => {
       { title: 'Second', child: 'second' },
     ]);
   });
+
+  it('checks 按当前 dataModel 派生第一条失败信息', () => {
+    const components = map(
+      { id: 'root', component: 'Column', children: ['email'] },
+      {
+        id: 'email',
+        component: 'TextField',
+        label: '邮箱',
+        value: { path: '/email' },
+        checks: [
+          {
+            condition: {
+              call: 'required',
+              args: { value: { path: '/email' } },
+              returnType: 'boolean',
+            },
+            message: '邮箱必填',
+          },
+          {
+            condition: {
+              call: 'email',
+              args: { value: { path: '/email' } },
+              returnType: 'boolean',
+            },
+            message: '请输入合法邮箱',
+          },
+        ],
+      },
+    );
+
+    expect(buildTree(components, 's', { email: '' })?.children?.[0]?.validation).to.deep.equal({
+      valid: false,
+      message: '邮箱必填',
+    });
+    expect(
+      buildTree(components, 's', { email: 'a@b.com' })?.children?.[0]?.validation,
+    ).to.deep.equal({ valid: true, message: undefined });
+  });
 });

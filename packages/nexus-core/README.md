@@ -12,12 +12,13 @@
 - JSON Pointer 数据模型更新。
 - `{ path }` 动态值和 action context 解析。
 - Basic `TextField` / `CheckBox` / `ChoicePicker` / `DateTimeInput` / `Slider` 的双向输入写回 seam。
+- Basic `TextField` / `Slider` / `Button` 的最小 A2UI `checks`：支持 `required` / `regex` / `length` / `numeric` / `email`，按当前 dataModel 求值并生成 `VNode.validation`；Button checks 失败会阻断 action。
 - 框架无关 `ActionEvent` 出口。
 - `CatalogRegistry`：登记 `catalogId`、组件名边界、可选 action 白名单和可选的自定义组件 props schema。
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
 - 单条坏消息记录错误并丢弃，不中断后续流。
 
-当前校验目标是生命周期安全和 MVP 子集，不等于完整 A2UI Basic Catalog JSON Schema 引擎。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。FunctionCall、checks、ChildList template、跨字段校验和端到端 `sendDataModel` 均未支持；`Slider` 已支持数值双向绑定，但 `Slider.checks` 未开放。
+当前校验目标是生命周期安全和 MVP 子集，不等于完整 A2UI Basic Catalog JSON Schema 引擎。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。通用 FunctionCall、`checks` 组合条件、跨字段校验、Workbench checks 和端到端 `sendDataModel` 均未支持；Basic `TextField` / `Slider` / `Button` 的 5 个基础校验函数属于当前最小支持范围。
 
 ## 源码结构
 
@@ -30,6 +31,7 @@ src/
   catalog/        Catalog Registry
   state/          surface / components / dataModel 状态
   render/         扁平组件表到 VNode
+  checks/         CheckRule 最小求值
   action/         action context 解析与事件出口
   runtime/        A2UIRuntime 编排
 ```

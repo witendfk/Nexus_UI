@@ -10,7 +10,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 | --- | --- |
 | 安全 UI 边界 | Agent 输出不能是 HTML、前端源码或任意 JSON；结构、surface 生命周期、组件、props、action 都必须通过 guard。 |
 | 流式运行时 | core 缓冲 JSONL、渐进解析消息、维护组件树和 dataModel，并以流式状态驱动 React 渲染。 |
-| 有状态交互 | TextField、CheckBox、ChoicePicker、DateTimeInput、Slider 可写回 dataModel；Button action 携带解析后的最新上下文。 |
+| 有状态交互 | TextField、CheckBox、ChoicePicker、DateTimeInput、Slider 可写回 dataModel；最小 A2UI checks 展示协议错误并阻断按钮 action；Button action 携带最新上下文。 |
 | 宿主设计系统控制 | A2UI 组件名通过 React renderMap 映射到宿主组件；自定义 Catalog 可声明组件 schema 和 action 白名单。 |
 | 业务 action 归属 | action 可以回传外部 Agent，也可以由宿主本地 handler 执行；两种策略的输出都走同一 guard。 |
 | 可接入证明 | 提供独立宿主、外部 Agent RPC、有限 server 装配 API、坏输出回归和浏览器验收路径。 |
@@ -76,12 +76,13 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 
 ## MVP 边界
 
-当前能力基线到 P11-a；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
+当前能力基线到 P11-b；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
 
 当前包含：
 
 - 单 active surface、SSE 参考传输、静态 child / children、`{ path }` dataModel 绑定和 action context 解析。
 - A2UI Basic Catalog 15 个组件：`Text`、`TextField`、`CheckBox`、`ChoicePicker`、`DateTimeInput`、`Slider`、`Button`、`Column`、`Row`、`List`、`Tabs`、`Image`、`Card`、`Icon`、`Divider`。
+- Basic Catalog 最小 `checks`：`TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`，并展示协议错误文案；失败 Button checks 会阻断 action。
 - task / Workbench 自定义 Catalog：验证企业组件映射、props schema、action 白名单、结构化 diagnostics 和业务闭环。
 - 外部 Agent HTTP JSONL RPC：初始生成与 action 都可回传远端；宿主也可通过 `NEXUS_DEMO_ACTION_MODE=local` 把 action 留在本地，输出仍走统一 guard。
 - 独立宿主 Demo：LLM-backed Agent、Koa 宿主 API、React 宿主页面、health 策略展示和同 surface patch。
@@ -91,7 +92,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 当前不包含：
 
 - A2UI Basic Catalog 的 `Video`、`AudioPlayer`、`Modal`。
-- `checks`、FunctionCall、ChildList template、跨字段校验和完整标准 JSON Schema。
+- 通用 FunctionCall、ChildList template、`checks` 组合条件、跨字段校验、Workbench `checks` 和完整标准 JSON Schema。
 - 多 surface 并发展示、WebSocket、A2A、MCP。
 - 认证、授权、租户隔离、审计、公网限流和多实例数据库持久化。
 
@@ -214,6 +215,7 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P10-c | 可切换 action 策略浏览器验收 | 完成 |
 | P10-d | MVP 产品收口与演示叙事 | 完成 |
 | P11-a | Basic `Slider` 数值绑定与 action 上下文闭环 | 完成 |
+| P11-b | Basic `checks` 最小校验与 action 阻断闭环 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
@@ -286,9 +288,11 @@ P10-d 验收记录（2026-09-23）：MVP 产品收口完成。README 首屏改�
 
 P11-a 验收记录（2026-09-24）：Basic Catalog `Slider` 接入 core 结构校验、React 原生 range 渲染、数字 `value: { path }` 双向绑定和 Button action 最新数值解析。server catalog、prompt 与 guard 要求有限数字 `min/max`、`min < max`、`value: { path }`，并拒绝 `checks`、未知字段和挂载 action。core / React / server 测试覆盖合法结构、非法范围、数字写回、DOM 交互、公开导出和 prompt 契约；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
+P11-b 验收记录（2026-09-24）：Basic Catalog 最小 A2UI `checks` 闭环完成。core 支持官方 `{ condition, message }`、5 个基础校验函数和 `VNode.validation`；React 在 `TextField` / `Slider` 展示协议错误文案，Button 失败 checks 禁用按钮，core 在 action 出口二次阻断；server guard 与 LLM prompt 仅对 Basic `TextField` / `Slider` / `Button` 放行，并限制函数、数量、文案和正则边界。core / React / server 测试覆盖协议结构、求值、DOM 恢复、action 阻断、guard 与 prompt 契约；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
 ## 后续路线
 
 1. **Catalog 工程化后续**：按真实宿主需求评估完整标准 JSON Schema、跨字段校验与诊断上限策略。
-2. **场景化表单扩展**：在真实工作流需要时评估 `checks` 与跨字段校验。
+2. **场景化表单扩展**：在真实工作流需要时评估 `checks` 组合条件与跨字段校验。
 
 扩展顺序必须继续服从产品目标：先增强 runtime 的确定性和可接入性，不做组件画廊式的大而全。

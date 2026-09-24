@@ -5,6 +5,10 @@ import type { RenderFn } from '../types';
 export const Button: RenderFn = (vnode, children, ctx) =>
   createElement(
     'button',
-    { key: vnode.id, onClick: () => ctx.triggerAction(vnode.id, vnode.surfaceId) },
+    {
+      key: vnode.id,
+      disabled: vnode.props.disabled === true || vnode.validation?.valid === false,
+      onClick: () => ctx.triggerAction(vnode.id, vnode.surfaceId),
+    },
     ...children,
   );

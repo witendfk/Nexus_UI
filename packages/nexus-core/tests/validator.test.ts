@@ -379,6 +379,158 @@ describe('validateA2UIMessage', () => {
     expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.equal(
       'Slider 不支持挂载 action',
     );
-    expect(error(message({ ...valid, checks: [] }))).to.equal('当前 Agent 线不支持 Slider.checks');
+    expect(
+      validateA2UIMessage(
+        message({
+          ...valid,
+          checks: [
+            {
+              condition: {
+                call: 'numeric',
+                args: { value: { path: '/threshold' }, min: 0 },
+                returnType: 'boolean',
+              },
+              message: '阈值不能小于 0',
+            },
+          ],
+        }),
+      ).ok,
+    ).to.equal(true);
+  });
+
+  it('校验官方 CheckRule 与最小函数子集', () => {
+    const message = (component: unknown) => ({
+      version: 'v0.9',
+      updateComponents: { surfaceId: 'd', components: [component] },
+    });
+    const valid = {
+      id: 'email',
+      component: 'TextField',
+      label: '邮箱',
+      value: { path: '/email' },
+      checks: [
+        {
+          condition: {
+            call: 'email',
+            args: { value: { path: '/email' } },
+            returnType: 'boolean',
+          },
+          message: '请输入合法邮箱',
+        },
+      ],
+    };
+
+    expect(validateA2UIMessage(message(valid)).ok).to.equal(true);
+    expect(
+      validateA2UIMessage(
+        message({
+          id: 'submit',
+          component: 'Button',
+          checks: [
+            {
+              condition: {
+                call: 'required',
+                args: { value: { path: '/email' } },
+                returnType: 'boolean',
+              },
+              message: '邮箱必填',
+            },
+          ],
+        }),
+      ).ok,
+    ).to.equal(true);
+    expect(
+      error(
+        message({
+          ...valid,
+          checks: [
+            {
+              call: 'required',
+              args: { value: { path: '/email' } },
+              message: '邮箱必填',
+            },
+          ],
+        }),
+      ),
+    ).to.equal('checks[] 必须是只包含 condition 和 message 的对象');
+    expect(
+      error(
+        message({
+          ...valid,
+          checks: [
+            {
+              condition: {
+                call: 'and',
+                args: { values: [] },
+                returnType: 'boolean',
+              },
+              message: '组合条件',
+            },
+          ],
+        }),
+      ),
+    ).to.equal('checks.condition.call 只支持 required/regex/length/numeric/email');
+    expect(
+      error(
+        message({
+          ...valid,
+          checks: [
+            {
+              condition: {
+                call: 'regex',
+                args: { value: { path: '/email' }, pattern: '[' },
+                returnType: 'boolean',
+              },
+              message: '邮箱格式错误',
+            },
+          ],
+        }),
+      ),
+    ).to.equal('checks.condition.args.pattern 必须是合法正则表达式');
+    expect(
+      error(
+        message({
+          ...valid,
+          checks: [
+            {
+              condition: {
+                call: 'length',
+                args: { value: { path: '/email' }, min: -1 },
+                returnType: 'boolean',
+              },
+              message: '长度错误',
+            },
+          ],
+        }),
+      ),
+    ).to.equal('checks.condition.args.min 必须是非负整数');
+    expect(
+      error(
+        message({
+          ...valid,
+          checks: [
+            {
+              condition: {
+                call: 'numeric',
+                args: { value: { path: '/email' }, max: Number.POSITIVE_INFINITY },
+                returnType: 'boolean',
+              },
+              message: '数值错误',
+            },
+          ],
+        }),
+      ),
+    ).to.equal('checks.condition.args.max 必须是有限数字');
+    expect(
+      error(
+        message({
+          id: 'subscribed',
+          component: 'CheckBox',
+          label: '订阅',
+          value: { path: '/subscribed' },
+          checks: [],
+        }),
+      ),
+    ).to.equal('当前 Agent 线不支持 CheckBox.checks');
   });
 });

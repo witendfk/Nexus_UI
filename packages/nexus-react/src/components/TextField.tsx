@@ -42,6 +42,7 @@ interface TextFieldViewProps {
   value: string;
   variant: string;
   validationRegexp?: unknown;
+  checkMessage?: string;
   setInputValue: RenderContext['setInputValue'];
 }
 
@@ -52,6 +53,7 @@ function TextFieldView({
   value,
   variant,
   validationRegexp,
+  checkMessage,
   setInputValue,
 }: TextFieldViewProps) {
   const [touched, setTouched] = useState(false);
@@ -63,7 +65,8 @@ function TextFieldView({
       return null;
     }
   }, [validationRegexp]);
-  const invalid = touched && validationPattern !== null && !validationPattern.test(value);
+  const formatInvalid = touched && validationPattern !== null && !validationPattern.test(value);
+  const invalid = Boolean(checkMessage) || formatInvalid;
   const onChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setInputValue(id, surfaceId, event.target.value);
   };
@@ -71,8 +74,10 @@ function TextFieldView({
     setTouched(true);
   };
 
-  const describedBy = invalid ? `${id}-format-error` : undefined;
+  const errorId = `${id}-error`;
+  const describedBy = invalid ? errorId : undefined;
   const commonProps = {
+    id,
     value,
     onChange,
     onBlur,
@@ -95,12 +100,12 @@ function TextFieldView({
         });
 
   return createElement(
-    'label',
+    'div',
     { key: id, style: labelStyle },
-    label,
+    createElement('label', { htmlFor: id }, label),
     control,
     invalid
-      ? createElement('span', { id: `${id}-format-error`, style: errorStyle }, '格式不符合要求')
+      ? createElement('span', { id: errorId, style: errorStyle }, checkMessage || '格式不符合要求')
       : null,
   );
 }
@@ -121,6 +126,7 @@ export const TextField: RenderFn = (vnode, _children, ctx) => {
     value,
     variant,
     validationRegexp: vnode.props.validationRegexp,
+    checkMessage: vnode.validation?.message,
     setInputValue: (componentId, _surfaceId, nextValue) =>
       ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
   });

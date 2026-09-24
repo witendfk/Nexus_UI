@@ -54,6 +54,55 @@ const SLIDER_FORM = [
   '{"version":"v0.9","updateDataModel":{"surfaceId":"slider","value":{"threshold":0.25}}}',
 ];
 
+const CHECK_FORM = [
+  '{"version":"v0.9","createSurface":{"surfaceId":"checks","catalogId":"basic"}}',
+  JSON.stringify({
+    version: 'v0.9',
+    updateComponents: {
+      surfaceId: 'checks',
+      components: [
+        { id: 'root', component: 'Column', children: ['email', 'submitButton'] },
+        {
+          id: 'email',
+          component: 'TextField',
+          label: '邮箱',
+          value: { path: '/email' },
+          checks: [
+            {
+              condition: {
+                call: 'email',
+                args: { value: { path: '/email' } },
+                returnType: 'boolean',
+              },
+              message: '请输入合法邮箱',
+            },
+          ],
+        },
+        {
+          id: 'submitButton',
+          component: 'Button',
+          child: 'submitLabel',
+          checks: [
+            {
+              condition: {
+                call: 'email',
+                args: { value: { path: '/email' } },
+                returnType: 'boolean',
+              },
+              message: '请输入合法邮箱',
+            },
+          ],
+          action: {
+            event: { name: 'submit', context: { email: { path: '/email' } } },
+          },
+        },
+        { id: 'submitLabel', component: 'Text', text: '提交' },
+      ],
+    },
+  }),
+  '{"version":"v0.9","updateDataModel":{"surfaceId":"checks","value":{"email":"invalid"}}}',
+];
+
 function textFieldForm(surfaceId: string, props: Record<string, unknown>): string[] {
   return [
     `{"version":"v0.9","createSurface":{"surfaceId":"${surfaceId}","catalogId":"basic"}}`,
@@ -273,6 +322,43 @@ describe('A2UIProvider', () => {
       sourceComponentId: 'submitButton',
       context: { threshold: 0.75 },
     });
+  });
+
+  it('checks 展示协议错误文案并阻断 Button action，输入合法后恢复', () => {
+    const events: ActionEvent[] = [];
+    render(
+      createElement(
+        A2UIProvider,
+        { onAction: (event) => events.push(event) },
+        createElement(Harness, { lines: CHECK_FORM }),
+      ),
+    );
+
+    const input = screen.getByLabelText('邮箱') as HTMLInputElement;
+    const button = screen.getByRole('button', { name: '提交' }) as HTMLButtonElement;
+    expect(screen.getByText('请输入合法邮箱')).to.exist;
+    expect(input.getAttribute('aria-invalid')).to.equal('true');
+    expect(input.getAttribute('aria-describedby')).to.equal('email-error');
+    expect(button.disabled).to.equal(true);
+
+    fireEvent.click(button);
+    expect(events).to.have.length(0);
+
+    fireEvent.change(input, { target: { value: 'nexus@example.com' } });
+    expect(screen.queryByText('请输入合法邮箱')).to.equal(null);
+    expect(input.getAttribute('aria-invalid')).to.equal('false');
+    expect(input.getAttribute('aria-describedby')).to.equal(null);
+    expect(button.disabled).to.equal(false);
+
+    fireEvent.click(button);
+    expect(events).to.deep.equal([
+      {
+        name: 'submit',
+        surfaceId: 'checks',
+        sourceComponentId: 'submitButton',
+        context: { email: 'nexus@example.com' },
+      },
+    ]);
   });
 
   it('TextField 渲染官方 longText / number / obscured 变体', () => {

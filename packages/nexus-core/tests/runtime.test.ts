@@ -475,6 +475,32 @@ describe('A2UIRuntime', () => {
     expect(runtime.store.getState().dataModelBySurface['task-1']).to.deep.equal({ amount: '12' });
   });
 
+  it('Button.checks 失败时阻断 action，校验通过后携带最新值放行', () => {
+    const events: unknown[] = [];
+    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    rt.push('{"version":"v0.9","createSurface":{"surfaceId":"checks","catalogId":"basic"}}\n');
+    rt.push(
+      '{"version":"v0.9","updateComponents":{"surfaceId":"checks","components":[{"id":"root","component":"Column","children":["email","submit"]},{"id":"email","component":"TextField","label":"邮箱","value":{"path":"/email"}},{"id":"submit","component":"Button","child":"label","checks":[{"condition":{"call":"email","args":{"value":{"path":"/email"}},"returnType":"boolean"},"message":"请输入合法邮箱"}],"action":{"event":{"name":"submit","context":{"email":{"path":"/email"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
+    );
+    rt.push(
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"checks","value":{"email":"invalid"}}}\n',
+    );
+
+    rt.triggerAction('submit', 'checks');
+    expect(events).to.have.length(0);
+
+    expect(rt.setInputValue('email', 'checks', 'nexus@example.com')).to.equal(true);
+    rt.triggerAction('submit', 'checks');
+    expect(events).to.deep.equal([
+      {
+        name: 'submit',
+        surfaceId: 'checks',
+        sourceComponentId: 'submit',
+        context: { email: 'nexus@example.com' },
+      },
+    ]);
+  });
+
   it('onRender 抛错时不中断后续数据更新', () => {
     const errors: string[] = [];
     const rt = new A2UIRuntime({

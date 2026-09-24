@@ -8,10 +8,11 @@
  *   - 环检测：子 id 命中当前路径上的祖先（含自身）→ 占位，避免无限递归。
  */
 import { resolveDynamic } from '../dataModel';
+import { getFirstFailedCheck } from '../checks';
 import type { Component, VNode } from '../protocol/types';
 
 const PLACEHOLDER_TYPE = '__placeholder__';
-const SKIP_KEYS = new Set(['id', 'component', 'children', 'child']);
+const SKIP_KEYS = new Set(['id', 'component', 'children', 'child', 'checks']);
 
 /** 由某 surface 的扁平组件表构建 VNode 根树；无 root 返回 null。 */
 export function buildTree(
@@ -68,5 +69,17 @@ function buildNode(
       })
     : null;
 
-  return { id: component.id, type: component.component, props, children, surfaceId };
+  const failedCheck = getFirstFailedCheck(component.checks, model);
+  const validation =
+    component.checks === undefined
+      ? undefined
+      : { valid: failedCheck === null, message: failedCheck?.message };
+  return {
+    id: component.id,
+    type: component.component,
+    props,
+    children,
+    surfaceId,
+    ...(validation === undefined ? {} : { validation }),
+  };
 }

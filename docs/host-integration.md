@@ -412,12 +412,12 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 | `Card` | Supported | Static child structure. |
 | `Tabs` | Supported | Static `tabs`; activation state is local to React renderer. |
 | `Divider` | Supported | Basic layout divider. |
-| `Button` | Supported | `action.event` only. |
-| `TextField` | Supported | Four variants, `{ path }` write-back, `validationRegexp`. |
+| `Button` | Supported | `action.event` only; minimal `checks` can disable the button. |
+| `TextField` | Supported | Four variants, `{ path }` write-back, `validationRegexp`, and minimal `checks`. |
 | `CheckBox` | Supported | Boolean `{ path }` write-back. |
 | `ChoicePicker` | Supported | Single or multiple selection, `checkbox` / `chips`, filtering, and `string[]` `{ path }` write-back. |
 | `DateTimeInput` | Supported | Date, time, or date-time input; `min` / `max`; ISO 8601 string `{ path }` write-back. |
-| `Slider` | Supported | Finite numeric range with `min` / `max`; numeric `{ path }` write-back; no `checks` or component action. |
+| `Slider` | Supported | Finite numeric range with `min` / `max`; numeric `{ path }` write-back and minimal `checks`; no component action. |
 | `Video` | Not open | No runtime or renderMap implementation. |
 | `AudioPlayer` | Not open | No runtime or renderMap implementation. |
 | `Modal` | Not open | No runtime or renderMap implementation. |
@@ -435,12 +435,14 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 | `{ path }` dynamic values | Supported |
 | `action.event` | Supported |
 | `action.functionCall` | Not supported |
-| `checks` validation | Not supported |
+| `checks` validation | Minimal support |
 | ChildList template | Not supported |
 | `sendDataModel` | Not supported end to end |
 | Theme | Stored by core; standard React components do not yet apply it |
 | Multiple active rendered surfaces | Not supported in playground |
 | WebSocket / A2A / MCP transport | Not implemented |
+
+Minimal `checks` support means Basic Catalog `TextField` / `Slider` / `Button` may use the official `{ condition, message }` rule with `required`, `regex`, `length`, `numeric`, or `email`. Core derives the first failed message from the current dataModel, React exposes it with invalid-state accessibility attributes, and a failed Button check blocks `triggerAction`. Composite functions (`and` / `or` / `not`), custom functions, cross-field validation, and Workbench checks remain unsupported.
 
 ## 7. Security Boundaries
 
@@ -459,6 +461,7 @@ The reference guard rejects:
 - Illegal CheckBox fields and non-bound values.
 - Illegal ChoicePicker fields, duplicate or empty option values, and non-bound values.
 - Illegal DateTimeInput fields, invalid ISO 8601 min/max values, missing date/time capability, and non-bound values.
+- Basic `checks` outside `TextField` / `Slider` / `Button`, unsupported functions, invalid bounds or regexes, overlong messages or regexes, and more than 8 rules.
 - Workbench customer-summary fields that are not bound through allowed dataModel paths.
 - Custom catalog props that are missing required fields, use unknown fields, violate enum / type rules, or bypass the declared `{ path }` binding policy.
 - Workbench generation that omits the required task input, priority, date-time reminder, submit button, result component, or customer action context.

@@ -173,8 +173,10 @@ const updateWithUnsupportedAction = {
       {
         id: 'button',
         component: 'Button',
+        child: 'buttonLabel',
         action: { event: { name: 'refresh', context: {} } },
       },
+      { id: 'buttonLabel', component: 'Text', text: '刷新' },
     ],
   },
 } as A2UIMessage;
@@ -629,10 +631,7 @@ describe('validateAgentSequence', () => {
       validateAgentSequence(message({ ...valid, min: 1 }), 1, options),
       'Slider.min 必须小于 max',
     );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      '当前 Agent 线不支持 Slider.checks',
-    );
+    assert.equal(validateAgentSequence(message({ ...valid, checks: [] }), 1, options), null);
     assert.equal(
       validateAgentSequence(
         message({ ...valid, action: { event: { name: 'submit' } } }),
@@ -640,6 +639,162 @@ describe('validateAgentSequence', () => {
         options,
       ),
       'Slider 不支持挂载 action',
+    );
+  });
+
+  it('Basic Catalog 只开放 TextField/Slider/Button 的最小 CheckRule 子集', () => {
+    const message = (component: unknown) =>
+      ({
+        version: 'v0.9',
+        updateComponents: { surfaceId: 'surface-1', components: [component] },
+      }) as A2UIMessage;
+    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
+    const emailRule = {
+      condition: {
+        call: 'email',
+        args: { value: { path: '/email' } },
+        returnType: 'boolean',
+      },
+      message: '请输入合法邮箱',
+    };
+    const textField = {
+      id: 'email',
+      component: 'TextField',
+      label: '邮箱',
+      value: { path: '/email' },
+      checks: [emailRule],
+    };
+
+    assert.equal(validateAgentSequence(message(textField), 1, options), null);
+    assert.equal(
+      validateAgentSequence(
+        message({
+          id: 'threshold',
+          component: 'Slider',
+          label: '阈值',
+          min: 0,
+          max: 1,
+          value: { path: '/threshold' },
+          checks: [
+            {
+              condition: {
+                call: 'numeric',
+                args: { value: { path: '/threshold' }, min: 0 },
+                returnType: 'boolean',
+              },
+              message: '阈值不能小于 0',
+            },
+          ],
+        }),
+        1,
+        options,
+      ),
+      null,
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({
+          id: 'submit',
+          component: 'Button',
+          child: 'submitLabel',
+          checks: [
+            {
+              condition: {
+                call: 'required',
+                args: { value: { path: '/email' } },
+                returnType: 'boolean',
+              },
+              message: '邮箱必填',
+            },
+          ],
+        }),
+        1,
+        options,
+      ),
+      null,
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({
+          ...textField,
+          checks: [
+            {
+              condition: {
+                call: 'and',
+                args: { values: [] },
+                returnType: 'boolean',
+              },
+              message: '组合条件',
+            },
+          ],
+        }),
+        1,
+        options,
+      ),
+      'checks.condition.call 只支持 required/regex/length/numeric/email',
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({
+          ...textField,
+          checks: [{ call: 'email', args: { value: { path: '/email' } }, message: '旧形状' }],
+        }),
+        1,
+        options,
+      ),
+      'checks[] 必须是只包含 condition 和 message 的对象',
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({
+          ...textField,
+          checks: [
+            {
+              condition: {
+                call: 'regex',
+                args: { value: { path: '/email' }, pattern: 'a'.repeat(257) },
+                returnType: 'boolean',
+              },
+              message: '格式错误',
+            },
+          ],
+        }),
+        1,
+        options,
+      ),
+      'checks.condition.args.pattern 长度不能超过 256',
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({ ...textField, checks: [{ ...emailRule, message: 'x'.repeat(201) }] }),
+        1,
+        options,
+      ),
+      'checks[].message 必须是 1-200 个字符',
+    );
+    assert.equal(
+      validateAgentSequence(
+        message({
+          id: 'subscribed',
+          component: 'CheckBox',
+          label: '订阅',
+          value: { path: '/subscribed' },
+          checks: [emailRule],
+        }),
+        1,
+        options,
+      ),
+      'Basic Catalog CheckBox 只支持 id/component/label/value',
+    );
+
+    const workbenchOptions = {
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+      catalogId: WORKBENCH_CATALOG,
+    };
+    assert.equal(
+      validateAgentSequence(message(textField), 1, workbenchOptions),
+      'Basic Catalog TextField 只支持 id/component/label/value/variant/validationRegexp',
     );
   });
 
