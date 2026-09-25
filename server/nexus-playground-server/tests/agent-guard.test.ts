@@ -97,6 +97,50 @@ const updateWithInvalidImageVariant = {
     ],
   },
 } as A2UIMessage;
+const updateWithMedia = {
+  version: 'v0.9',
+  updateComponents: {
+    surfaceId: 'surface-1',
+    components: [
+      { id: 'root', component: 'Column', children: ['trailer', 'episode'] },
+      { id: 'trailer', component: 'Video', url: { path: '/trailerUrl' } },
+      {
+        id: 'episode',
+        component: 'AudioPlayer',
+        url: 'https://example.com/episode.mp3',
+        description: { path: '/episodeTitle' },
+      },
+    ],
+  },
+} as A2UIMessage;
+const updateWithLegacyVideo = {
+  version: 'v0.9',
+  updateComponents: {
+    surfaceId: 'surface-1',
+    components: [
+      {
+        id: 'trailer',
+        component: 'Video',
+        src: 'https://example.com/trailer.mp4',
+        controls: true,
+      },
+    ],
+  },
+} as A2UIMessage;
+const updateWithInvalidAudioDescription = {
+  version: 'v0.9',
+  updateComponents: {
+    surfaceId: 'surface-1',
+    components: [
+      {
+        id: 'episode',
+        component: 'AudioPlayer',
+        url: { path: '/audioUrl' },
+        description: 42,
+      },
+    ],
+  },
+} as A2UIMessage;
 const updateWithUrlText = {
   version: 'v0.9',
   updateComponents: {
@@ -162,6 +206,16 @@ const updateWithBioText = {
     components: [
       { id: 'root', component: 'Card', child: 'bio' },
       { id: 'bio', component: 'Text', text: { path: '/bio' } },
+    ],
+  },
+} as A2UIMessage;
+const updateWithPlainText = {
+  version: 'v0.9',
+  updateComponents: {
+    surfaceId: 'surface-1',
+    components: [
+      { id: 'root', component: 'Card', child: 'plain' },
+      { id: 'plain', component: 'Text', text: '资源已生成' },
     ],
   },
 } as A2UIMessage;
@@ -904,13 +958,37 @@ describe('validateAgentSequence', () => {
     );
   });
 
-  it('Basic Catalog Text 不能把图片 URL 渲染成文字', () => {
+  it('Basic Catalog Video 与 AudioPlayer 使用官方媒体字段', () => {
+    assert.equal(
+      validateAgentSequence(updateWithMedia, 1, {
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
+      null,
+    );
+    assert.equal(
+      validateAgentSequence(updateWithLegacyVideo, 1, {
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
+      'Basic Catalog Video 只支持 id/component/url',
+    );
+    assert.equal(
+      validateAgentSequence(updateWithInvalidAudioDescription, 1, {
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
+      'Basic Catalog AudioPlayer.description 必须是字符串或 { path } 绑定',
+    );
+  });
+
+  it('Basic Catalog Text 不能把媒体 URL 渲染成文字', () => {
     assert.equal(
       validateAgentSequence(updateWithUrlText, 1, {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog Text 不能承载 URL；图片 URL 必须使用 Image.url',
+      'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
     );
   });
 
@@ -924,20 +1002,61 @@ describe('validateAgentSequence', () => {
 
     assert.equal(
       validateAgentStreamMessage(updateWithDynamicUrlText, 1, options, state),
-      'Basic Catalog Text 不能绑定 URL 类字段；图片 URL 必须使用 Image.url',
+      'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
     );
 
     const noImageUrlOptions = { ...options, message: '生成联系人卡片' };
     assert.equal(
       validateAgentStreamMessage(updateWithDynamicUrlText, 1, noImageUrlOptions, state),
-      'Basic Catalog Text 不能绑定 URL 类字段；图片 URL 必须使用 Image.url',
+      'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
     );
 
     const missingImageState = createAgentStreamState();
     assert.equal(
       validateAgentStreamMessage(updateWithBioText, 1, options, missingImageState),
-      '包含图片 URL 的生成流必须包含 Basic Catalog Image 组件',
+      '请求图片内容的生成流必须包含 Basic Catalog Image 组件',
     );
+  });
+
+  it('明确的视频和音频 URL 必须生成对应媒体组件', () => {
+    const videoOptions = {
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+      message: '生成视频卡片 https://example.com/trailer.mp4',
+    };
+    const missingVideoState = createAgentStreamState();
+    assert.equal(
+      validateAgentStreamMessage(updateWithBioText, 1, videoOptions, missingVideoState),
+      '请求视频内容的生成流必须包含 Basic Catalog Video 组件',
+    );
+
+    const videoState = createAgentStreamState();
+    assert.equal(validateAgentStreamMessage(updateWithMedia, 1, videoOptions, videoState), null);
+
+    const audioOptions = {
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+      message: '生成音频播放器 https://example.com/episode.mp3',
+    };
+    const missingAudioState = createAgentStreamState();
+    assert.equal(
+      validateAgentStreamMessage(updateWithBioText, 1, audioOptions, missingAudioState),
+      '请求音频内容的生成流必须包含 Basic Catalog AudioPlayer 组件',
+    );
+
+    const audioState = createAgentStreamState();
+    assert.equal(validateAgentStreamMessage(updateWithMedia, 1, audioOptions, audioState), null);
+  });
+
+  it('普通未知 URL 不强行猜测媒体组件类型', () => {
+    const state = createAgentStreamState();
+    const options = {
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+      message: '生成资源卡片 https://example.com/resource',
+    };
+
+    assert.equal(validateAgentStreamMessage(updateWithPlainText, 1, options, state), null);
   });
 
   it('URL dataModel 只能绑定到 Image，不能后到绑定到 Text', () => {
@@ -953,7 +1072,7 @@ describe('validateAgentSequence', () => {
     assert.equal(validateAgentStreamMessage(updateWithBioDataModel, 1, options, textState), null);
     assert.equal(
       validateAgentStreamMessage(updateWithBioText, 2, options, textState),
-      'Basic Catalog Text 不能承载 URL；图片 URL 必须使用 Image.url',
+      'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
     );
   });
 

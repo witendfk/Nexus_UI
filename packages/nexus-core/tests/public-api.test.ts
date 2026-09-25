@@ -27,6 +27,8 @@ describe('core public API surface', () => {
       'validateComponentProps',
       'validateComponentPropsDiagnostics',
       'validateComponentSchema',
+      'validateNexusProfileMessage',
+      'validateProtocolMessage',
     ]);
   });
 

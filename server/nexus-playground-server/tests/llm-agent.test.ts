@@ -190,6 +190,24 @@ describe('createLlmMessages', () => {
     );
   });
 
+  it('Basic Catalog prompt 明确媒体组件字段契约', () => {
+    const messages = createLlmMessages({
+      kind: 'generate',
+      surfaceId: 'surface-basic',
+      message: 'create a media card',
+    });
+    const systemPrompt = String(messages[0]?.content);
+
+    assert.match(systemPrompt, /Supported components:.*Video.*AudioPlayer/);
+    assert.match(systemPrompt, /Use Video only with "id", "component", and required "url"/);
+    assert.match(
+      systemPrompt,
+      /Use AudioPlayer only with "id", "component", required "url", and optional "description"/,
+    );
+    assert.match(systemPrompt, /do not add HTML-style src, controls, children, or an action/);
+    assert.match(systemPrompt, /copy it exactly into the matching media component URL/);
+  });
+
   it('Basic Catalog prompt 明确 TextField 与 search action 的绑定契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',

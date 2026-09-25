@@ -31,14 +31,14 @@ SSE 事件：
 - 未配置 key 时使用确定性联系人卡片 fallback。
 - 宿主可注入进程内 generation source；Agent Adapter 负责 surfaceId 生成、catalog 解析、生成源选择和 LLM / 宿主 source 成功流后的 surface history 提交。
 - 宿主可通过异步 `historyStore` 注入独立 surface history 存储；catalog 与 turn 由一次 `commitGeneration` 提交，便于数据库实现使用事务。默认实现为进程内内存，保留最近 64 个 surface、每 surface 最近 20 条 turn，并以只读拷贝提供给生成源和 action handler。配置 `NEXUS_HISTORY_FILE` 后启用本地单进程文件持久化，重启后可恢复 catalog 与 history。
-- 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；当前提供 Basic `call / search / submit`、Task `start / complete` 和 Workbench `submit`。
+- 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；当前提供 Nexus Basic Task Profile 的 `call / search / submit`、Task `start / complete` 和 Workbench `submit`。
 - `external-agent.ts` 提供最小 HTTP JSONL RPC helper，可把初始生成与业务 action 转发给宿主自有 Agent；输出仍必须通过同一 Agent guard。
 - 仓库根部 [examples/standalone-host-demo](../../examples/standalone-host-demo/README.md) 负责独立宿主与 LLM 外部 Agent 链路验证；server 只维护参考服务与可复用 Agent Adapter / RPC 能力。
 - 未注册 action 在进入 SSE 前返回 400，避免半流失败。
 - LLM 输出必须是 A2UI JSONL。
 - 每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard。
 - 生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`。
-- Agent guard 基于 `CatalogRegistry` 校验组件边界，并按 catalog 校验 action 名称；自定义 catalog 可通过 `CatalogDefinition.actions` 声明宿主 action 白名单，未声明时保留内置兼容边界。generate 默认 Basic Catalog，也可显式选择已注册 task / Workbench catalog。
+- Agent guard 基于 `CatalogRegistry` 校验组件边界，并按 catalog 校验 action 名称；自定义 catalog 可通过 `CatalogDefinition.actions` 声明宿主 action 白名单，未声明时保留内置兼容边界。generate 默认 Nexus Basic Task Profile，也可显式选择已注册 task / Workbench catalog。该 Profile 不冒充官方 Basic Catalog 完整 conformance。
 - action 响应只能 `updateComponents` / `updateDataModel`。
 - Task 样例使用进程内状态维护 `pending -> active -> completed`；重复迁移返回 400，重启后状态重置。
 - 失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。

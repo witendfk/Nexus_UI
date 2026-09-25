@@ -4,10 +4,10 @@ A2UI 的 React 渲染层。它消费 `@nexus-ui/core` 输出的 VNode，通过 `
 
 ## 当前组件
 
-`standardRenderMap` 实现当前 Agent 线的 15 个组件：
+`standardRenderMap` 实现当前 Nexus Basic Task Profile 的 17 个 Basic-like 组件名：
 
 ```text
-Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, Row, List, Tabs, Image, Card, Icon, Divider
+Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, Row, List, Tabs, Image, Video, AudioPlayer, Card, Icon, Divider
 ```
 
 `List` 当前只支持静态 `children` id 数组、`direction` 和 `align`；协议的 ChildList template 属于后续版本。
@@ -16,7 +16,9 @@ Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, 
 
 `Image` 使用协议字段 `url` 渲染图片，`description` 映射为 HTML `alt`，远程图片以 `no-referrer` 加载以兼容防盗链 CDN；不兼容 HTML 风格 `src` / `alt`。
 
-A2UI v0.9 Basic Catalog 共有 18 个组件；当前只开放上述 15 个。`TextField` 支持 `shortText / longText / number / obscured`、`validationRegexp`、`{ path }` 双向绑定和最小 `checks`；`CheckBox` 支持布尔 `{ path }` 双向绑定；`ChoicePicker` 支持单选 / 多选、`checkbox / chips`、筛选和 `string[]` `{ path }` 双向绑定；`DateTimeInput` 支持 date / time / date-time、`min` / `max` 和 ISO 8601 字符串 `{ path }` 双向绑定；`Slider` 使用原生 range 输入、支持有限数字范围、小数步进、数字 `value: { path }` 写回和最小 `checks`。`Button` 会根据失败 checks 禁用按钮；core 仍会在 action 出口二次阻断。`checks` 组合条件和通用 FunctionCall 属于后续版本。
+`Video` 与 `AudioPlayer` 使用协议字段 `url` 渲染原生播放器；`AudioPlayer.description` 渲染为说明文本。播放器控制属性由 React 渲染层提供，Agent 不能输出 HTML 风格 `src`、`controls` 或 action。
+
+A2UI v0.9 官方 Basic Catalog 共有 18 个组件；当前 Profile 只开放上述 17 个，并且不承诺每个组件的全部官方字段和渲染语义。`TextField` 支持 `shortText / longText / number / obscured`、`validationRegexp`、`{ path }` 双向绑定和最小 `checks`；`CheckBox` 支持布尔 `{ path }` 双向绑定；`ChoicePicker` 支持单选 / 多选、`checkbox / chips`、筛选和 `string[]` `{ path }` 双向绑定；`DateTimeInput` 支持 date / time / date-time、`min` / `max` 和 ISO 8601 字符串 `{ path }` 双向绑定；`Slider` 使用原生 range 输入、支持有限数字范围、小数步进、数字 `value: { path }` 写回和最小 `checks`。`Button` 会根据失败 checks 禁用按钮；core 仍会在 action 出口二次阻断。官方 `Modal`、完整字段一致性、`checks` 组合条件和通用 FunctionCall 属于后续能力收敛后的扩展。
 
 ## 源码结构
 
@@ -25,7 +27,7 @@ src/
   index.tsx       对外唯一出口
   provider/       A2UIProvider、useA2UI
   renderer/       ReactRenderer
-  components/     标准 15 组件与 standardRenderMap
+  components/     标准 17 组件与 standardRenderMap
   types/          RenderMap 等渲染契约
   version/        包版本与协议版本
   style/          浏览器端挂载动画样式
@@ -34,7 +36,7 @@ src/
 
 ## 公开 API
 
-`src/index.tsx` 是唯一公开入口，当前 `REACT_API_VERSION = 1`。Provider / hook、Renderer、RenderMap 类型、`standardRenderMap` 和 15 个标准组件均从根入口导出。当前渲染层支持 core `0.1.x`、core API `1` 和 A2UI `v0.9`；宿主可用 `getReactCoreCompatibility()` 做装配期诊断。内部组件、renderer 和 style 路径不承诺兼容。
+`src/index.tsx` 是唯一公开入口，当前 `REACT_API_VERSION = 1`。Provider / hook、Renderer、RenderMap 类型、`standardRenderMap` 和 17 个标准组件均从根入口导出。当前渲染层支持 core `0.1.x`、core API `1` 和 A2UI `v0.9`；宿主可用 `getReactCoreCompatibility()` 做装配期诊断。内部组件、renderer 和 style 路径不承诺兼容。
 
 ## 使用
 

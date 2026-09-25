@@ -1,9 +1,14 @@
 import { expect } from 'chai';
-import { validateA2UIMessage } from '../src/protocol/validator';
+import { validateNexusProfileMessage } from '../src/protocol/validator';
+
+const validateA2UIMessage = (value: unknown) => {
+  const profileError = validateNexusProfileMessage(value);
+  return profileError ? { ok: false as const, error: profileError } : { ok: true as const };
+};
 
 const error = (value: unknown): string | undefined => validateA2UIMessage(value).error?.message;
 
-describe('validateA2UIMessage', () => {
+describe('validateNexusProfileMessage', () => {
   it('接受合法 createSurface', () => {
     const result = validateA2UIMessage({
       version: 'v0.9',
@@ -349,6 +354,33 @@ describe('validateA2UIMessage', () => {
     );
     expect(error(message({ ...valid, checks: [] }))).to.equal(
       '当前 Agent 线不支持 DateTimeInput.checks',
+    );
+  });
+
+  it('校验 Video 与 AudioPlayer 官方字段结构', () => {
+    const message = (component: unknown) => ({
+      version: 'v0.9',
+      updateComponents: { surfaceId: 'd', components: [component] },
+    });
+    const video = { id: 'trailer', component: 'Video', url: { path: '/trailerUrl' } };
+    const audio = {
+      id: 'episode',
+      component: 'AudioPlayer',
+      url: 'https://example.com/episode.mp3',
+      description: { path: '/episodeTitle' },
+    };
+
+    expect(validateA2UIMessage(message(video)).ok).to.equal(true);
+    expect(validateA2UIMessage(message(audio)).ok).to.equal(true);
+    expect(error(message({ ...video, src: 'https://example.com/a.mp4' }))).to.equal(
+      'Video 只支持 id/component/url',
+    );
+    expect(error(message({ ...video, url: 1 }))).to.equal('Video.url 必须是字符串或 { path } 绑定');
+    expect(error(message({ ...audio, controls: true }))).to.equal(
+      'AudioPlayer 只支持 id/component/url/description',
+    );
+    expect(error(message({ ...audio, description: 1 }))).to.equal(
+      'AudioPlayer.description 必须是字符串或 { path } 绑定',
     );
   });
 

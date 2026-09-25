@@ -1,12 +1,12 @@
 /**
- * A2UI v0.9 Agent 线第一版的结构校验。
+ * A2UI v0.9 校验边界。
  *
- * 这里刻意不引入 JSON Schema 运行时依赖：core 只校验信封、公共结构、生命周期安全所需的
- * 字段，以及当前实现显式支持的 A2UI 子集。FunctionCall 仍只允许出现在 checks.condition；
- * checks 求值由 runtime/checks 模块执行。
+ * `validateProtocolMessage` 只判断官方 v0.9 消息结构；`validateNexusProfileMessage`
+ * 判断 Nexus 当前 Runtime Profile 是否支持。旧的 `validateA2UIMessage` 保持兼容，
+ * 等价于先协议校验、再 Profile 校验。
  */
 import { PROTOCOL_VERSION } from './types';
-import type { A2UIMessage, ParseResult } from './types';
+import type { A2UIError, A2UIMessage, ParseResult } from './types';
 
 const MESSAGE_KEYS = [
   'createSurface',
@@ -17,6 +17,15 @@ const MESSAGE_KEYS = [
 
 const CHECKABLE_COMPONENTS = new Set(['TextField', 'Slider', 'Button']);
 const CHECK_FUNCTIONS = new Set(['required', 'regex', 'length', 'numeric', 'email']);
+const FUNCTION_RETURN_TYPES = new Set([
+  'string',
+  'number',
+  'boolean',
+  'array',
+  'object',
+  'any',
+  'void',
+]);
 
 type MessageKey = (typeof MESSAGE_KEYS)[number];
 
@@ -71,6 +80,246 @@ function isDynamicStringList(value: unknown): boolean {
     (Array.isArray(value) && value.every((item) => typeof item === 'string')) ||
     (isObject(value) && Object.keys(value).length === 1 && typeof value.path === 'string')
   );
+}
+
+function isProtocolDataBinding(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    hasOnlyKeys(value, ['path']) &&
+    typeof value.path === 'string' &&
+    value.path.length > 0
+  );
+}
+
+function validateProtocolFunctionCall(value: unknown): string | null {
+  if (!isObject(value) || !hasOnlyKeys(value, ['call', 'args', 'returnType'])) {
+    return 'FunctionCall 只支持 call/args/returnType';
+  }
+  if (typeof value.call !== 'string' || value.call.length === 0) {
+    return 'FunctionCall.call 必须是非空字符串';
+  }
+  if (value.args !== undefined && !isObject(value.args)) {
+    return 'FunctionCall.args 必须是对象';
+  }
+  if (value.returnType !== undefined && !FUNCTION_RETURN_TYPES.has(value.returnType as string)) {
+    return `FunctionCall.returnType 只支持 ${[...FUNCTION_RETURN_TYPES].join('/')}`;
+  }
+  return null;
+}
+
+function validateProtocolDynamicValue(value: unknown, returnType?: string): string | null {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  if (isProtocolDataBinding(value)) return null;
+  if (isObject(value) && 'call' in value) {
+    const functionError = validateProtocolFunctionCall(value);
+    if (functionError) return functionError;
+    if (returnType && value.returnType !== undefined && value.returnType !== returnType) {
+      return `FunctionCall.returnType 必须是 ${returnType}`;
+    }
+    return null;
+  }
+  return '动态值必须是字面量、{ path } 或 FunctionCall';
+}
+
+function validateProtocolAction(value: unknown): string | null {
+  if (!isObject(value) || !hasOnlyKeys(value, ['event', 'functionCall'])) {
+    return 'action 结构非法';
+  }
+  if (value.event !== undefined) {
+    const event = value.event;
+    if (!isObject(event) || !hasOnlyKeys(event, ['name', 'context'])) {
+      return 'action.event 结构非法';
+    }
+    if (typeof event.name !== 'string' || event.name.length === 0) {
+      return 'action.event.name 必须是非空字符串';
+    }
+    if (event.context !== undefined) {
+      if (!isObject(event.context)) return 'action.event.context 必须是对象';
+      for (const contextValue of Object.values(event.context)) {
+        const error = validateProtocolDynamicValue(contextValue);
+        if (error) return `action.event.context ${error}`;
+      }
+    }
+    return null;
+  }
+  if (value.functionCall !== undefined) return validateProtocolFunctionCall(value.functionCall);
+  return 'action 必须包含 event 或 functionCall';
+}
+
+function validateProtocolChecks(value: unknown): string | null {
+  if (!Array.isArray(value)) return 'checks 必须是数组';
+  for (const check of value) {
+    if (!isObject(check) || !hasOnlyKeys(check, ['condition', 'message'])) {
+      return 'checks[] 必须是只包含 condition 和 message 的对象';
+    }
+    if (typeof check.message !== 'string') return 'checks[].message 必须是字符串';
+    const error = validateProtocolDynamicValue(check.condition, 'boolean');
+    if (error) return `checks.condition ${error}`;
+  }
+  return null;
+}
+
+function validateProtocolComponent(value: unknown): string | null {
+  if (!isObject(value)) return 'components[] 项必须是对象';
+  if (typeof value.id !== 'string' || value.id.length === 0) {
+    return 'component.id 必须是非空字符串';
+  }
+  if (typeof value.component !== 'string' || value.component.length === 0) {
+    return 'component.component 必须是非空字符串';
+  }
+  if (value.child !== undefined && typeof value.child !== 'string') {
+    return 'component.child 必须是字符串';
+  }
+  if (value.children !== undefined) {
+    if (Array.isArray(value.children)) {
+      if (!value.children.every((id) => typeof id === 'string')) {
+        return 'children[] 必须是组件 id 字符串';
+      }
+    } else if (
+      !isObject(value.children) ||
+      !hasOnlyKeys(value.children, ['componentId', 'path']) ||
+      typeof value.children.componentId !== 'string' ||
+      typeof value.children.path !== 'string'
+    ) {
+      return 'children 必须是 id 数组或 { componentId, path }';
+    }
+  }
+  if (value.tabs !== undefined) {
+    if (!Array.isArray(value.tabs) || value.tabs.length === 0) {
+      return 'component.tabs 必须是非空数组';
+    }
+    for (const tab of value.tabs) {
+      if (!isObject(tab) || !hasOnlyKeys(tab, ['title', 'child'])) {
+        return 'component.tabs[] 必须是只包含 title 和 child 的对象';
+      }
+      const titleError = validateProtocolDynamicValue(tab.title, 'string');
+      if (titleError) return `component.tabs[].title ${titleError}`;
+      if (typeof tab.child !== 'string') return 'component.tabs[].child 必须是字符串';
+    }
+  }
+  if (value.checks !== undefined) {
+    const checksError = validateProtocolChecks(value.checks);
+    if (checksError) return checksError;
+  }
+  if (value.action !== undefined) {
+    const actionError = validateProtocolAction(value.action);
+    if (actionError) return actionError;
+  }
+  return null;
+}
+
+function validateProtocolPayload(key: MessageKey, payload: unknown): string | null {
+  if (!isObject(payload)) return `${key} 必须是对象`;
+
+  if (key === 'createSurface') {
+    if (!hasOnlyKeys(payload, ['surfaceId', 'catalogId', 'theme', 'sendDataModel'])) {
+      return 'createSurface 包含未知字段';
+    }
+    if (typeof payload.surfaceId !== 'string' || payload.surfaceId.length === 0) {
+      return 'createSurface.surfaceId 必须是非空字符串';
+    }
+    if (typeof payload.catalogId !== 'string' || payload.catalogId.length === 0) {
+      return 'createSurface.catalogId 必须是非空字符串';
+    }
+    if (payload.theme !== undefined && !isObject(payload.theme)) {
+      return 'createSurface.theme 必须是对象';
+    }
+    if (payload.sendDataModel !== undefined && typeof payload.sendDataModel !== 'boolean') {
+      return 'createSurface.sendDataModel 必须是布尔值';
+    }
+    return null;
+  }
+
+  if (key === 'updateComponents') {
+    if (!hasOnlyKeys(payload, ['surfaceId', 'components'])) {
+      return 'updateComponents 包含未知字段';
+    }
+    if (typeof payload.surfaceId !== 'string' || payload.surfaceId.length === 0) {
+      return 'updateComponents.surfaceId 必须是非空字符串';
+    }
+    if (!Array.isArray(payload.components) || payload.components.length === 0) {
+      return 'updateComponents.components 必须是非空数组';
+    }
+    const ids = new Set<string>();
+    for (const component of payload.components) {
+      const error = validateProtocolComponent(component);
+      if (error) return error;
+      const id = (component as { id?: unknown }).id;
+      if (typeof id === 'string') {
+        if (ids.has(id)) return `component.id 重复: ${id}`;
+        ids.add(id);
+      }
+    }
+    return null;
+  }
+
+  if (key === 'updateDataModel') {
+    if (!hasOnlyKeys(payload, ['surfaceId', 'path', 'value'])) {
+      return 'updateDataModel 包含未知字段';
+    }
+    if (typeof payload.surfaceId !== 'string' || payload.surfaceId.length === 0) {
+      return 'updateDataModel.surfaceId 必须是非空字符串';
+    }
+    if (payload.path !== undefined && typeof payload.path !== 'string') {
+      return 'updateDataModel.path 必须是字符串';
+    }
+    return null;
+  }
+
+  if (!hasOnlyKeys(payload, ['surfaceId'])) return 'deleteSurface 包含未知字段';
+  if (typeof payload.surfaceId !== 'string' || payload.surfaceId.length === 0) {
+    return 'deleteSurface.surfaceId 必须是非空字符串';
+  }
+  return null;
+}
+
+/** Official A2UI v0.9 structural validation only. Profile support is a separate boundary. */
+export function validateProtocolMessage(value: unknown): ParseResult {
+  if (!isObject(value)) {
+    return {
+      ok: false,
+      error: { code: 'PROTOCOL_INVALID', message: 'A2UI 消息必须是对象' },
+    };
+  }
+  if (value.version !== PROTOCOL_VERSION) {
+    return {
+      ok: false,
+      error: { code: 'PROTOCOL_INVALID', message: 'version 必须是 v0.9' },
+    };
+  }
+
+  const keys = Object.keys(value).filter((key): key is MessageKey =>
+    (MESSAGE_KEYS as readonly string[]).includes(key),
+  );
+  if (keys.length !== 1) {
+    return {
+      ok: false,
+      error: { code: 'PROTOCOL_INVALID', message: '消息必须且只能包含一个 A2UI payload' },
+    };
+  }
+  if (!hasOnlyKeys(value, ['version', ...MESSAGE_KEYS])) {
+    return {
+      ok: false,
+      error: { code: 'PROTOCOL_INVALID', message: '消息信封包含未知字段' },
+    };
+  }
+
+  const key = keys[0] as MessageKey;
+  const payloadError = validateProtocolPayload(key, value[key]);
+  if (payloadError) {
+    return {
+      ok: false,
+      error: { code: 'PROTOCOL_INVALID', message: payloadError },
+    };
+  }
+  return { ok: true, message: value as unknown as A2UIMessage };
 }
 
 function isIsoDateTimeValue(value: string, allowEmpty: boolean): boolean {
@@ -371,6 +620,31 @@ function validateDateTimeInput(component: Record<string, unknown>): string | nul
   return null;
 }
 
+function validateMediaComponent(component: Record<string, unknown>): string | null {
+  if (component.component === 'Video') {
+    if (!hasOnlyKeys(component, ['id', 'component', 'url'])) {
+      return 'Video 只支持 id/component/url';
+    }
+    if (!isDynamicString(component.url)) {
+      return 'Video.url 必须是字符串或 { path } 绑定';
+    }
+    return null;
+  }
+
+  if (component.component === 'AudioPlayer') {
+    if (!hasOnlyKeys(component, ['id', 'component', 'url', 'description'])) {
+      return 'AudioPlayer 只支持 id/component/url/description';
+    }
+    if (!isDynamicString(component.url)) {
+      return 'AudioPlayer.url 必须是字符串或 { path } 绑定';
+    }
+    if (component.description !== undefined && !isDynamicString(component.description)) {
+      return 'AudioPlayer.description 必须是字符串或 { path } 绑定';
+    }
+  }
+  return null;
+}
+
 function validateComponent(value: unknown): string | null {
   if (!isObject(value)) return 'components[] 项必须是对象';
   if (typeof value.id !== 'string') return 'component.id 必须是字符串';
@@ -393,6 +667,9 @@ function validateComponent(value: unknown): string | null {
 
   const dateTimeInputError = validateDateTimeInput(value);
   if (dateTimeInputError) return dateTimeInputError;
+
+  const mediaError = validateMediaComponent(value);
+  if (mediaError) return mediaError;
 
   if (value.component === 'Button' && value.checks !== undefined) {
     const checksError = validateChecks(value);
@@ -482,29 +759,48 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
   return null;
 }
 
-/** 校验一条 A2UI 消息。返回 ok 时不改变对象身份，仅将 unknown 收窄为协议消息。 */
-export function validateA2UIMessage(value: unknown): ParseResult {
-  if (!isObject(value)) return { ok: false, error: { message: 'A2UI 消息必须是对象' } };
+/**
+ * 校验当前 Nexus Runtime Profile。入参必须已通过 `validateProtocolMessage`。
+ * 返回 ok 时不改变对象身份，仅将 unknown 收窄为协议消息。
+ */
+export function validateNexusProfileMessage(value: unknown): A2UIError | null {
+  if (!isObject(value)) {
+    return { code: 'FEATURE_UNSUPPORTED', message: 'A2UI 消息必须是对象' };
+  }
   if (value.version !== PROTOCOL_VERSION)
-    return { ok: false, error: { message: 'version 必须是 v0.9' } };
+    return { code: 'FEATURE_UNSUPPORTED', message: 'version 必须是 v0.9' };
 
   const keys = Object.keys(value).filter((key): key is MessageKey =>
     (MESSAGE_KEYS as readonly string[]).includes(key),
   );
   if (keys.length !== 1) {
-    return { ok: false, error: { message: '消息必须且只能包含一个 A2UI payload' } };
+    return { code: 'FEATURE_UNSUPPORTED', message: '消息必须且只能包含一个 A2UI payload' };
   }
   if (!hasOnlyKeys(value, ['version', ...MESSAGE_KEYS])) {
-    return { ok: false, error: { message: '消息信封包含未知字段' } };
+    return { code: 'FEATURE_UNSUPPORTED', message: '消息信封包含未知字段' };
   }
 
   const key = keys[0] as MessageKey;
   const payloadError = validatePayload(key, value[key]);
-  if (payloadError) return { ok: false, error: { message: payloadError } };
-  if (containsUnsupportedFunctionCall(value[key])) {
-    return { ok: false, error: { message: '当前 Agent 线不支持 FunctionCall' } };
+  if (payloadError) {
+    return { code: 'FEATURE_UNSUPPORTED', message: payloadError };
   }
-  return { ok: true, message: value as unknown as A2UIMessage };
+  if (containsUnsupportedFunctionCall(value[key])) {
+    return {
+      code: 'FEATURE_UNSUPPORTED',
+      message: '当前 Agent 线不支持 FunctionCall',
+    };
+  }
+  return null;
+}
+
+/** Backward-compatible entry: protocol validity plus the current Nexus profile. */
+export function validateA2UIMessage(value: unknown): ParseResult {
+  const protocolResult = validateProtocolMessage(value);
+  if (!protocolResult.ok) return protocolResult;
+  const profileError = validateNexusProfileMessage(protocolResult.message);
+  if (profileError) return { ok: false, error: profileError };
+  return protocolResult;
 }
 
 /** 兼容既有 API 的布尔校验入口。 */

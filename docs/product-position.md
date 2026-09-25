@@ -1,8 +1,10 @@
 # Nexus UI Product Position and Landing Scope
 
 状态：当前产品方向锚点。  
-日期：2026-09-23。
+日期：2026-09-25。
 用途：后续迭代前先回到本文档校准方向，避免把项目做成组件画廊、UI 画板或无边界协议实现。
+
+协议 / 能力 / 策略分层的详细口径见 [architecture-boundary.md](architecture-boundary.md)。
 
 ## 0. Project Success Mode
 
@@ -16,7 +18,7 @@ Nexus UI is an A2UI-based Agent UI Runtime: agents emit declarative A2UI message
 
 中文表述：
 
-> Nexus UI 是基于 A2UI 协议的 Agent 动态任务界面运行时。  
+> Nexus UI 是基于 A2UI v0.9 消息模型的 Agent 动态任务界面运行时。  
 > Agent 只输出声明式 UI 消息；Nexus UI 负责安全校验、流式渲染、用户输入绑定、业务 action 回流和同 surface 原地更新。
 
 它不是 UI 画板。UI 画板的终点是“生成一张页面”；Nexus UI 的终点是“让 Agent 生成的界面可以安全运行，并把用户操作送回业务系统”。
@@ -435,7 +437,7 @@ Nexus UI is not:
 - A general UI generator.
 - A prompt-to-page drawing board.
 - A replacement for all handwritten frontend.
-- A complete A2UI v0.9 implementation.
+- A complete A2UI v0.9 implementation or an official Basic Catalog conformance implementation.
 - A low-code form platform.
 - A vertical business agent.
 - An Agent-to-Agent protocol framework.
@@ -460,7 +462,7 @@ Good-fit UI:
 
 ## 8. Current Capability Baseline
 
-As of P12-b, the capability baseline is:
+As of P13-a, the capability baseline is:
 
 - Real LLM streaming generation is working.
 - Invalid output is rejected by server guard.
@@ -470,6 +472,7 @@ As of P12-b, the capability baseline is:
 - Catalog component schemas and action whitelists are enforced by runtime and server guards.
 - A catalog contract can be generated from the same CatalogDefinition used by guards and explicitly published through a host HTTP route, so an external Agent can consume the host boundary without copying Nexus's playground prompt.
 - TextField supports four variants and `validationRegexp`.
+- Image, Video, and AudioPlayer support bounded media URLs; explicit video or audio requests must use the matching protocol media component.
 - TextField and CheckBox write user state back to dataModel.
 - ChoicePicker writes single or multiple string selections back to dataModel.
 - DateTimeInput writes an ISO 8601 date, time, or date-time string back to dataModel.
@@ -477,7 +480,7 @@ As of P12-b, the capability baseline is:
 - Minimal A2UI checks are supported on Basic TextField, Slider, and Button for required, regex, length, numeric, and email rules; React shows the first protocol-provided error and core blocks an invalid Button action.
 - Search and submit actions carry current context values.
 - The same surface is patched in place.
-- Basic Catalog current subset is implemented.
+- The current capability is a Nexus Basic Task Profile: it selects Basic-like component names but does not claim full official Basic Catalog field or behavior parity.
 - Task catalog demonstrates custom components and in-process business state.
 - Workbench catalog demonstrates a customer follow-up task with customer context, task input, task priority, reminder time, submit handler, disabled submit button, and duplicate-submission rejection.
 - A host can inject an in-process generation source whose output still passes the same guard; action handlers receive surface-scoped catalog and successful-generation history.

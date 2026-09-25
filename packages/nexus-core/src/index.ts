@@ -12,7 +12,13 @@ export const VERSION = '0.1.0';
 /** Root-entry API contract version. Internal module paths are not public. */
 export const CORE_API_VERSION = 1;
 
-export { PROTOCOL_VERSION, isA2UIMessage, validateA2UIMessage } from './protocol';
+export {
+  PROTOCOL_VERSION,
+  isA2UIMessage,
+  validateA2UIMessage,
+  validateNexusProfileMessage,
+  validateProtocolMessage,
+} from './protocol';
 export type {
   A2UIVersion,
   ComponentId,
@@ -44,6 +50,7 @@ export type {
   RenderMap,
   A2UIError,
   A2UIDiagnostic,
+  A2UIErrorCode,
   ActionEvent,
 } from './protocol';
 export { JSONLBuffer } from './buffer/index';

@@ -2,6 +2,8 @@
 
 本文档是第一条 Agent 线的事实边界。协议本身以 [specification/v0_9](../specification/v0_9/README.md) 为准；本文档只描述 Nexus UI 当前实现范围。
 
+协议层、Catalog 能力层和宿主策略层的命名口径见 [architecture-boundary.md](architecture-boundary.md)。
+
 宿主接入契约、HTTP/SSE 参考协议和完整支持矩阵见 [host-integration.md](host-integration.md)；最小复制路径见 [host-quickstart.md](host-quickstart.md)。
 
 ## 目标
@@ -23,7 +25,7 @@
 
 ## Catalog 边界
 
-A2UI v0.9 Basic Catalog 定义 18 个组件：
+协议事实源是 `specification/v0_9`。A2UI v0.9 官方 Basic Catalog 定义 18 个组件：
 
 ```text
 Text, Image, Icon, Video, AudioPlayer,
@@ -31,13 +33,15 @@ Row, Column, List, Card, Tabs, Modal, Divider,
 Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput
 ```
 
-Basic Catalog 当前允许并实现 15 个：
+当前 playground 默认边界是 **Nexus Basic Task Profile**，不是官方 Basic Catalog 完整一致性实现。该 Profile 选用其中 17 个 Basic-like 组件名：
 
 ```text
-Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, Row, List, Tabs, Image, Card, Icon, Divider
+Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, Row, List, Tabs, Image, Video, AudioPlayer, Card, Icon, Divider
 ```
 
-这不是 A2UI 协议上限，而是 MVP 的实现白名单。服务端通过 `CatalogRegistry` 查询组件边界；generate 请求默认使用 Basic Catalog，也可显式选择已注册的 task 或 Workbench catalog。
+这不是 A2UI 协议上限，也不表示这些组件的全部官方字段和渲染行为都已实现。服务端通过 `CatalogRegistry` 查询组件边界；generate 请求默认使用 Nexus Basic Task Profile，也可显式选择已注册的 task 或 Workbench catalog。
+
+当前实现里仍有一个历史 `catalogId` 与官方 `basic_catalog.json` 不同。在 P14-b 收口前，文档与演示不得把这条边界表述为官方 Basic Catalog conformance；需要扩展字段的宿主应使用自己的 Catalog ID。
 
 M6 已提供 registry 架构和端到端 task 样例：core 可注册多个 `catalogId`，server 可按请求选择 catalog 并约束 LLM 输出，React 可按 surface 选择对应 renderMap。自定义组件必须由宿主显式提供渲染函数；P6-a 起，registry 还可为自定义组件注册 props schema，runtime 与 server guard 会统一执行组件名和 props 契约校验。P7-a 起，宿主还可在 `CatalogDefinition.actions` 中声明 action 白名单；这是 Nexus 的宿主边界扩展，不是新增 A2UI wire 字段，core runtime 与 server guard 都会在声明存在时拒绝未声明的组件 action。
 
@@ -61,20 +65,22 @@ P5-b 提供最小外部 Agent JSONL RPC helper：生成和 action 共用 `versio
 
 ## 支持范围
 
-- 单个 active surface。
+- 单个 active rendered surface；core store 可保存多个 surface，但 React Provider 只展示一个。
 - 静态 `child` / `children` 引用。
-- Basic Catalog `List` 的静态列表布局：`direction` / `align`。
-- Basic Catalog `Tabs` 的静态 `tabs` 定义、动态 `title` 和本地激活切换。
-- Basic Catalog `Image` 的 `url` 展示与 `description` 可访问文本。
-- Basic Catalog `TextField` 的 `shortText / longText / number / obscured` 输入、`label`、`value: { path }` 双向绑定。
-- Basic Catalog `TextField.validationRegexp` 的本地格式校验反馈。
-- Basic Catalog `CheckBox` 的 `label` 与布尔 `value: { path }` 双向绑定。
-- Basic Catalog `ChoicePicker` 的单选 / 多选、`checkbox / chips` 展示、选项筛选和 `string[]` 形式 `value: { path }` 双向绑定。
-- Basic Catalog `DateTimeInput` 的 date / time / date-time 输入、`min` / `max` 和 ISO 8601 字符串形式的 `value: { path }` 双向绑定。
-- Basic Catalog `Slider` 的有限数字 `min` / `max` 范围和数字 `value: { path }` 双向绑定；`min` 缺省为 `0`，且必须小于 `max`。
-- Basic Catalog 最小 `checks`：仅 `TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`；输入组件展示第一条协议错误文案，Button checks 失败时禁用按钮并由 core 阻断 action。
-- Basic Catalog `search` action：Button 读取 TextField 绑定值并原地更新 `searchResult`。
-- Basic Catalog `submit` action：Button 同时读取 TextField 与 CheckBox 绑定值并原地更新 `submitResult`。
+- Nexus Basic Task Profile `List` 的静态列表布局：`direction` / `align`。
+- Nexus Basic Task Profile `Tabs` 的静态 `tabs` 定义、动态 `title` 和本地激活切换。
+- Nexus Basic Task Profile `Image` 的 `url` 展示与 `description` 可访问文本。
+- Nexus Basic Task Profile `Video` 的 `url` 原生播放器展示；不开放 HTML 风格控制字段或 action。
+- Nexus Basic Task Profile `AudioPlayer` 的 `url` 原生音频展示与 `description` 说明文本；不开放 HTML 风格控制字段或 action。
+- Nexus Basic Task Profile `TextField` 的 `shortText / longText / number / obscured` 输入、`label`、`value: { path }` 双向绑定。
+- Nexus Basic Task Profile `TextField.validationRegexp` 的本地格式校验反馈。
+- Nexus Basic Task Profile `CheckBox` 的 `label` 与布尔 `value: { path }` 双向绑定。
+- Nexus Basic Task Profile `ChoicePicker` 的单选 / 多选、`checkbox / chips` 展示、选项筛选和 `string[]` 形式 `value: { path }` 双向绑定。
+- Nexus Basic Task Profile `DateTimeInput` 的 date / time / date-time 输入、`min` / `max` 和 ISO 8601 字符串形式的 `value: { path }` 双向绑定。
+- Nexus Basic Task Profile `Slider` 的有限数字 `min` / `max` 范围和数字 `value: { path }` 双向绑定；`min` 缺省为 `0`，且必须小于 `max`。
+- Nexus Basic Task Profile 最小 `checks`：仅 `TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`；输入组件展示第一条协议错误文案，Button checks 失败时禁用按钮并由 core 阻断 action。
+- Nexus Basic Task Profile `search` action：Button 读取 TextField 绑定值并原地更新 `searchResult`。
+- Nexus Basic Task Profile `submit` action：Button 同时读取 TextField 与 CheckBox 绑定值并原地更新 `submitResult`。
 - `{ path }` 数据绑定。
 - `action.event`。
 - Task catalog 的进程内业务状态样例：`pending -> active -> completed`。
@@ -115,9 +121,13 @@ P12-a 真实请求验收：standalone Demo Agent 使用生成后的 system promp
 
 P12-b 已完成。server 装配 API 支持宿主显式传入 `catalogContracts`，guarded router 随之提供 `GET /api/a2ui/catalog-contract?catalogId=...`。响应包含 `serverApiVersion: 1`、原始 CatalogDefinition 和确定性 promptContract；缺失 ID 返回 400，未显式发布返回 404，重复发布在装配期失败。Catalog 注册只是 guard 边界，不等于对外公开契约。standalone demo 的宿主与浏览器均通过同一份 `standaloneHostCatalog` 验收该只读发布路径；自动化测试不读取 `.env` 或消耗模型请求。
 
+P13-a 已完成。Basic Catalog `Video` 只允许 `id/component/url`，`AudioPlayer` 只允许 `id/component/url/description`；两者均可使用字符串或 `{ path }` 绑定。React 使用原生 video / audio 播放器渲染，控制能力留在宿主渲染层，Agent 不能输出 HTML 风格 `src`、`controls`、children 或 action。server prompt 要求原样复制用户提供的媒体 URL，流式 guard 在明确视频 / 音频请求时强制对应组件存在，普通未知 URL 不做类型猜测。自动化测试覆盖 core 协议结构、React DOM、公开导出、prompt 契约和流式防回退边界。
+
+P14-a 已完成。core 拆分 `validateProtocolMessage`（官方 A2UI v0.9 结构）和 `validateNexusProfileMessage`（当前 Nexus Runtime Profile），旧入口 `validateA2UIMessage` 保持兼容并串联两者。runtime、参考 server stream guard 和诊断错误现在携带 `PROTOCOL_INVALID` / `LIFECYCLE_INVALID` / `CATALOG_UNSUPPORTED` / `FEATURE_UNSUPPORTED` 边界代码。官方 Basic Catalog 33 个示例矩阵锁定为“全部协议合法、当前 Profile 不声明完整支持”。下一步是 P14-b：收口 catalog 身份并把组件字段规则从 server guard 迁到 Catalog 契约。
+
 ## 明确不支持
 
-- 剩余 Basic Catalog 组件：`Video`、`AudioPlayer`、`Modal`。
+- 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。
 - `checks` 的 `and/or/not`、自定义函数、跨字段校验与 Workbench `checks`。
 - 通用 FunctionCall、`action.functionCall`、`sendDataModel`。
 - ChildList template 与相对路径作用域。
@@ -126,6 +136,8 @@ P12-b 已完成。server 装配 API 支持宿主显式传入 `catalogContracts`�
 - 持久化会话、权限、审计、租户隔离与真实 CRM / OA 集成。
 
 遇到不支持但结构合法的消息时，由服务端 guard 拒绝，不交给前端渲染；直接进入 core 的坏消息会记录错误并丢弃，不中断后续流。
+
+P14-a 已引入 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`CATALOG_UNSUPPORTED` 和 `FEATURE_UNSUPPORTED`；`POLICY_REJECTED` 将随 server guard 迁移补充，避免把“A2UI 不允许”和“Nexus 当前不支持”混在一个错误文案里。
 
 ## Surface 生命周期
 

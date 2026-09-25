@@ -292,7 +292,7 @@ Request:
 }
 ```
 
-`message` is optional and defaults to a contact-card request. `catalogId` is optional and defaults to Basic Catalog. Unknown request fields are rejected.
+`message` is optional and defaults to a contact-card request. `catalogId` is optional and defaults to the Nexus Basic Task Profile. Unknown request fields are rejected.
 
 Both JSON POST endpoints apply the reference server's request-boundary rules:
 
@@ -324,6 +324,7 @@ Guard failures caused by catalog component contracts can carry structured diagno
 ```json
 {
   "code": "AGENT_STREAM_ERROR",
+  "boundaryCode": "CATALOG_UNSUPPORTED",
   "message": "TaskSummary.amount 必须是 number",
   "diagnostics": [
     {
@@ -335,7 +336,7 @@ Guard failures caused by catalog component contracts can carry structured diagno
 }
 ```
 
-Each diagnostic contains `path`, `message`, and optional `dataPath`. `path` identifies the component props location; `dataPath` identifies the dataModel path behind a `{ path }` binding when applicable. The `diagnostics` field is omitted for ordinary stream and transport failures. Hosts should consume these fields instead of parsing `message`.
+`boundaryCode` identifies the failed boundary (`PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, or `FEATURE_UNSUPPORTED`) when core classification has run. Each diagnostic contains `path`, `message`, and optional `dataPath`. `path` identifies the component props location; `dataPath` identifies the dataModel path behind a `{ path }` binding when applicable. The `diagnostics` field is omitted for ordinary stream and transport failures. Hosts should consume these fields instead of parsing `message`.
 
 ### Send an action
 
@@ -391,11 +392,11 @@ The reference server registers:
 
 | Catalog | Allowed components | Allowed actions |
 | --- | --- | --- |
-| Basic Catalog | 14-component MVP subset | `call`, `search`, `submit` |
+| Nexus Basic Task Profile | 14-component guarded subset | `call`, `search`, `submit` |
 | Task Catalog | `TaskSummary`, `TaskButton` | `start`, `complete` |
 | Workbench Catalog | `CustomerSummary`, `Text`, `TextField`, `ChoicePicker`, `DateTimeInput`, `Button`, `Column`, `Row`, `Divider` | `submit` |
 
-Basic Catalog ID:
+Nexus Basic Task Profile ID (legacy; to be reconciled with the official Basic Catalog ID in P14-b):
 
 ```text
 https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json
@@ -420,7 +421,7 @@ A host custom catalog must satisfy four conditions:
 3. Every supported action has a business handler registered by `catalogId + action.name`.
 4. Guard tests reject unregistered components, cross-catalog components, unsupported actions, and action responses that change surface lifecycle.
 
-Current boundary: Catalog Registry enforces component names, Basic component-specific field rules (`Image`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`), Workbench submit-loop rules, and a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy). Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. It is not a complete standard JSON Schema engine and does not provide cross-field validation. Enterprises should not treat catalog registration alone as a full security policy.
+Current boundary: Catalog Registry enforces component names, profile-specific field rules (`Image`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`), Workbench submit-loop rules, and a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy). Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. It is not a complete standard JSON Schema engine, official Basic Catalog conformance layer, or cross-field validation engine. Enterprises should not treat catalog registration alone as a full security policy.
 
 `CatalogDefinition.actions` is a Nexus host-boundary extension, not a new A2UI wire field:
 
@@ -439,7 +440,7 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 
 ## 6. Supported Subset
 
-### Basic Catalog components
+### Nexus Basic Task Profile components
 
 | Component | MVP status | Notes |
 | --- | --- | --- |
@@ -458,8 +459,8 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 | `ChoicePicker` | Supported | Single or multiple selection, `checkbox` / `chips`, filtering, and `string[]` `{ path }` write-back. |
 | `DateTimeInput` | Supported | Date, time, or date-time input; `min` / `max`; ISO 8601 string `{ path }` write-back. |
 | `Slider` | Supported | Finite numeric range with `min` / `max`; numeric `{ path }` write-back and minimal `checks`; no component action. |
-| `Video` | Not open | No runtime or renderMap implementation. |
-| `AudioPlayer` | Not open | No runtime or renderMap implementation. |
+| `Video` | Supported | Required `url` as a string or `{ path }`; rendered with the host's native video player. No component action or HTML-style fields. |
+| `AudioPlayer` | Supported | Required `url` and optional `description` as strings or `{ path }`; rendered with the host's native audio player. No component action or HTML-style fields. |
 | `Modal` | Not open | No runtime or renderMap implementation. |
 
 ### Protocol features
@@ -482,7 +483,7 @@ The reference `AgentAdapter` and stream guard use the declared action list for g
 | Multiple active rendered surfaces | Not supported in playground |
 | WebSocket / A2A / MCP transport | Not implemented |
 
-Minimal `checks` support means Basic Catalog `TextField` / `Slider` / `Button` may use the official `{ condition, message }` rule with `required`, `regex`, `length`, `numeric`, or `email`. Core derives the first failed message from the current dataModel, React exposes it with invalid-state accessibility attributes, and a failed Button check blocks `triggerAction`. Composite functions (`and` / `or` / `not`), custom functions, cross-field validation, and Workbench checks remain unsupported.
+Minimal `checks` support means Nexus Basic Task Profile `TextField` / `Slider` / `Button` may use the official `{ condition, message }` rule shape with `required`, `regex`, `length`, `numeric`, or `email`. Core derives the first failed message from the current dataModel, React exposes it with invalid-state accessibility attributes, and a failed Button check blocks `triggerAction`. Composite functions (`and` / `or` / `not`), custom functions, cross-field validation, and Workbench checks remain unsupported.
 
 ## 7. Security Boundaries
 

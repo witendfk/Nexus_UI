@@ -21,6 +21,8 @@ export const BASIC_CATALOG_COMPONENTS = [
   'List',
   'Tabs',
   'Image',
+  'Video',
+  'AudioPlayer',
   'Card',
   'Icon',
   'Divider',

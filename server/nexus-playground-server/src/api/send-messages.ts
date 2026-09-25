@@ -1,6 +1,7 @@
 import type Koa from 'koa';
 import { PassThrough } from 'stream';
-import { validateA2UIMessage } from '@nexus-ui/core';
+import type { A2UIErrorCode } from '@nexus-ui/core';
+import { validateNexusProfileMessage, validateProtocolMessage } from '@nexus-ui/core';
 import {
   createAgentStreamState,
   validateAgentStreamFinal,
@@ -20,14 +21,19 @@ type BeforeDone = (messages: unknown[]) => void | Promise<void>;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-type AgentStreamError = Error & { diagnostics?: readonly ComponentSchemaDiagnostic[] };
+type AgentStreamError = Error & {
+  boundaryCode?: A2UIErrorCode;
+  diagnostics?: readonly ComponentSchemaDiagnostic[];
+};
 
 function createAgentStreamError(
   message: string,
   diagnostics?: readonly ComponentSchemaDiagnostic[],
+  boundaryCode?: A2UIErrorCode,
 ) {
   const error = new Error(message) as AgentStreamError;
   if (diagnostics !== undefined) error.diagnostics = diagnostics;
+  if (boundaryCode !== undefined) error.boundaryCode = boundaryCode;
   return error;
 }
 
@@ -50,10 +56,19 @@ export function sendMessages(
       let hasRoot = sequence.kind === 'action';
       const streamState = createAgentStreamState();
       for await (const candidate of messages) {
-        const result = validateA2UIMessage(candidate);
-        if (!result.ok || !result.message) {
-          throw new Error(result.error?.message ?? 'A2UI 消息结构非法');
+        const protocolResult = validateProtocolMessage(candidate);
+        if (!protocolResult.ok || !protocolResult.message) {
+          throw createAgentStreamError(
+            protocolResult.error?.message ?? 'A2UI 消息结构非法',
+            undefined,
+            protocolResult.error?.code,
+          );
         }
+        const profileError = validateNexusProfileMessage(protocolResult.message);
+        if (profileError) {
+          throw createAgentStreamError(profileError.message, undefined, profileError.code);
+        }
+        const result = { ok: true, message: protocolResult.message };
         const sequenceIssue = validateAgentStreamMessageDetailed(
           result.message,
           index,
@@ -87,6 +102,7 @@ export function sendMessages(
       stream.write(
         formatSseEvent('error', {
           code: 'AGENT_STREAM_ERROR',
+          boundaryCode: streamError.boundaryCode,
           message: error instanceof Error ? error.message : 'Agent 流式输出失败',
           ...(diagnostics ? { diagnostics } : {}),
         }),

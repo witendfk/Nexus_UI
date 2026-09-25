@@ -134,6 +134,12 @@ const CARD = [
   `{"version":"v0.9","updateDataModel":{"surfaceId":"c","value":{"img":"${BAIDU_AVATAR_URL}","alt":"联系人头像","t":"Hi"}}}`,
 ];
 
+const MEDIA = [
+  '{"version":"v0.9","createSurface":{"surfaceId":"media","catalogId":"basic"}}',
+  '{"version":"v0.9","updateComponents":{"surfaceId":"media","components":[{"id":"root","component":"Column","children":["trailer","episode"]},{"id":"trailer","component":"Video","url":{"path":"/videoUrl"}},{"id":"episode","component":"AudioPlayer","url":{"path":"/audioUrl"},"description":{"path":"/audioTitle"}}]}}',
+  `{"version":"v0.9","updateDataModel":{"surfaceId":"media","value":{"videoUrl":"${BAIDU_AVATAR_URL}.mp4","audioUrl":"https://example.com/episode.mp3","audioTitle":"产品说明"}}}`,
+];
+
 const LIST = [
   '{"version":"v0.9","createSurface":{"surfaceId":"list","catalogId":"basic"}}',
   '{"version":"v0.9","updateComponents":{"surfaceId":"list","components":[{"id":"root","component":"List","children":["first","second"],"direction":"vertical"},{"id":"first","component":"Text","text":{"path":"/items/0"}},{"id":"second","component":"Text","text":{"path":"/items/1"}}]}}',
@@ -415,6 +421,23 @@ describe('A2UIProvider', () => {
     expect(container.querySelector('img')?.getAttribute('referrerPolicy')).to.equal('no-referrer');
     expect(container.querySelector('img')?.getAttribute('src')).to.equal(BAIDU_AVATAR_URL);
     expect(container.querySelector('hr')).to.exist; // Divider
+  });
+
+  it('Video 与 AudioPlayer 渲染原生媒体控件和动态 URL', () => {
+    const { container } = render(
+      createElement(A2UIProvider, {}, createElement(Harness, { lines: MEDIA })),
+    );
+    const video = container.querySelector('video');
+    const audio = container.querySelector('audio');
+
+    expect(video).to.exist;
+    expect(video?.getAttribute('controls')).to.equal('');
+    expect(video?.getAttribute('preload')).to.equal('metadata');
+    expect(video?.getAttribute('src')).to.equal(`${BAIDU_AVATAR_URL}.mp4`);
+    expect(audio).to.exist;
+    expect(audio?.getAttribute('controls')).to.equal('');
+    expect(audio?.getAttribute('src')).to.equal('https://example.com/episode.mp3');
+    expect(screen.getByText('产品说明')).to.exist;
   });
 
   it('List 渲染静态 children 并支持 {path} 数据绑定', () => {

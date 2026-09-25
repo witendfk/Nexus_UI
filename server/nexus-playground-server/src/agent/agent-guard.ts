@@ -228,6 +228,31 @@ function validateBasicImage(component: Component): string | null {
   return null;
 }
 
+function validateBasicMedia(component: Component): string | null {
+  if (component.component === 'Video') {
+    if (!hasOnlyComponentKeys(component, ['id', 'component', 'url'])) {
+      return 'Basic Catalog Video 只支持 id/component/url';
+    }
+    if (!isDynamicString(component.url)) {
+      return 'Basic Catalog Video.url 必须是字符串或 { path } 绑定';
+    }
+    return null;
+  }
+
+  if (component.component === 'AudioPlayer') {
+    if (!hasOnlyComponentKeys(component, ['id', 'component', 'url', 'description'])) {
+      return 'Basic Catalog AudioPlayer 只支持 id/component/url/description';
+    }
+    if (!isDynamicString(component.url)) {
+      return 'Basic Catalog AudioPlayer.url 必须是字符串或 { path } 绑定';
+    }
+    if (component.description !== undefined && !isDynamicString(component.description)) {
+      return 'Basic Catalog AudioPlayer.description 必须是字符串或 { path } 绑定';
+    }
+  }
+  return null;
+}
+
 function validateBasicTextField(component: Component, allowChecks: boolean): string | null {
   if (component.component !== 'TextField') return null;
   if (
@@ -487,7 +512,7 @@ function validateWorkbenchButton(component: Component): string | null {
 function validateBasicText(component: Component): string | null {
   if (component.component !== 'Text' || typeof component.text !== 'string') return null;
   if (/https?:\/\//i.test(component.text)) {
-    return 'Basic Catalog Text 不能承载 URL；图片 URL 必须使用 Image.url';
+    return 'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
   }
   return null;
 }
@@ -497,11 +522,11 @@ function validateDynamicText(component: Component, dataModel?: unknown): string 
   const path = getDataBindingPath(component.text);
   if (path === null) return null;
   if (/(avatar|image|photo|picture|icon|logo|url|link|website)/i.test(path)) {
-    return 'Basic Catalog Text 不能绑定 URL 类字段；图片 URL 必须使用 Image.url';
+    return 'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
   }
   const value = getByPath(dataModel, path);
   if (typeof value === 'string' && /https?:\/\//i.test(value)) {
-    return 'Basic Catalog Text 不能承载 URL；图片 URL 必须使用 Image.url';
+    return 'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
   }
   return null;
 }
@@ -561,6 +586,8 @@ export function validateAgentSequence(
       if (catalogId === BASIC_CATALOG) {
         const buttonError = validateBasicButton(component);
         if (buttonError) return buttonError;
+        const mediaError = validateBasicMedia(component);
+        if (mediaError) return mediaError;
         if (component.checks !== undefined) {
           const checksError = validateBasicChecks(component);
           if (checksError) return checksError;
@@ -801,7 +828,7 @@ export interface AgentStreamState {
   componentsById: Map<string, Component>;
   dataModel: unknown;
   hasRoot: boolean;
-  hasBasicImage: boolean;
+  hasBasicMedia: Record<'Image' | 'Video' | 'AudioPlayer', boolean>;
 }
 
 export interface AgentStreamValidationIssue {
@@ -814,7 +841,29 @@ export function createAgentStreamState(): AgentStreamState {
     componentsById: new Map(),
     dataModel: undefined,
     hasRoot: false,
-    hasBasicImage: false,
+    hasBasicMedia: { Image: false, Video: false, AudioPlayer: false },
+  };
+}
+
+function getRequiredBasicMedia(message: string | undefined): {
+  Image: boolean;
+  Video: boolean;
+  AudioPlayer: boolean;
+} {
+  if (typeof message !== 'string') {
+    return { Image: false, Video: false, AudioPlayer: false };
+  }
+  const hasUrl = /https?:\/\//i.test(message);
+  return {
+    Image:
+      /(头像|图片|照片|avatar|image|photo|picture)/i.test(message) ||
+      /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(message),
+    Video:
+      (hasUrl && /(视频|video|trailer)/i.test(message)) ||
+      /https?:\/\/\S+\.(?:mp4|webm|mov|m4v|ogv)(?:[?#]|$)/i.test(message),
+    AudioPlayer:
+      (hasUrl && /(音频|音乐|播客|audio|music|podcast)/i.test(message)) ||
+      /https?:\/\/\S+\.(?:mp3|wav|ogg|m4a|aac|flac)(?:[?#]|$)/i.test(message),
   };
 }
 
@@ -877,20 +926,33 @@ export function validateAgentStreamMessageDetailed(
       if (textError) return createIssue(textError);
     }
 
-    const requestHasImageUrl =
-      (sequence.catalogId ?? BASIC_CATALOG) === BASIC_CATALOG &&
-      typeof sequence.message === 'string' &&
-      /https?:\/\//i.test(sequence.message);
     const hasRoot = state.hasRoot || components.some((component) => component.id === 'root');
-    const hasBasicImage =
-      state.hasBasicImage || components.some((component) => component.component === 'Image');
-    if (requestHasImageUrl && hasRoot && !hasBasicImage) {
-      return createIssue('包含图片 URL 的生成流必须包含 Basic Catalog Image 组件');
+    const hasBasicMedia = { ...state.hasBasicMedia };
+    for (const mediaComponent of ['Image', 'Video', 'AudioPlayer'] as const) {
+      hasBasicMedia[mediaComponent] ||= components.some(
+        (component) => component.component === mediaComponent,
+      );
+    }
+    const requiredBasicMedia =
+      (sequence.catalogId ?? BASIC_CATALOG) === BASIC_CATALOG
+        ? getRequiredBasicMedia(sequence.message)
+        : { Image: false, Video: false, AudioPlayer: false };
+    const mediaLabels = {
+      Image: '图片',
+      Video: '视频',
+      AudioPlayer: '音频',
+    } as const;
+    for (const mediaComponent of ['Image', 'Video', 'AudioPlayer'] as const) {
+      if (requiredBasicMedia[mediaComponent] && hasRoot && !hasBasicMedia[mediaComponent]) {
+        return createIssue(
+          `请求${mediaLabels[mediaComponent]}内容的生成流必须包含 Basic Catalog ${mediaComponent} 组件`,
+        );
+      }
     }
 
     state.componentsById = nextComponents;
     state.hasRoot = hasRoot;
-    state.hasBasicImage = hasBasicImage;
+    state.hasBasicMedia = hasBasicMedia;
     return null;
   }
 

@@ -40,6 +40,15 @@ When the request explicitly asks for an avatar, set Image.variant to "avatar" an
 Never render or label the URL itself in Text, including through an updateDataModel field bound to Text.text; URL values may bind only to Image.url.
 If the request supplies an image URL, copy it exactly into Image.url. If an avatar is requested without a URL, use https://ui-avatars.com/api/?name=<name>&size=256; do not invent another domain.`
     : '';
+  const mediaRule =
+    components.includes('Video') || components.includes('AudioPlayer')
+      ? `
+Use Video only with "id", "component", and required "url"; it has no other protocol fields.
+Use AudioPlayer only with "id", "component", required "url", and optional "description".
+Video.url, AudioPlayer.url, and AudioPlayer.description may be strings or { "path": "..." } bindings.
+Render media controls in the host renderer; do not add HTML-style src, controls, children, or an action to Video or AudioPlayer.
+If the request supplies a video or audio URL, copy it exactly into the matching media component URL.`
+      : '';
   const textFieldRule = components.includes('TextField')
     ? `\nUse TextField only with "id", "component", "label", "value", optional "variant", optional "validationRegexp", and optional "checks" (Basic Catalog only).
 "label" may be a string or { "path": "..." }; "value" must be exactly { "path": "..." } so user edits write back to the data model.
@@ -116,6 +125,7 @@ Supported action names: ${supportedActions.join(', ')}.
 Use flat component ids, static children/child references, and { "path": "..." } bindings.
 ${tabsRule}
 ${imageRule}
+${mediaRule}
 ${textFieldRule}
 ${checksRule}
 ${choicePickerRule}

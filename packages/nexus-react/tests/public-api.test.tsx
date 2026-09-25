@@ -6,6 +6,7 @@ describe('React public API surface', () => {
   it('exports only the documented root-entry contract', () => {
     assert.deepEqual(Object.keys(publicApi).sort(), [
       'A2UIProvider',
+      'AudioPlayer',
       'Button',
       'CORE_VERSION',
       'Card',
@@ -28,6 +29,7 @@ describe('React public API surface', () => {
       'Tabs',
       'Text',
       'TextField',
+      'Video',
       'getReactCoreCompatibility',
       'standardRenderMap',
       'useA2UI',
@@ -50,6 +52,7 @@ describe('React public API surface', () => {
 
   it('maps every standard Basic Catalog component in the current MVP subset', () => {
     assert.deepEqual(Object.keys(publicApi.standardRenderMap).sort(), [
+      'AudioPlayer',
       'Button',
       'Card',
       'CheckBox',
@@ -65,6 +68,7 @@ describe('React public API surface', () => {
       'Tabs',
       'Text',
       'TextField',
+      'Video',
     ]);
   });
 });

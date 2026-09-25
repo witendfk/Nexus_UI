@@ -15,7 +15,7 @@ import type { CoreStore } from '../state';
 import { createCoreStore } from '../state';
 import { buildTree } from '../render';
 import { buildActionEvent } from '../action';
-import { validateA2UIMessage } from '../protocol/validator';
+import { validateNexusProfileMessage, validateProtocolMessage } from '../protocol/validator';
 import type {
   A2UIDiagnostic,
   A2UIError,
@@ -72,10 +72,18 @@ export class A2UIRuntime {
   /** 直接喂一条已解析的消息；与 push 走同一套结构和生命周期校验。 */
   dispatch(message: A2UIMessage): void {
     const raw = stringifyMessage(message);
-    const result = validateA2UIMessage(message);
+    const result = validateProtocolMessage(message);
     const validatedMessage = result.message;
     if (!result.ok || !validatedMessage) {
-      this.reportError({ message: result.error?.message ?? '非法消息结构', raw });
+      this.reportError({
+        ...(result.error ?? { message: '非法消息结构' }),
+        raw,
+      });
+      return;
+    }
+    const profileError = validateNexusProfileMessage(validatedMessage);
+    if (profileError) {
+      this.reportError({ ...profileError, raw });
       return;
     }
     const catalogError = this.getCatalogIssue(validatedMessage);
@@ -92,15 +100,25 @@ export class A2UIRuntime {
     try {
       obj = JSON.parse(line);
     } catch {
-      return { ok: false, error: { message: 'JSON 解析失败', raw: line } };
+      return {
+        ok: false,
+        error: { code: 'PROTOCOL_INVALID', message: 'JSON 解析失败', raw: line },
+      };
     }
-    const result = validateA2UIMessage(obj);
+    const result = validateProtocolMessage(obj);
     const parsedMessage = result.message;
     if (!result.ok || !parsedMessage) {
       return {
         ok: false,
-        error: { message: result.error?.message ?? '非法消息结构', raw: line },
+        error: {
+          ...(result.error ?? { message: '非法消息结构' }),
+          raw: line,
+        },
       };
+    }
+    const profileError = validateNexusProfileMessage(parsedMessage);
+    if (profileError) {
+      return { ok: false, error: { ...profileError, raw: line } };
     }
     const catalogError = this.getCatalogIssue(parsedMessage);
     if (catalogError) {
@@ -179,7 +197,7 @@ export class A2UIRuntime {
     const surfaceId = getSurfaceId(message);
     const lifecycleError = this.getLifecycleError(message, surfaceId);
     if (lifecycleError) {
-      this.reportError({ message: lifecycleError, raw, surfaceId });
+      this.reportError({ ...lifecycleError, raw, surfaceId });
       return;
     }
 
@@ -191,10 +209,15 @@ export class A2UIRuntime {
     }
   }
 
-  private getLifecycleError(message: A2UIMessage, surfaceId: string): string | null {
+  private getLifecycleError(
+    message: A2UIMessage,
+    surfaceId: string,
+  ): { code: 'LIFECYCLE_INVALID'; message: string } | null {
     const exists = Object.prototype.hasOwnProperty.call(this.store.getState().surfaces, surfaceId);
-    if ('createSurface' in message) return exists ? `Surface 已存在: ${surfaceId}` : null;
-    return exists ? null : `Surface 尚未创建: ${surfaceId}`;
+    if ('createSurface' in message) {
+      return exists ? { code: 'LIFECYCLE_INVALID', message: `Surface 已存在: ${surfaceId}` } : null;
+    }
+    return exists ? null : { code: 'LIFECYCLE_INVALID', message: `Surface 尚未创建: ${surfaceId}` };
   }
 
   private getCatalogIssue(message: A2UIMessage): A2UIError | null {
@@ -203,7 +226,9 @@ export class A2UIRuntime {
 
     if ('createSurface' in message) {
       const catalogId = message.createSurface.catalogId;
-      return registry.has(catalogId) ? null : { message: `Agent catalog 未注册: ${catalogId}` };
+      return registry.has(catalogId)
+        ? null
+        : { code: 'CATALOG_UNSUPPORTED', message: `Agent catalog 未注册: ${catalogId}` };
     }
 
     const state = this.store.getState();
@@ -234,7 +259,9 @@ export class A2UIRuntime {
       );
     }
 
-    return diagnostics.length > 0 ? { message: formatDiagnostics(diagnostics), diagnostics } : null;
+    return diagnostics.length > 0
+      ? { code: 'CATALOG_UNSUPPORTED', message: formatDiagnostics(diagnostics), diagnostics }
+      : null;
   }
 
   private getActionDiagnostics(

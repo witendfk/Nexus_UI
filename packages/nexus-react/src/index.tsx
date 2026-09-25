@@ -38,6 +38,8 @@ export {
   Card,
   Icon,
   Divider,
+  Video,
+  AudioPlayer,
 } from './components';
 export { A2UIProvider, useA2UI } from './provider';
 export type { A2UIProviderProps } from './provider';

@@ -170,7 +170,7 @@ export type A2UIMessage =
 export interface ParseResult {
   ok: boolean;
   message?: A2UIMessage;
-  error?: { message: string; raw?: string; diagnostics?: readonly A2UIDiagnostic[] };
+  error?: A2UIError & { raw?: string };
 }
 
 /* ───────────────────────── 4. 主题 ───────────────────────── */
@@ -221,11 +221,20 @@ export type RenderMap = Record<string, RenderFn>;
 
 /** 内核错误记录（避免与全局 Error 构造器冲突）。 */
 export interface A2UIError {
+  /** Stable boundary code. Legacy callers may continue matching on message. */
+  code?: A2UIErrorCode;
   message: string;
   raw?: string;
   surfaceId?: string;
   diagnostics?: readonly A2UIDiagnostic[];
 }
+
+export type A2UIErrorCode =
+  | 'PROTOCOL_INVALID'
+  | 'LIFECYCLE_INVALID'
+  | 'CATALOG_UNSUPPORTED'
+  | 'FEATURE_UNSUPPORTED'
+  | 'POLICY_REJECTED';
 
 /**
  * `[seam]` 已解析的 action 事件——内核经 `onAction` 回调吐出。

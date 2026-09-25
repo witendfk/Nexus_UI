@@ -1,6 +1,6 @@
 ## @nexus-ui/core
 
-框架无关的 A2UI v0.9 流式协议运行时。它不 import React，不依赖 DOM，也不知道消息来自 SSE、Agent 还是业务后端。
+框架无关的 A2UI v0.9 流式协议运行时。它不 import React，不依赖 DOM，也不知道消息来自 SSE、Agent 还是业务后端。core 遵循 A2UI v0.9 消息模型，但当前校验范围是 Nexus Agent Task Profile，不等于官方 Basic Catalog 完整一致性实现。
 
 ## 当前能力
 
@@ -12,6 +12,7 @@
 - JSON Pointer 数据模型更新。
 - `{ path }` 动态值和 action context 解析。
 - Basic `TextField` / `CheckBox` / `ChoicePicker` / `DateTimeInput` / `Slider` 的双向输入写回 seam。
+- Basic `Image` / `Video` / `AudioPlayer` 的媒体 URL 结构校验；`url` 和媒体说明支持字符串或 `{ path }` 绑定。
 - Basic `TextField` / `Slider` / `Button` 的最小 A2UI `checks`：支持 `required` / `regex` / `length` / `numeric` / `email`，按当前 dataModel 求值并生成 `VNode.validation`；Button checks 失败会阻断 action。
 - 框架无关 `ActionEvent` 出口。
 - `CatalogRegistry`：登记 `catalogId`、组件名边界、可选 action 白名单和可选的自定义组件 props schema。
@@ -19,7 +20,7 @@
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
 - 单条坏消息记录错误并丢弃，不中断后续流。
 
-当前校验目标是生命周期安全和 MVP 子集，不等于完整 A2UI Basic Catalog JSON Schema 引擎。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。通用 FunctionCall、`checks` 组合条件、跨字段校验、Workbench checks 和端到端 `sendDataModel` 均未支持；Basic `TextField` / `Slider` / `Button` 的 5 个基础校验函数属于当前最小支持范围。
+当前校验分两层：`validateProtocolMessage` 判断官方 A2UI v0.9 结构；`validateNexusProfileMessage` 判断 Profile 是否支持。`validateA2UIMessage` 保留兼容并串联两者。Catalog 能力、宿主策略和组件 schema 在后续边界继续收口。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。通用 FunctionCall、`checks` 组合条件、跨字段校验、Workbench checks 和端到端 `sendDataModel` 均被 Profile 拒绝；Profile 中 `TextField` / `Slider` / `Button` 的 5 个基础校验函数属于当前最小支持范围。
 
 ## 源码结构
 

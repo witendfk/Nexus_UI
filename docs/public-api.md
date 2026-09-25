@@ -25,7 +25,7 @@ Current API version: `CORE_API_VERSION = 1`.
 Stable root-entry exports in `0.1.x`:
 
 - Runtime: `A2UIRuntime`, `RuntimeOptions`.
-- Protocol: `JSONLBuffer`, `isA2UIMessage`, `validateA2UIMessage`, `PROTOCOL_VERSION`, `A2UIError`, `A2UIDiagnostic`, and the A2UI v0.9 message / payload / component / action types.
+- Protocol: `JSONLBuffer`, `isA2UIMessage`, `validateA2UIMessage`, `validateProtocolMessage`, `validateNexusProfileMessage`, `PROTOCOL_VERSION`, `A2UIError`, `A2UIErrorCode`, `A2UIDiagnostic`, and the A2UI v0.9 message / payload / component / action types.
 - Catalog boundary: `CatalogRegistry`, `CatalogDefinition` with optional host-declared `actions`, `createCatalogPromptContract`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
 - State and render seams: `createCoreStore`, `CoreState`, `CoreStore`, `buildTree`, `VNode`, `Surface`, `RenderFn`, and `RenderMap`.
 - Interaction and data helpers: `buildActionEvent`, `ActionEvent`, `getByPath`, `setValueAtPath`, `removeAtPath`, `applyDataModelUpdate`, `resolveDynamic`, `resolveContext`, and `toDisplayString`.
@@ -43,7 +43,7 @@ Stable root-entry exports in `0.1.x`:
 
 - Provider: `A2UIProvider`, `A2UIProviderProps`, `useA2UI`.
 - Renderer: `ReactRenderer`, `RenderContext`, `RenderFn`, `RenderMap`.
-- Standard render map and 15 components: `standardRenderMap`, `Text`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`, `Slider`, `Button`, `Column`, `Row`, `List`, `Tabs`, `Image`, `Card`, `Icon`, `Divider`.
+- Standard render map and 17 components: `standardRenderMap`, `Text`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`, `Slider`, `Button`, `Column`, `Row`, `List`, `Tabs`, `Image`, `Video`, `AudioPlayer`, `Card`, `Icon`, `Divider`.
 - Compatibility metadata: `CORE_VERSION`, `PROTOCOL_VERSION`, `REACT_RENDERER_VERSION`, `REACT_API_VERSION`, `SUPPORTED_CORE_API_VERSION`, `SUPPORTED_CORE_VERSION_RANGE`, `getReactCoreCompatibility`, and `ReactCoreCompatibility`.
 
 The React package does not own transport, client action envelopes, credentials, or business handlers. It maps guarded VNodes to React elements and exposes interaction through the core runtime.
@@ -95,7 +95,7 @@ There are three independent version layers:
 
 | Layer | Current value | Meaning |
 | --- | --- | --- |
-| A2UI protocol | `v0.9` | Exact wire contract accepted by core |
+| A2UI protocol | `v0.9` | Target wire contract. `validateProtocolMessage` validates official message structure; `validateNexusProfileMessage` separately validates the supported Nexus profile. |
 | Package version | `0.1.0` | Implementation release version |
 | Root API version | Core `1`, React `1`, server host-assembly `1` | Shape of the root-entry contract |
 

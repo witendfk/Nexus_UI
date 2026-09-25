@@ -1,6 +1,6 @@
 # Nexus UI
 
-Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受约束的 A2UI v0.9 声明式消息，宿主通过 Nexus UI 校验、流式渲染、绑定用户状态、分发业务 action，并在同一 surface 原地更新结果。
+Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受约束的 A2UI v0.9 声明式消息，宿主通过 Nexus UI 校验、流式渲染、绑定用户状态、分发业务 action，并在同一 surface 原地更新结果。当前交付物是 **Nexus Agent Task Profile**，不是完整 A2UI v0.9 客户端，也不是官方 Basic Catalog 完整一致性实现。
 
 它不是 UI 画板。UI 画板的终点是“生成一张页面”；Nexus UI 的终点是“让 Agent 生成的任务界面可以安全运行，并把用户操作送回业务系统”。
 
@@ -8,7 +8,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 
 | 能力 | 说明 |
 | --- | --- |
-| 安全 UI 边界 | Agent 输出不能是 HTML、前端源码或任意 JSON；结构、surface 生命周期、组件、props、action 都必须通过 guard。 |
+| 安全 UI 边界 | Agent 输出不能是 HTML、前端源码或任意 JSON；协议结构、Catalog 能力、surface 生命周期和 action 策略必须分层校验。 |
 | 流式运行时 | core 缓冲 JSONL、渐进解析消息、维护组件树和 dataModel，并以流式状态驱动 React 渲染。 |
 | 有状态交互 | TextField、CheckBox、ChoicePicker、DateTimeInput、Slider 可写回 dataModel；最小 A2UI checks 展示协议错误并阻断按钮 action；Button action 携带最新上下文。 |
 | 宿主设计系统控制 | A2UI 组件名通过 React renderMap 映射到宿主组件；自定义 Catalog 可声明组件 schema 和 action 白名单。 |
@@ -34,7 +34,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 
 - 不是垂直业务 Agent 本体。
 - 不替代 CRM、OA、工单、审批等业务系统。
-- 不是完整 A2UI v0.9 实现。
+- 不是完整 A2UI v0.9 实现或官方 Basic Catalog conformance 实现。
 - 不是 prompt 生成静态页面的画板。
 - MVP 不承诺认证、租户隔离、公网部署和多实例持久化。
 
@@ -43,6 +43,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 | 文档 | 用途 |
 | --- | --- |
 | [docs/product-position.md](docs/product-position.md) | 产品定位、落地场景、非目标和个人项目成功标准 |
+| [docs/architecture-boundary.md](docs/architecture-boundary.md) | 协议层 / 能力层 / 策略层边界与命名口径 |
 | [docs/host-integration.md](docs/host-integration.md) | 宿主接入契约、HTTP/SSE 参考协议、catalog 与支持矩阵 |
 | [docs/host-quickstart.md](docs/host-quickstart.md) | 外部宿主最小接入路径、endpoint 替换与坏输出验收 |
 | [docs/public-api.md](docs/public-api.md) | core / React / server 有限装配 API、禁止内部路径与版本兼容策略 |
@@ -54,7 +55,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 ```text
 Business Agent / LLM
         |
-Agent Adapter + guard       catalog、surface 生命周期、结构、action 安全边界
+Agent Adapter + guard       protocol / capability / policy / action 分层边界
         |
 SSE reference transport     POST + text/event-stream；可替换为其他 transport
         |
@@ -77,13 +78,13 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 
 ## MVP 边界
 
-当前能力基线到 P12-b；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
+当前能力基线到 P13-a；P10-d 的产品收口原则继续有效。交付重点是一条可验证、可接入的 Agent Task Surface 闭环，不是组件数量竞赛。
 
 当前包含：
 
 - 单 active surface、SSE 参考传输、静态 child / children、`{ path }` dataModel 绑定和 action context 解析。
-- A2UI Basic Catalog 15 个组件：`Text`、`TextField`、`CheckBox`、`ChoicePicker`、`DateTimeInput`、`Slider`、`Button`、`Column`、`Row`、`List`、`Tabs`、`Image`、`Card`、`Icon`、`Divider`。
-- Basic Catalog 最小 `checks`：`TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`，并展示协议错误文案；失败 Button checks 会阻断 action。
+- Nexus Basic Task Profile 选用 17 个 Basic-like 组件名：`Text`、`TextField`、`CheckBox`、`ChoicePicker`、`DateTimeInput`、`Slider`、`Button`、`Column`、`Row`、`List`、`Tabs`、`Image`、`Video`、`AudioPlayer`、`Card`、`Icon`、`Divider`。core 现在先区分协议合法性和 Profile 支持性，再进入 Catalog / Policy guard；这不表示这些组件的全部官方字段和渲染语义都已实现。
+- Profile 最小 `checks`：`TextField` / `Slider` / `Button` 支持 `required`、`regex`、`length`、`numeric`、`email`，并展示协议错误文案；失败 Button checks 会阻断 action。
 - task / Workbench 自定义 Catalog：验证企业组件映射、props schema、action 白名单、结构化 diagnostics 和业务闭环。
 - 外部 Agent HTTP JSONL RPC：初始生成与 action 都可回传远端；宿主也可通过 `NEXUS_DEMO_ACTION_MODE=local` 把 action 留在本地，输出仍走统一 guard。
 - Catalog Contract：从宿主 `CatalogDefinition` 生成确定性的 A2UI NDJSON、组件、action、schema 与动态绑定提示词；宿主可显式发布只读 HTTP 契约，不强制外部 Agent 使用固定 prompt。
@@ -93,7 +94,7 @@ Host App / business system  企业设计系统组件、CRM / OA / 工单 / 审�
 
 当前不包含：
 
-- A2UI Basic Catalog 的 `Video`、`AudioPlayer`、`Modal`。
+- 官方 Basic Catalog `Modal` 和完整官方组件字段一致性。
 - 通用 FunctionCall、ChildList template、`checks` 组合条件、跨字段校验、Workbench `checks` 和完整标准 JSON Schema。
 - 多 surface 并发展示、WebSocket、A2A、MCP。
 - 认证、授权、租户隔离、审计、公网限流和多实例数据库持久化。
@@ -220,6 +221,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P11-b | Basic `checks` 最小校验与 action 阻断闭环 | 完成 |
 | P12-a | Catalog Prompt Contract Generator | 完成 |
 | P12-b | Catalog Contract HTTP 发布与浏览器验收 | 完成 |
+| P13-a | Basic `Video` / `AudioPlayer` 媒体组件与 URL guard | 完成 |
+| P14-a | 协议校验 / Runtime Profile 边界拆分 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
@@ -300,9 +303,11 @@ P12-a 真实模型补充验收：直连 standalone Demo Agent 触发生成与 `a
 
 P12-b 验收记录（2026-09-24）：server 宿主装配 API 新增 `catalogContracts` 显式发布边界，并提供 `GET /api/a2ui/catalog-contract?catalogId=...`，返回 `serverApiVersion`、原 `CatalogDefinition` 和 `createCatalogPromptContract` 生成的 prompt。缺失 `catalogId` 返回 400，未显式发布的 catalog 返回 404，重复发布在装配期失败；Catalog 注册本身不代表对外公开。standalone host 使用与 guard 相同的 `standaloneHostCatalog` 发布契约，浏览器提供“查看 Catalog Contract”验收入口。无头 Chrome 验收确认页面请求返回 200、面板状态为 `done`，契约包含生命周期、catalog、schema 与 guard 边界，且无 console error / pageerror；全仓 format / typecheck / lint / build / test 已通过，自动化测试不读取 `.env`、不消耗真实 LLM 请求。
 
+P13-a 验收记录（2026-09-24）：Basic Catalog `Video` 与 `AudioPlayer` 已按官方字段接入 core 结构校验、React 原生播放器渲染和公开导出；server catalog、LLM prompt 与流式 guard 只允许官方 `url`（`AudioPlayer` 另有 `description`），拒绝 HTML 风格字段与 action。用户明确提供视频或音频 URL 时，生成流必须包含对应媒体组件；普通未知 URL 不猜测媒体类型，且 URL 不能直接或经 dataModel 绑定进入 `Text`。自动化测试不读取 `.env`、不消耗真实 LLM 请求。
+
 ## 后续路线
 
-1. **Catalog 工程化后续**：按真实宿主需求评估完整标准 JSON Schema、跨字段校验与诊断上限策略。
+1. **P14-b Catalog 身份收口**：统一官方 Basic Catalog 与 Nexus Profile 的 catalog ID / 扩展字段边界，再把组件规则从 server guard 迁到 Catalog 契约。
 2. **场景化表单扩展**：在真实工作流需要时评估 `checks` 组合条件与跨字段校验。
 
 扩展顺序必须继续服从产品目标：先增强 runtime 的确定性和可接入性，不做组件画廊式的大而全。
