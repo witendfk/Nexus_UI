@@ -5,10 +5,12 @@
  */
 import type { Component } from '../protocol/types';
 import {
+  validateComponentPolicyDiagnostics,
   validateComponentPropsDiagnostics,
   type ComponentSchemaDiagnostic,
   validateComponentSchema,
   type ComponentPropsSchema,
+  type CatalogComponentPolicy,
 } from './schema';
 
 export interface CatalogDefinition {
@@ -18,6 +20,8 @@ export interface CatalogDefinition {
   readonly actions?: readonly string[];
   /** Catalog-specific props contracts; components without a schema are name-only. */
   readonly componentSchemas?: Readonly<Record<string, ComponentPropsSchema>>;
+  /** Capability boundary for fields, action attachment, checks, and extension origin. */
+  readonly componentPolicies?: Readonly<Record<string, CatalogComponentPolicy>>;
 }
 
 export type { ComponentSchemaDiagnostic } from './schema';
@@ -48,6 +52,20 @@ function validateDefinition(definition: CatalogDefinition): void {
     if (!action) throw new Error('Catalog action 名称不能为空');
     if (actions.has(action)) throw new Error(`Catalog action 重复: ${action}`);
     actions.add(action);
+  }
+
+  for (const [component, policy] of Object.entries(definition.componentPolicies ?? {})) {
+    if (!component) throw new Error('Catalog component policy 名称不能为空');
+    if (!components.has(component)) {
+      throw new Error(`Catalog component policy 引用了未注册组件: ${component}`);
+    }
+    for (const field of Object.keys(policy.fields ?? {})) {
+      if (!field)
+        throw new Error(`Catalog ${definition.catalogId}.${component} field 名称不能为空`);
+    }
+    if (policy.checks?.maxRules !== undefined && policy.checks.maxRules < 0) {
+      throw new Error(`Catalog ${definition.catalogId}.${component} checks.maxRules 不能为负数`);
+    }
   }
 }
 
@@ -97,6 +115,10 @@ export class CatalogRegistry {
     return this.get(catalogId)?.componentSchemas?.[component];
   }
 
+  getComponentPolicy(catalogId: string, component: string): CatalogComponentPolicy | undefined {
+    return this.get(catalogId)?.componentPolicies?.[component];
+  }
+
   getComponentDiagnostics(
     catalogId: string,
     component: Component,
@@ -111,7 +133,11 @@ export class CatalogRegistry {
       ];
     }
     const schema = this.getComponentSchema(catalogId, component.component);
-    return schema ? validateComponentPropsDiagnostics(component, schema, dataModel) : [];
+    const policy = this.getComponentPolicy(catalogId, component.component);
+    return [
+      ...(policy ? validateComponentPolicyDiagnostics(component, policy) : []),
+      ...(schema ? validateComponentPropsDiagnostics(component, schema, dataModel) : []),
+    ];
   }
 
   validateComponent(catalogId: string, component: Component, dataModel?: unknown): string | null {

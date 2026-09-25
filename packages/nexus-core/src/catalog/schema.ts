@@ -11,6 +11,7 @@ export type SchemaValueType =
   | 'null';
 
 export type DynamicBindingPolicy = 'forbidden' | 'allowed' | 'required';
+export type CatalogFieldOrigin = 'official-basic' | 'nexus-extension' | 'host-extension';
 
 /**
  * A deterministic JSON-Schema-like subset for catalog component props.
@@ -37,6 +38,34 @@ export interface ComponentSchemaNode {
 
 export interface ComponentPropsSchema extends ComponentSchemaNode {
   readonly type?: 'object';
+}
+
+export interface CatalogFieldPolicy {
+  readonly binding?: DynamicBindingPolicy;
+  readonly origin?: CatalogFieldOrigin;
+  /** The field must be a ComponentId reference (for example Button.child). */
+  readonly componentRef?: boolean;
+}
+
+export interface CatalogChecksPolicy {
+  readonly enabled?: boolean;
+  readonly functions?: readonly string[];
+  readonly maxRules?: number;
+  readonly maxMessageLength?: number;
+  readonly maxPatternLength?: number;
+}
+
+export interface CatalogComponentActionPolicy {
+  readonly allowed?: boolean;
+  readonly required?: boolean;
+}
+
+export interface CatalogComponentPolicy {
+  readonly origin?: 'official-basic' | 'nexus-extension' | 'host-extension';
+  /** Component-specific fields; protocol-owned id/component are always implicit. */
+  readonly fields?: Readonly<Record<string, CatalogFieldPolicy>>;
+  readonly action?: CatalogComponentActionPolicy;
+  readonly checks?: CatalogChecksPolicy;
 }
 
 export interface ComponentSchemaDiagnostic extends A2UIDiagnostic {
@@ -66,6 +95,206 @@ function isDataBinding(value: unknown): value is { path: string } {
     typeof value.path === 'string' &&
     value.path.length > 0
   );
+}
+
+function unsupportedFieldDiagnostic(
+  component: Component,
+  field: string,
+): ComponentSchemaDiagnostic {
+  return {
+    path: `${component.component}.${field}`,
+    message: `${component.component}.${field} 不是 Catalog Contract 允许的字段`,
+  };
+}
+
+export function validateComponentPolicyDiagnostics(
+  component: Component,
+  policy: CatalogComponentPolicy,
+): readonly ComponentSchemaDiagnostic[] {
+  const diagnostics: ComponentSchemaDiagnostic[] = [];
+  const fields = policy.fields ?? {};
+  const actionAllowed = policy.action?.allowed ?? true;
+  const checksEnabled = policy.checks?.enabled ?? false;
+  const structuralKeys = new Set([
+    'id',
+    'component',
+    ...(actionAllowed ? ['action'] : []),
+    ...(checksEnabled ? ['checks'] : []),
+  ]);
+
+  for (const field of Object.keys(component)) {
+    if (structuralKeys.has(field) || field in fields) continue;
+    diagnostics.push(unsupportedFieldDiagnostic(component, field));
+  }
+
+  for (const [field, fieldPolicy] of Object.entries(fields)) {
+    if (!(field in component)) continue;
+    const value = component[field];
+    const path = `${component.component}.${field}`;
+    const binding = fieldPolicy.binding ?? 'forbidden';
+    const isBinding =
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 1 &&
+      typeof (value as { path?: unknown }).path === 'string';
+
+    if (fieldPolicy.componentRef === true && (typeof value !== 'string' || value.length === 0)) {
+      diagnostics.push({
+        path,
+        message: `${path} 必须是组件 id`,
+      });
+    }
+    if (binding === 'required' && !isBinding) {
+      diagnostics.push({
+        path,
+        message: `${path} 必须是 { path } 绑定`,
+      });
+    }
+    if (binding === 'forbidden' && isBinding) {
+      diagnostics.push({
+        path,
+        message: `${path} 不支持 { path } 绑定`,
+      });
+    }
+  }
+
+  if (!actionAllowed && component.action !== undefined) {
+    diagnostics.push({
+      path: `${component.component}.action`,
+      message: `${component.component} 不支持挂载 action`,
+    });
+  }
+  if (actionAllowed && policy.action?.required === true && component.action === undefined) {
+    diagnostics.push({
+      path: `${component.component}.action`,
+      message: `${component.component} 必须挂载 action`,
+    });
+  }
+
+  if (!checksEnabled && component.checks !== undefined) {
+    diagnostics.push({
+      path: `${component.component}.checks`,
+      message: `${component.component} 不支持 checks`,
+    });
+  }
+
+  if (checksEnabled && component.checks !== undefined) {
+    const checksPolicy = policy.checks;
+    const maxRules = policy.checks?.maxRules ?? Number.POSITIVE_INFINITY;
+    const maxMessageLength = policy.checks?.maxMessageLength ?? Number.POSITIVE_INFINITY;
+    const maxPatternLength = policy.checks?.maxPatternLength ?? Number.POSITIVE_INFINITY;
+    const functions = new Set(checksPolicy?.functions ?? []);
+
+    if (!Array.isArray(component.checks)) {
+      diagnostics.push({
+        path: `${component.component}.checks`,
+        message: `${component.component}.checks 必须是数组`,
+      });
+    } else {
+      if (component.checks.length > maxRules) {
+        diagnostics.push({
+          path: `${component.component}.checks`,
+          message: `${component.component}.checks 数量不能超过 ${maxRules}`,
+        });
+      }
+      component.checks.forEach((check, index) => {
+        const path = `${component.component}.checks[${index}]`;
+        if (
+          typeof check !== 'object' ||
+          check === null ||
+          Array.isArray(check) ||
+          !Object.keys(check).every((key) => key === 'condition' || key === 'message')
+        ) {
+          diagnostics.push({
+            path,
+            message: `${path} 必须是只包含 condition 和 message 的对象`,
+          });
+          return;
+        }
+        if (
+          typeof check.message !== 'string' ||
+          check.message.length === 0 ||
+          check.message.length > maxMessageLength
+        ) {
+          diagnostics.push({
+            path: `${path}.message`,
+            message: `${path}.message 必须是 1-${maxMessageLength} 个字符`,
+          });
+        }
+
+        const condition = check.condition;
+        const isBooleanBinding =
+          typeof condition === 'object' &&
+          condition !== null &&
+          !Array.isArray(condition) &&
+          Object.keys(condition).length === 1 &&
+          typeof (condition as { path?: unknown }).path === 'string';
+        const isFunctionCall =
+          typeof condition === 'object' &&
+          condition !== null &&
+          !Array.isArray(condition) &&
+          'call' in condition;
+        if (typeof condition !== 'boolean' && !isBooleanBinding && !isFunctionCall) {
+          diagnostics.push({
+            path: `${path}.condition`,
+            message: `${path}.condition 必须是布尔值、{ path } 或 FunctionCall`,
+          });
+          return;
+        }
+        if (!isFunctionCall) return;
+
+        const call = (condition as { call?: unknown }).call;
+        if (typeof call !== 'string' || !functions.has(call)) {
+          diagnostics.push({
+            path: `${path}.condition.call`,
+            message: `${path}.condition.call 只支持 ${[...functions].join('/')}`,
+          });
+          return;
+        }
+        const args = (condition as { args?: unknown }).args;
+        if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+          diagnostics.push({
+            path: `${path}.condition.args`,
+            message: `${path}.condition.args 必须是对象`,
+          });
+          return;
+        }
+        const requiredArgs =
+          call === 'required' || call === 'email'
+            ? ['value']
+            : call === 'regex'
+              ? ['value', 'pattern']
+              : ['value'];
+        if (!requiredArgs.every((key) => key in args)) {
+          diagnostics.push({
+            path: `${path}.condition.args`,
+            message: `${path}.condition.args 缺少 ${requiredArgs.join('/')}`,
+          });
+        }
+        const pattern = (args as { pattern?: unknown }).pattern;
+        if (call === 'regex') {
+          if (typeof pattern !== 'string' || pattern.length > maxPatternLength) {
+            diagnostics.push({
+              path: `${path}.condition.args.pattern`,
+              message: `${path}.condition.args.pattern 必须是不超过 ${maxPatternLength} 个字符的字符串`,
+            });
+          } else {
+            try {
+              new RegExp(pattern);
+            } catch {
+              diagnostics.push({
+                path: `${path}.condition.args.pattern`,
+                message: `${path}.condition.args.pattern 必须是合法正则表达式`,
+              });
+            }
+          }
+        }
+      });
+    }
+  }
+
+  return diagnostics;
 }
 
 function describeEnum(values: readonly unknown[]): string {
@@ -376,6 +605,7 @@ export function validateComponentPropsDiagnostics(
     child: _child,
     tabs: _tabs,
     action: _action,
+    checks: _checks,
     ...props
   } = component;
 

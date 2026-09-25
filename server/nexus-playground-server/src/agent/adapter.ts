@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { CatalogDefinition, CatalogRegistry } from '@nexus-ui/core';
 import {
   agentCatalogRegistry,
-  BASIC_CATALOG,
+  NEXUS_BASIC_TASK_CATALOG,
   getCatalogActions,
+  isOfficialBasicCatalog,
+  normalizeLegacyBasicCatalog,
   TASK_CATALOG,
   WORKBENCH_CATALOG,
 } from './catalog';
@@ -94,13 +96,13 @@ function createDefaultActionHandlers(
   workbenchStore: WorkbenchTaskStore,
 ): Map<string, AgentActionHandler> {
   const handlers = new Map<string, AgentActionHandler>();
-  handlers.set(createActionHandlerKey(BASIC_CATALOG, 'call'), (action) =>
+  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'call'), (action) =>
     createActionResponse(action.surfaceId),
   );
-  handlers.set(createActionHandlerKey(BASIC_CATALOG, 'search'), (action) =>
+  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'search'), (action) =>
     createSearchActionResponse(action.surfaceId, action.context),
   );
-  handlers.set(createActionHandlerKey(BASIC_CATALOG, 'submit'), (action) =>
+  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'submit'), (action) =>
     createSubmitActionResponse(action.surfaceId, action.context),
   );
   handlers.set(createActionHandlerKey(TASK_CATALOG, 'start'), createTaskActionHandler(store));
@@ -116,7 +118,9 @@ function createFallbackGeneration(
   surfaceId: string,
   catalog: CatalogDefinition,
 ): AgentMessageSource {
-  if (catalog.catalogId === BASIC_CATALOG) return createContactFixture(surfaceId);
+  if (catalog.catalogId === NEXUS_BASIC_TASK_CATALOG) {
+    return createContactFixture(surfaceId);
+  }
   if (catalog.catalogId === TASK_CATALOG) return createTaskFixture(surfaceId);
   if (catalog.catalogId === WORKBENCH_CATALOG) return createWorkbenchFixture(surfaceId);
   throw new Error(`Fallback Agent 未支持 catalog: ${catalog.catalogId}`);
@@ -160,7 +164,15 @@ export class AgentAdapter {
   }
 
   async prepareGeneration(request: AgentGenerateRequest): Promise<AgentPlan> {
-    const catalogId = request.catalogId ?? BASIC_CATALOG;
+    const requestedCatalogId = request.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
+    const catalogId = normalizeLegacyBasicCatalog(requestedCatalogId);
+    if (isOfficialBasicCatalog(requestedCatalogId)) {
+      return {
+        ok: false,
+        message:
+          'Nexus 不注册官方 Basic Catalog；请使用 Nexus Basic Task Profile 或宿主自定义 catalog',
+      };
+    }
     const catalog = this.registry.get(catalogId);
     if (!catalog) {
       return { ok: false, message: `Agent catalog 未注册: ${catalogId}` };
@@ -239,7 +251,9 @@ export class AgentAdapter {
   }
 
   async prepareAction(action: AgentAction): Promise<AgentPlan> {
-    const catalogId = (await this.historyStore.getCatalogId(action.surfaceId)) ?? BASIC_CATALOG;
+    const historyCatalogId =
+      (await this.historyStore.getCatalogId(action.surfaceId)) ?? NEXUS_BASIC_TASK_CATALOG;
+    const catalogId = normalizeLegacyBasicCatalog(historyCatalogId);
     const catalog = this.registry.get(catalogId);
     if (!catalog) {
       return { ok: false, message: `Agent catalog 未注册: ${catalogId}` };

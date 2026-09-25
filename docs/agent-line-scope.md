@@ -41,7 +41,7 @@ Text, TextField, CheckBox, ChoicePicker, DateTimeInput, Slider, Button, Column, 
 
 这不是 A2UI 协议上限，也不表示这些组件的全部官方字段和渲染行为都已实现。服务端通过 `CatalogRegistry` 查询组件边界；generate 请求默认使用 Nexus Basic Task Profile，也可显式选择已注册的 task 或 Workbench catalog。
 
-当前实现里仍有一个历史 `catalogId` 与官方 `basic_catalog.json` 不同。在 P14-b 收口前，文档与演示不得把这条边界表述为官方 Basic Catalog conformance；需要扩展字段的宿主应使用自己的 Catalog ID。
+P14-b-a 起使用三个身份：官方 Basic Catalog ID 保持 `https://a2ui.org/specification/v0_9/basic_catalog.json`，但不被 Nexus 注册；默认 Profile 使用 `https://example.com/catalogs/nexus-basic-task/v1`；P14-b 前的错误 URL `https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json` 仅作为历史 surface 的兼容别名，会在 adapter 内归一化为默认 Profile。需要扩展字段的宿主应继续使用自己的 Catalog ID。
 
 M6 已提供 registry 架构和端到端 task 样例：core 可注册多个 `catalogId`，server 可按请求选择 catalog 并约束 LLM 输出，React 可按 surface 选择对应 renderMap。自定义组件必须由宿主显式提供渲染函数；P6-a 起，registry 还可为自定义组件注册 props schema，runtime 与 server guard 会统一执行组件名和 props 契约校验。P7-a 起，宿主还可在 `CatalogDefinition.actions` 中声明 action 白名单；这是 Nexus 的宿主边界扩展，不是新增 A2UI wire 字段，core runtime 与 server guard 都会在声明存在时拒绝未声明的组件 action。
 
@@ -124,6 +124,10 @@ P12-b 已完成。server 装配 API 支持宿主显式传入 `catalogContracts`�
 P13-a 已完成。Basic Catalog `Video` 只允许 `id/component/url`，`AudioPlayer` 只允许 `id/component/url/description`；两者均可使用字符串或 `{ path }` 绑定。React 使用原生 video / audio 播放器渲染，控制能力留在宿主渲染层，Agent 不能输出 HTML 风格 `src`、`controls`、children 或 action。server prompt 要求原样复制用户提供的媒体 URL，流式 guard 在明确视频 / 音频请求时强制对应组件存在，普通未知 URL 不做类型猜测。自动化测试覆盖 core 协议结构、React DOM、公开导出、prompt 契约和流式防回退边界。
 
 P14-a 已完成。core 拆分 `validateProtocolMessage`（官方 A2UI v0.9 结构）和 `validateNexusProfileMessage`（当前 Nexus Runtime Profile），旧入口 `validateA2UIMessage` 保持兼容并串联两者。runtime、参考 server stream guard 和诊断错误现在携带 `PROTOCOL_INVALID` / `LIFECYCLE_INVALID` / `CATALOG_UNSUPPORTED` / `FEATURE_UNSUPPORTED` 边界代码。官方 Basic Catalog 33 个示例矩阵锁定为“全部协议合法、当前 Profile 不声明完整支持”。下一步是 P14-b：收口 catalog 身份并把组件字段规则从 server guard 迁到 Catalog 契约。
+
+P14-b-a 已完成。默认 playground catalog 更名为 Nexus Basic Task Profile，canonical ID 为 `https://example.com/catalogs/nexus-basic-task/v1`；历史错误 URL 仅在 generation/action 入口归一化；官方 Basic Catalog ID 显式拒绝注册，防止把受限 Profile 冒充官方完整 Catalog。adapter 测试覆盖默认 ID、legacy 归一化、官方 ID 拒绝和历史 action 分发。组件字段契约迁移到 Catalog Contract 属于下一步 P14-b-b。
+
+P14-b-b 已完成。core `CatalogDefinition` 新增 `componentPolicies`，可声明字段允许范围、`{ path }` 绑定策略、action 挂载、checks 白名单 / 上限和字段来源；`Button.disabled` 明确标记为 Nexus extension。Nexus Basic 与 Workbench catalog 已迁移到该契约，server guard 移除了手写 Basic 字段、媒体字段、选项结构和 checks 规则；URL 安全策略、Slider / DateTime 跨字段语义和 Workbench 工作流闭环仍保留在 policy layer。Catalog Prompt Contract 会输出同一份 capability policy。
 
 ## 明确不支持
 

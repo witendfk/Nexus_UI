@@ -26,6 +26,32 @@ export function createCatalogPromptContract(catalog: CatalogDefinition): string 
   const componentsWithoutSchema = catalog.components.filter(
     (component) => !catalog.componentSchemas?.[component],
   );
+  const policies = Object.entries(catalog.componentPolicies ?? {});
+  const policySections = policies
+    .map(([component, policy]) => {
+      const fields = Object.entries(policy.fields ?? {})
+        .map(
+          ([field, fieldPolicy]) =>
+            `- ${field}: binding=${fieldPolicy.binding ?? 'forbidden'}, origin=${
+              fieldPolicy.origin ?? 'official-basic'
+            }${fieldPolicy.componentRef ? ', componentRef=true' : ''}`,
+        )
+        .join('\n');
+      const action = policy.action
+        ? `Action: allowed=${policy.action.allowed ?? true}, required=${
+            policy.action.required ?? false
+          }`
+        : 'Action: allowed by protocol; no extra Catalog policy.';
+      const checks = policy.checks
+        ? `Checks: enabled=${policy.checks.enabled ?? false}, functions=${
+            policy.checks.functions?.join('/') ?? 'none'
+          }, maxRules=${policy.checks.maxRules ?? 'unlimited'}`
+        : 'Checks: not enabled by Catalog policy.';
+      return `Component ${component} policy:\nOrigin: ${
+        policy.origin ?? 'official-basic'
+      }\n${fields || 'No extra field policies.'}\n${action}\n${checks}`;
+    })
+    .join('\n\n');
 
   return `# Nexus UI Agent Output Contract
 
@@ -63,6 +89,9 @@ ${
       )}. Their names remain whitelisted, but their component-specific fields must still follow the A2UI contract supplied by the host or runtime.`
     : 'Every catalog component has a schema above.'
 }
+
+Catalog capability policies:
+${policySections || 'No component capability policies are declared by this CatalogDefinition.'}
 
 Schema interpretation:
 - "type" requires the corresponding JSON type.

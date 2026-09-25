@@ -44,7 +44,7 @@ Do not use “Basic Catalog” as a vague synonym for “everything Nexus curren
 | Official Basic Catalog | The catalog declared by `specification/v0_9/json/basic_catalog.json`, including its official `catalogId`, components, fields, functions, and theme schema. |
 | Host Catalog | A custom catalog owned by an application, such as task, workbench, or approval catalogs. It may define custom components and explicit host extensions. |
 
-The current implementation still contains a legacy Basic Catalog ID that differs from the official file. Until that is reconciled, documentation and demos must describe the playground boundary as a Nexus profile, not as official Basic Catalog conformance.
+The canonical playground ID is `https://example.com/catalogs/nexus-basic-task/v1`. The former wrong URL is accepted only as a legacy alias for existing persisted surfaces and is normalized to the canonical profile before generation or action dispatch. The official Basic Catalog ID remains declared by the specification but is intentionally not registered by Nexus: the current profile is not an official conformance implementation.
 
 ## 4. Current Profile Boundary
 
@@ -102,6 +102,12 @@ validateA2UIMessage()          -> compatibility composition of both checks
 
 Runtime diagnostics now carry `PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, and `FEATURE_UNSUPPORTED` codes. `POLICY_REJECTED` is reserved for the host policy boundary as server guard classification is migrated.
 
-### P14-b — Catalog Identity — Next
+### P14-b-a — Catalog Identity — Completed
 
-Next, reconcile the legacy Basic Catalog ID with the official catalog ID, separate official fields from Nexus extensions such as `disabled`, and move component-specific guard rules from the server into catalog contracts.
+P14-b-a separated the three identities, made the Nexus profile canonical, normalized the legacy URL for existing records, and explicitly refused the official Basic Catalog ID until a conformant catalog exists.
+
+### P14-b-b — Catalog Contract Migration — Completed
+
+P14-b-b added declarative component policies for allowed fields, dynamic binding, action attachment, check scope, and field origin. The Nexus Basic and Workbench catalogs now carry these contracts; the server consumes the same registry boundary instead of hand-writing Basic field and checks rules. `Button.disabled` is explicitly marked `nexus-extension`, while official Basic fields remain marked `official-basic`.
+
+Host-specific workflow rules (for example Workbench exact IDs and submit bindings), URL safety policy, and cross-field semantic checks remain in the policy layer. They are intentionally separate from component capability contracts.

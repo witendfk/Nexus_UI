@@ -396,10 +396,24 @@ The reference server registers:
 | Task Catalog | `TaskSummary`, `TaskButton` | `start`, `complete` |
 | Workbench Catalog | `CustomerSummary`, `Text`, `TextField`, `ChoicePicker`, `DateTimeInput`, `Button`, `Column`, `Row`, `Divider` | `submit` |
 
-Nexus Basic Task Profile ID (legacy; to be reconciled with the official Basic Catalog ID in P14-b):
+Nexus Basic Task Profile ID:
+
+```text
+https://example.com/catalogs/nexus-basic-task/v1
+```
+
+Legacy compatibility input:
 
 ```text
 https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json
+```
+
+The legacy URL is normalized to the canonical profile for new generations and action dispatch. It is not an official Basic Catalog identity.
+
+Official Basic Catalog ID (not registered by this profile):
+
+```text
+https://a2ui.org/specification/v0_9/basic_catalog.json
 ```
 
 Task Catalog ID:
@@ -421,7 +435,7 @@ A host custom catalog must satisfy four conditions:
 3. Every supported action has a business handler registered by `catalogId + action.name`.
 4. Guard tests reject unregistered components, cross-catalog components, unsupported actions, and action responses that change surface lifecycle.
 
-Current boundary: Catalog Registry enforces component names, profile-specific field rules (`Image`, `TextField`, `CheckBox`, `ChoicePicker`, `DateTimeInput`), Workbench submit-loop rules, and a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy). Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. It is not a complete standard JSON Schema engine, official Basic Catalog conformance layer, or cross-field validation engine. Enterprises should not treat catalog registration alone as a full security policy.
+Current boundary: Catalog Registry enforces component names, declarative component capability policies (allowed fields, binding policy, action attachment, checks scope, and field origin), a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy), and Workbench submit-loop policy. Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. This is not a complete standard JSON Schema engine, official Basic Catalog conformance layer, or replacement for host authorization. Enterprises should not treat catalog registration alone as a full security policy.
 
 `CatalogDefinition.actions` is a Nexus host-boundary extension, not a new A2UI wire field:
 

@@ -70,9 +70,17 @@ export { buildActionEvent } from './action/index';
 export { A2UIRuntime } from './runtime/index';
 export type { RuntimeOptions } from './runtime/index';
 export { CatalogRegistry } from './catalog/index';
+export type {
+  CatalogComponentActionPolicy,
+  CatalogComponentPolicy,
+  CatalogChecksPolicy,
+  CatalogFieldOrigin,
+  CatalogFieldPolicy,
+} from './catalog/schema';
 export type { CatalogDefinition } from './catalog/index';
 export { createCatalogPromptContract } from './catalog/prompt';
 export {
+  validateComponentPolicyDiagnostics,
   validateComponentProps,
   validateComponentPropsDiagnostics,
   validateComponentSchema,

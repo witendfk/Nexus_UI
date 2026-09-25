@@ -223,6 +223,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P12-b | Catalog Contract HTTP 发布与浏览器验收 | 完成 |
 | P13-a | Basic `Video` / `AudioPlayer` 媒体组件与 URL guard | 完成 |
 | P14-a | 协议校验 / Runtime Profile 边界拆分 | 完成 |
+| P14-b-a | Nexus Basic Task Profile 身份收口 | 完成 |
+| P14-b-b | Catalog 能力契约迁移 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
@@ -307,7 +309,7 @@ P13-a 验收记录（2026-09-24）：Basic Catalog `Video` 与 `AudioPlayer` 已
 
 ## 后续路线
 
-1. **P14-b Catalog 身份收口**：统一官方 Basic Catalog 与 Nexus Profile 的 catalog ID / 扩展字段边界，再把组件规则从 server guard 迁到 Catalog 契约。
+1. **P14-b-b Catalog Contract 迁移**：把 `disabled` 等 Nexus 扩展和组件字段规则迁入机器可读 Catalog Contract，并继续从 server guard 去重。
 2. **场景化表单扩展**：在真实工作流需要时评估 `checks` 组合条件与跨字段校验。
 
 扩展顺序必须继续服从产品目标：先增强 runtime 的确定性和可接入性，不做组件画廊式的大而全。

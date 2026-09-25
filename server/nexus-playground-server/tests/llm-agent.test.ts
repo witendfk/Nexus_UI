@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createLlmMessages, streamMessagesFromDeltas } from '../src/agent/llm-agent';
 import {
+  NEXUS_BASIC_TASK_CATALOG,
   TASK_CATALOG,
   TASK_CATALOG_COMPONENTS,
   WORKBENCH_CATALOG,
@@ -67,6 +68,7 @@ describe('createLlmMessages', () => {
     assert.match(String(messages[4]?.content), /updateComponents/);
     assert.deepEqual(messages[5], { role: 'user', content: 'make a card' });
     assert.match(String(messages.at(-1)?.content), /surface-1/);
+    assert.match(String(messages.at(-1)?.content), new RegExp(NEXUS_BASIC_TASK_CATALOG));
     assert.match(String(messages.at(-1)?.content), /call button clicked/);
   });
 
@@ -88,7 +90,7 @@ describe('createLlmMessages', () => {
     assert.match(String(messages.at(-1)?.content), /surface-task/);
   });
 
-  it('Basic Catalog prompt 明确 Tabs 的静态字段形状', () => {
+  it('Nexus Basic Task Profile prompt 明确 Tabs 的静态字段形状', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',
@@ -102,7 +104,7 @@ describe('createLlmMessages', () => {
     );
   });
 
-  it('Basic Catalog prompt 明确 Slider 的数值绑定契约', () => {
+  it('Nexus Basic Task Profile prompt 明确 Slider 的数值绑定契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',
@@ -163,7 +165,7 @@ describe('createLlmMessages', () => {
     assert.match(generationExample, /"path":"\/customer\/customerId"/);
   });
 
-  it('Basic Catalog prompt 明确 Image 使用 url 而不是 src', () => {
+  it('Nexus Basic Task Profile prompt 明确 Image 使用 url 而不是 src', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',
@@ -190,7 +192,7 @@ describe('createLlmMessages', () => {
     );
   });
 
-  it('Basic Catalog prompt 明确媒体组件字段契约', () => {
+  it('Nexus Basic Task Profile prompt 明确媒体组件字段契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',
@@ -208,7 +210,7 @@ describe('createLlmMessages', () => {
     assert.match(systemPrompt, /copy it exactly into the matching media component URL/);
   });
 
-  it('Basic Catalog prompt 明确 TextField 与 search action 的绑定契约', () => {
+  it('Nexus Basic Task Profile prompt 明确 TextField 与 search action 的绑定契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',
@@ -235,7 +237,7 @@ describe('createLlmMessages', () => {
     );
     assert.match(
       systemPrompt,
-      /Use checks only in the Basic Catalog and only on TextField, Slider, and Button/,
+      /Use checks only in the Nexus Basic Task Profile and only on TextField, Slider, and Button/,
     );
     assert.match(
       systemPrompt,
@@ -250,7 +252,7 @@ describe('createLlmMessages', () => {
     );
   });
 
-  it('Basic Catalog prompt 明确 CheckBox 与 submit 表单契约', () => {
+  it('Nexus Basic Task Profile prompt 明确 CheckBox 与 submit 表单契约', () => {
     const messages = createLlmMessages({
       kind: 'generate',
       surfaceId: 'surface-basic',

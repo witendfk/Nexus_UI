@@ -2,9 +2,9 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { JSONLBuffer } from '@nexus-ui/core';
 import {
-  BASIC_CATALOG,
   BASIC_CATALOG_ACTIONS,
   BASIC_CATALOG_COMPONENTS,
+  NEXUS_BASIC_TASK_CATALOG,
   WORKBENCH_CATALOG,
   WORKBENCH_CATALOG_ACTIONS,
   WORKBENCH_CATALOG_COMPONENTS,
@@ -50,7 +50,7 @@ Render media controls in the host renderer; do not add HTML-style src, controls,
 If the request supplies a video or audio URL, copy it exactly into the matching media component URL.`
       : '';
   const textFieldRule = components.includes('TextField')
-    ? `\nUse TextField only with "id", "component", "label", "value", optional "variant", optional "validationRegexp", and optional "checks" (Basic Catalog only).
+    ? `\nUse TextField only with "id", "component", "label", "value", optional "variant", optional "validationRegexp", and optional "checks" (Nexus Basic Task Profile only).
 "label" may be a string or { "path": "..." }; "value" must be exactly { "path": "..." } so user edits write back to the data model.
 "variant" may only be "shortText", "longText", "number", or "obscured". Use "validationRegexp" only when the user explicitly supplies a regular expression, and copy it exactly.
 Do not use placeholder, accessibility, weight, or an action on TextField.
@@ -61,7 +61,7 @@ The search action handler will patch the searchResult component after the user s
   const checksRule = isWorkbench
     ? '\nWorkbench does not support checks.'
     : `
-Use checks only in the Basic Catalog and only on TextField, Slider, and Button.
+Use checks only in the Nexus Basic Task Profile and only on TextField, Slider, and Button.
 Each check must be exactly { "condition": { "call", "args", "returnType": "boolean" }, "message": "..." }; never put "call" at the CheckRule root.
 "call" may only be required, regex, length, numeric, or email; do not use and, or, not, or custom functions.
 required and email use args { "value": { "path": "..." } }; regex also includes a string "pattern"; length and numeric use args with "value" and at least one finite numeric "min" or "max" (length bounds must be non-negative integers).
@@ -134,7 +134,7 @@ ${dateTimeInputRule}
 ${checkBoxRule}
 ${workbenchRule}
 Use only action.event; do not use functionCall, sendDataModel, or form components outside the supported component list. If no checks rule above permits checks, do not use checks.
-Attach actions only to Button (Basic and Workbench catalogs) or TaskButton (task catalog), never to Text or other components.
+Attach actions only to Button (Nexus Basic Task and Workbench catalogs) or TaskButton (task catalog), never to Text or other components.
 The first generation message must create the requested surface. Action responses may only update it.
 The createSurface catalogId must be exactly ${catalogId}.
 Keep component ids stable so later updates patch the UI in place.`;
@@ -178,7 +178,7 @@ export function createLlmMessages({
   kind,
   surfaceId,
   message,
-  catalogId = BASIC_CATALOG,
+  catalogId = NEXUS_BASIC_TASK_CATALOG,
   supportedComponents = BASIC_CATALOG_COMPONENTS,
   supportedActions = BASIC_CATALOG_ACTIONS,
   history = [],

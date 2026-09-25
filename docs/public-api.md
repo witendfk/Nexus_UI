@@ -27,6 +27,7 @@ Stable root-entry exports in `0.1.x`:
 - Runtime: `A2UIRuntime`, `RuntimeOptions`.
 - Protocol: `JSONLBuffer`, `isA2UIMessage`, `validateA2UIMessage`, `validateProtocolMessage`, `validateNexusProfileMessage`, `PROTOCOL_VERSION`, `A2UIError`, `A2UIErrorCode`, `A2UIDiagnostic`, and the A2UI v0.9 message / payload / component / action types.
 - Catalog boundary: `CatalogRegistry`, `CatalogDefinition` with optional host-declared `actions`, `createCatalogPromptContract`, `validateComponentProps`, `validateComponentPropsDiagnostics`, `validateComponentSchema`, `ComponentSchemaDiagnostic`, and the component schema node types.
+- Component capability policies: `CatalogComponentPolicy`, `CatalogFieldPolicy`, `CatalogFieldOrigin`, `CatalogComponentActionPolicy`, `CatalogChecksPolicy`, and `validateComponentPolicyDiagnostics`.
 - State and render seams: `createCoreStore`, `CoreState`, `CoreStore`, `buildTree`, `VNode`, `Surface`, `RenderFn`, and `RenderMap`.
 - Interaction and data helpers: `buildActionEvent`, `ActionEvent`, `getByPath`, `setValueAtPath`, `removeAtPath`, `applyDataModelUpdate`, `resolveDynamic`, `resolveContext`, and `toDisplayString`.
 - Compatibility metadata: `VERSION`, `CORE_API_VERSION`.

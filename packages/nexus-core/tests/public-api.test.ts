@@ -24,6 +24,7 @@ describe('core public API surface', () => {
       'setValueAtPath',
       'toDisplayString',
       'validateA2UIMessage',
+      'validateComponentPolicyDiagnostics',
       'validateComponentProps',
       'validateComponentPropsDiagnostics',
       'validateComponentSchema',

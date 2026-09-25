@@ -219,6 +219,56 @@ describe('CatalogRegistry', () => {
         ]),
     );
   });
+
+  it('enforces declarative component capability policies', () => {
+    const registry = new CatalogRegistry([
+      {
+        catalogId: 'profile',
+        components: ['Button'],
+        componentPolicies: {
+          Button: {
+            origin: 'nexus-extension',
+            fields: {
+              child: { componentRef: true, binding: 'forbidden', origin: 'official-basic' },
+              disabled: { binding: 'forbidden', origin: 'nexus-extension' },
+            },
+            action: { allowed: true },
+            checks: {
+              enabled: true,
+              functions: ['required'],
+              maxRules: 1,
+              maxMessageLength: 10,
+              maxPatternLength: 8,
+            },
+          },
+        },
+      },
+    ]);
+
+    assert.deepEqual(
+      registry.getComponentDiagnostics('profile', {
+        id: 'submit',
+        component: 'Button',
+        child: 'label',
+        disabled: true,
+        action: { event: { name: 'submit' } },
+      }),
+      [],
+    );
+    assert.deepEqual(
+      registry.getComponentDiagnostics('profile', {
+        id: 'submit',
+        component: 'Button',
+        child: 1,
+        disabled: { path: '/disabled' },
+        owner: 'host',
+      } as unknown as Parameters<CatalogRegistry['validateComponent']>[1])[0],
+      {
+        path: 'Button.owner',
+        message: 'Button.owner 不是 Catalog Contract 允许的字段',
+      },
+    );
+  });
 });
 
 function registryDiagnostics(

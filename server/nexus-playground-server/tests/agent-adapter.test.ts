@@ -10,7 +10,13 @@ import type {
   AgentRun,
 } from '../src/agent/adapter';
 import type { AgentMessageSource } from '../src/agent/adapter';
-import { BASIC_CATALOG, TASK_CATALOG, WORKBENCH_CATALOG } from '../src/agent/catalog';
+import {
+  BASIC_CATALOG,
+  LEGACY_BASIC_TASK_CATALOG,
+  OFFICIAL_BASIC_CATALOG,
+  TASK_CATALOG,
+  WORKBENCH_CATALOG,
+} from '../src/agent/catalog';
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
 import type { LlmAgentRequest } from '../src/agent/llm-agent';
 import { WorkbenchTaskStore } from '../src/agent/workbench-agent';
@@ -582,4 +588,67 @@ describe('AgentAdapter', () => {
       },
     ]);
   });
+
+  it('normalizes the legacy Basic Task catalog ID to the canonical Nexus profile', async () => {
+    const generationRequests: AgentGenerationSourceRequest[] = [];
+    const surfaceId = 'surface-legacy-basic';
+    const adapter = new AgentAdapter({
+      actionHandlers: new Map(),
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: (request) => {
+        generationRequests.push(request);
+        return [
+          {
+            version: 'v0.9',
+            createSurface: {
+              surfaceId: request.surfaceId,
+              catalogId: request.catalogId,
+            },
+          },
+        ];
+      },
+    });
+
+    const plan = await adapter.prepareGeneration({ catalogId: LEGACY_BASIC_TASK_CATALOG });
+    assert.ok(plan.ok);
+    assert.equal(plan.run.sequence.catalogId, BASIC_CATALOG);
+    assert.equal(generationRequests[0]?.catalogId, BASIC_CATALOG);
+
+    const source = await collect(plan.run.source);
+    assert.equal(
+      findCreateCatalogId(source),
+      BASIC_CATALOG,
+      'new generations must carry the canonical Nexus profile ID',
+    );
+  });
+
+  it('keeps the official Basic Catalog identity unregistered', async () => {
+    const adapter = new AgentAdapter({ useLlm: () => false });
+    const plan = await adapter.prepareGeneration({ catalogId: OFFICIAL_BASIC_CATALOG });
+
+    assert.ok(!plan.ok);
+    assert.match(plan.message, /Nexus 不注册官方 Basic Catalog/);
+  });
+
+  it('dispatches actions stored under the legacy Basic Task catalog ID', async () => {
+    const historyStore = new InMemorySurfaceHistoryStore();
+    await historyStore.commitGeneration('surface-legacy-action', LEGACY_BASIC_TASK_CATALOG, []);
+    const adapter = new AgentAdapter({ historyStore, useLlm: () => false });
+
+    const action = await adapter.prepareAction(createAction('search', 'surface-legacy-action'));
+    assert.ok(action.ok);
+    assert.equal(action.run.sequence.catalogId, BASIC_CATALOG);
+    const response = await collect(action.run.source);
+    assert.match(JSON.stringify(response), /搜索：/);
+  });
 });
+
+function findCreateCatalogId(messages: unknown[]): string | undefined {
+  for (const message of messages) {
+    const candidate = message as {
+      createSurface?: { catalogId?: string };
+    };
+    if (candidate.createSurface?.catalogId) return candidate.createSurface.catalogId;
+  }
+  return undefined;
+}

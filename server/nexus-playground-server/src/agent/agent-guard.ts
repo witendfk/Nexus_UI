@@ -1,10 +1,10 @@
 import type { A2UIMessage, Component } from '@nexus-ui/core';
 import type { CatalogRegistry } from '@nexus-ui/core';
-import { applyDataModelUpdate, getByPath, validateComponentProps } from '@nexus-ui/core';
+import { applyDataModelUpdate, getByPath } from '@nexus-ui/core';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import {
-  BASIC_CATALOG,
   BASIC_CATALOG_ACTIONS,
+  NEXUS_BASIC_TASK_CATALOG,
   TASK_CATALOG,
   WORKBENCH_CATALOG,
   agentCatalogRegistry,
@@ -43,28 +43,6 @@ function isDynamicString(value: unknown): boolean {
   );
 }
 
-function isDynamicBoolean(value: unknown): boolean {
-  return (
-    typeof value === 'boolean' ||
-    (typeof value === 'object' &&
-      value !== null &&
-      !Array.isArray(value) &&
-      Object.keys(value).length === 1 &&
-      typeof (value as { path?: unknown }).path === 'string')
-  );
-}
-
-function isDynamicNumber(value: unknown): boolean {
-  return (
-    (typeof value === 'number' && Number.isFinite(value)) ||
-    (typeof value === 'object' &&
-      value !== null &&
-      !Array.isArray(value) &&
-      Object.keys(value).length === 1 &&
-      typeof (value as { path?: unknown }).path === 'string')
-  );
-}
-
 function getDataBindingPath(value: unknown): string | null {
   if (
     typeof value === 'object' &&
@@ -85,234 +63,12 @@ function isIsoDateTimeLiteral(value: string): boolean {
   return date.test(value) || time.test(value) || dateTime.test(value);
 }
 
-const CHECKABLE_COMPONENTS = new Set(['TextField', 'Slider', 'Button']);
-const CHECK_FUNCTIONS = new Set(['required', 'regex', 'length', 'numeric', 'email']);
-
-function isServerDynamicValue(value: unknown): boolean {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    Array.isArray(value)
-  ) {
-    return true;
-  }
-  return getDataBindingPath(value) !== null;
-}
-
-function validateBasicCheckCondition(value: unknown): string | null {
-  if (value === true || value === false || getDataBindingPath(value) !== null) return null;
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    Array.isArray(value) ||
-    !hasOnlyComponentKeys(value as Component, ['call', 'args', 'returnType'])
-  ) {
-    return 'checks.condition 必须是布尔值、{ path } 绑定或受支持 FunctionCall';
-  }
-  const condition = value as { call?: unknown; args?: unknown; returnType?: unknown };
-  if (typeof condition.call !== 'string' || !CHECK_FUNCTIONS.has(condition.call)) {
-    return 'checks.condition.call 只支持 required/regex/length/numeric/email';
-  }
-  if (condition.returnType !== undefined && condition.returnType !== 'boolean') {
-    return 'checks.condition.returnType 必须是 boolean';
-  }
-  if (
-    typeof condition.args !== 'object' ||
-    condition.args === null ||
-    Array.isArray(condition.args)
-  ) {
-    return 'checks.condition.args 必须是对象';
-  }
-  const args = condition.args as Record<string, unknown>;
-  const expectedArgs: Record<string, readonly string[]> = {
-    required: ['value'],
-    regex: ['value', 'pattern'],
-    length: ['value', 'min', 'max'],
-    numeric: ['value', 'min', 'max'],
-    email: ['value'],
-  };
-  if (!Object.keys(args).every((key) => expectedArgs[condition.call as string].includes(key))) {
-    return `checks.condition.args 字段不符合 ${condition.call} 契约`;
-  }
-  if (args.value === undefined) return 'checks.condition.args.value 是必填字段';
-  if (condition.call === 'regex' && args.pattern === undefined) {
-    return 'checks.condition.args.pattern 是必填字段';
-  }
-  if (!isServerDynamicValue(args.value)) {
-    return 'checks.condition.args.value 必须是合法动态值';
-  }
-  if (condition.call === 'regex') {
-    if (typeof args.pattern !== 'string') return 'checks.condition.args.pattern 必须是字符串';
-    if (args.pattern.length > 256) return 'checks.condition.args.pattern 长度不能超过 256';
-    try {
-      new RegExp(args.pattern);
-    } catch {
-      return 'checks.condition.args.pattern 必须是合法正则表达式';
-    }
-  }
-  if (condition.call === 'length' || condition.call === 'numeric') {
-    if (args.min === undefined && args.max === undefined) {
-      return 'checks.condition.args 必须提供 min 或 max';
-    }
-    for (const key of ['min', 'max'] as const) {
-      const bound = args[key];
-      if (bound === undefined) continue;
-      if (condition.call === 'length') {
-        if (!(typeof bound === 'number' && Number.isInteger(bound) && bound >= 0)) {
-          return `checks.condition.args.${key} 必须是非负整数`;
-        }
-      } else if (!(typeof bound === 'number' && Number.isFinite(bound))) {
-        return `checks.condition.args.${key} 必须是有限数字`;
-      }
-    }
-  }
-  return null;
-}
-
-function validateBasicChecks(component: Component): string | null {
-  if (!CHECKABLE_COMPONENTS.has(component.component)) {
-    return `当前 Agent 线不支持 ${component.component}.checks`;
-  }
-  if (!Array.isArray(component.checks)) return 'checks 必须是数组';
-  if (component.checks.length > 8) return 'checks 数量不能超过 8';
-  for (const check of component.checks) {
-    if (
-      typeof check !== 'object' ||
-      check === null ||
-      Array.isArray(check) ||
-      !hasOnlyKeys(check, ['condition', 'message'])
-    ) {
-      return 'checks[] 必须是只包含 condition 和 message 的对象';
-    }
-    const rule = check as { condition?: unknown; message?: unknown };
-    if (
-      typeof rule.message !== 'string' ||
-      rule.message.length === 0 ||
-      rule.message.length > 200
-    ) {
-      return 'checks[].message 必须是 1-200 个字符';
-    }
-    const conditionError = validateBasicCheckCondition(rule.condition);
-    if (conditionError) return conditionError;
-  }
-  return null;
-}
-
 function hasOnlyComponentKeys(component: Component, allowed: readonly string[]): boolean {
   return hasOnlyKeys(component, allowed);
 }
 
 function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
-}
-
-function validateBasicImage(component: Component): string | null {
-  if (component.component !== 'Image') return null;
-  if (component.src !== undefined || component.alt !== undefined) {
-    return 'Basic Catalog Image 不支持 src/alt，请使用 url/description';
-  }
-  if (!isDynamicString(component.url)) {
-    return 'Basic Catalog Image.url 必须是字符串或 { path } 绑定';
-  }
-  if (component.description !== undefined && !isDynamicString(component.description)) {
-    return 'Basic Catalog Image.description 必须是字符串或 { path } 绑定';
-  }
-  if (component.fit !== undefined && component.fit !== 'cover' && component.fit !== 'contain') {
-    return 'Basic Catalog Image.fit 只支持 cover/contain';
-  }
-  if (component.variant !== undefined && component.variant !== 'avatar') {
-    return 'Basic Catalog Image.variant 只支持 avatar';
-  }
-  return null;
-}
-
-function validateBasicMedia(component: Component): string | null {
-  if (component.component === 'Video') {
-    if (!hasOnlyComponentKeys(component, ['id', 'component', 'url'])) {
-      return 'Basic Catalog Video 只支持 id/component/url';
-    }
-    if (!isDynamicString(component.url)) {
-      return 'Basic Catalog Video.url 必须是字符串或 { path } 绑定';
-    }
-    return null;
-  }
-
-  if (component.component === 'AudioPlayer') {
-    if (!hasOnlyComponentKeys(component, ['id', 'component', 'url', 'description'])) {
-      return 'Basic Catalog AudioPlayer 只支持 id/component/url/description';
-    }
-    if (!isDynamicString(component.url)) {
-      return 'Basic Catalog AudioPlayer.url 必须是字符串或 { path } 绑定';
-    }
-    if (component.description !== undefined && !isDynamicString(component.description)) {
-      return 'Basic Catalog AudioPlayer.description 必须是字符串或 { path } 绑定';
-    }
-  }
-  return null;
-}
-
-function validateBasicTextField(component: Component, allowChecks: boolean): string | null {
-  if (component.component !== 'TextField') return null;
-  if (
-    !hasOnlyComponentKeys(component, [
-      'id',
-      'component',
-      'label',
-      'value',
-      'variant',
-      'validationRegexp',
-      ...(allowChecks ? ['checks'] : []),
-    ])
-  ) {
-    return 'Basic Catalog TextField 只支持 id/component/label/value/variant/validationRegexp';
-  }
-  if (!isDynamicString(component.label)) {
-    return 'Basic Catalog TextField.label 必须是字符串或 { path } 绑定';
-  }
-  if (getDataBindingPath(component.value) === null) {
-    return 'Basic Catalog TextField.value 必须是 { path } 绑定';
-  }
-  if (
-    component.variant !== undefined &&
-    !['longText', 'number', 'shortText', 'obscured'].includes(String(component.variant))
-  ) {
-    return 'TextField.variant 只支持 longText/number/shortText/obscured';
-  }
-  const validationRegexp = component.validationRegexp;
-  if (validationRegexp !== undefined) {
-    if (typeof validationRegexp !== 'string') {
-      return 'TextField.validationRegexp 必须是字符串';
-    }
-    if (validationRegexp.length > 256) {
-      return 'TextField.validationRegexp 长度不能超过 256';
-    }
-    try {
-      new RegExp(validationRegexp);
-    } catch {
-      return 'TextField.validationRegexp 必须是合法正则表达式';
-    }
-  }
-  return null;
-}
-
-function validateBasicCheckBox(component: Component): string | null {
-  if (component.component !== 'CheckBox') return null;
-  if (component.action !== undefined) return 'CheckBox 不支持挂载 action';
-  if (!hasOnlyComponentKeys(component, ['id', 'component', 'label', 'value'])) {
-    return 'Basic Catalog CheckBox 只支持 id/component/label/value';
-  }
-  if (!isDynamicString(component.label)) {
-    return 'Basic Catalog CheckBox.label 必须是字符串或 { path } 绑定';
-  }
-  if (getDataBindingPath(component.value) === null) {
-    return 'Basic Catalog CheckBox.value 必须是 { path } 绑定';
-  }
-  if (!isDynamicBoolean(component.value)) {
-    return 'Basic Catalog CheckBox.value 必须是布尔值或 { path } 绑定';
-  }
-  return null;
 }
 
 function getChoiceOptionValues(component: Component): string[] {
@@ -330,156 +86,40 @@ function getChoiceOptionValues(component: Component): string[] {
     : [];
 }
 
-function validateChoicePicker(component: Component): string | null {
-  if (component.component !== 'ChoicePicker') return null;
-  if (component.action !== undefined) return 'ChoicePicker 不支持挂载 action';
-  if (
-    !hasOnlyComponentKeys(component, [
-      'id',
-      'component',
-      'label',
-      'variant',
-      'options',
-      'value',
-      'displayStyle',
-      'filterable',
-    ])
-  ) {
-    return 'ChoicePicker 只支持 id/component/label/variant/options/value/displayStyle/filterable';
-  }
-  if (component.label !== undefined && !isDynamicString(component.label)) {
-    return 'ChoicePicker.label 必须是字符串或 { path } 绑定';
-  }
-  if (
-    component.variant !== undefined &&
-    !['multipleSelection', 'mutuallyExclusive'].includes(String(component.variant))
-  ) {
-    return 'ChoicePicker.variant 只支持 multipleSelection/mutuallyExclusive';
-  }
-  if (!Array.isArray(component.options) || component.options.length === 0) {
-    return 'ChoicePicker.options 必须是非空数组';
-  }
-
-  const values: string[] = [];
-  for (const option of component.options) {
-    if (
-      typeof option !== 'object' ||
-      option === null ||
-      Array.isArray(option) ||
-      !hasOnlyComponentKeys(option as Component, ['label', 'value'])
-    ) {
-      return 'ChoicePicker.options[] 必须是只包含 label 和 value 的对象';
-    }
-    const choiceOption = option as { label?: unknown; value?: unknown };
-    if (!isDynamicString(choiceOption.label)) {
-      return 'ChoicePicker.options[].label 必须是字符串或 { path } 绑定';
-    }
-    if (typeof choiceOption.value !== 'string' || choiceOption.value.length === 0) {
-      return 'ChoicePicker.options[].value 必须是非空字符串';
-    }
-    if (values.includes(choiceOption.value)) {
-      return 'ChoicePicker.options[].value 不能重复';
-    }
-    values.push(choiceOption.value);
-  }
-
-  if (getDataBindingPath(component.value) === null) {
-    return 'ChoicePicker.value 必须是 { path } 绑定';
-  }
-  if (
-    component.displayStyle !== undefined &&
-    !['checkbox', 'chips'].includes(String(component.displayStyle))
-  ) {
-    return 'ChoicePicker.displayStyle 只支持 checkbox/chips';
-  }
-  if (component.filterable !== undefined && typeof component.filterable !== 'boolean') {
-    return 'ChoicePicker.filterable 必须是布尔值';
-  }
-  return null;
-}
-
-function validateBasicSlider(component: Component): string | null {
+function validateBasicSliderRelationship(component: Component): string | null {
   if (component.component !== 'Slider') return null;
-  if (component.action !== undefined) return 'Slider 不支持挂载 action';
-  if (
-    !hasOnlyComponentKeys(component, ['id', 'component', 'label', 'min', 'max', 'value', 'checks'])
-  ) {
-    return 'Slider 只支持 id/component/label/min/max/value/checks';
-  }
-  if (component.label !== undefined && !isDynamicString(component.label)) {
-    return 'Slider.label 必须是字符串或 { path } 绑定';
-  }
   const min = component.min;
   const max = component.max;
-  if (min !== undefined && !(typeof min === 'number' && Number.isFinite(min))) {
-    return 'Slider.min 必须是有限数字';
-  }
-  if (!(typeof max === 'number' && Number.isFinite(max))) {
-    return 'Slider.max 必须是有限数字';
-  }
-  if (typeof min === 'number' && min >= max) return 'Slider.min 必须小于 max';
-  if (getDataBindingPath(component.value) === null) {
-    return 'Slider.value 必须是 { path } 绑定';
-  }
-  if (!isDynamicNumber(component.value)) {
-    return 'Slider.value 必须是有限数字或 { path } 绑定';
+  if (
+    typeof min === 'number' &&
+    Number.isFinite(min) &&
+    typeof max === 'number' &&
+    Number.isFinite(max) &&
+    min >= max
+  ) {
+    return 'Slider.min 必须小于 max';
   }
   return null;
 }
-
-function validateBasicButton(component: Component): string | null {
-  if (component.component !== 'Button') return null;
-  if (
-    !hasOnlyComponentKeys(component, [
-      'id',
-      'component',
-      'child',
-      'variant',
-      'disabled',
-      'checks',
-      'action',
-    ])
-  ) {
-    return 'Basic Catalog Button 只支持 id/component/child/variant/disabled/checks/action';
+function validateTextFieldRegexp(component: Component): string | null {
+  if (component.component !== 'TextField') return null;
+  const validationRegexp = component.validationRegexp;
+  if (validationRegexp === undefined) return null;
+  if (typeof validationRegexp !== 'string') {
+    return 'TextField.validationRegexp 必须是字符串';
   }
-  if (typeof component.child !== 'string') return 'Basic Catalog Button.child 必须是组件 id';
-  if (component.disabled !== undefined && typeof component.disabled !== 'boolean') {
-    return 'Basic Catalog Button.disabled 必须是布尔值';
+  try {
+    new RegExp(validationRegexp);
+  } catch {
+    return 'TextField.validationRegexp 必须是合法正则表达式';
   }
   return null;
 }
 
 function validateBasicDateTimeInput(component: Component): string | null {
   if (component.component !== 'DateTimeInput') return null;
-  if (component.action !== undefined) return 'DateTimeInput 不支持挂载 action';
-  if (
-    !hasOnlyComponentKeys(component, [
-      'id',
-      'component',
-      'label',
-      'value',
-      'enableDate',
-      'enableTime',
-      'min',
-      'max',
-    ])
-  ) {
-    return 'DateTimeInput 只支持 id/component/label/value/enableDate/enableTime/min/max';
-  }
-  if (component.label !== undefined && !isDynamicString(component.label)) {
-    return 'DateTimeInput.label 必须是字符串或 { path } 绑定';
-  }
-  if (getDataBindingPath(component.value) === null) {
-    return 'DateTimeInput.value 必须是 { path } 绑定';
-  }
   const enableDate = component.enableDate;
   const enableTime = component.enableTime;
-  if (enableDate !== undefined && typeof enableDate !== 'boolean') {
-    return 'DateTimeInput.enableDate 必须是布尔值';
-  }
-  if (enableTime !== undefined && typeof enableTime !== 'boolean') {
-    return 'DateTimeInput.enableTime 必须是布尔值';
-  }
   if (enableDate !== true && enableTime !== true) {
     return 'DateTimeInput.enableDate/enableTime 至少一个为 true';
   }
@@ -538,7 +178,7 @@ export function validateAgentSequence(
   {
     kind,
     surfaceId,
-    catalogId = BASIC_CATALOG,
+    catalogId = NEXUS_BASIC_TASK_CATALOG,
     registry = agentCatalogRegistry,
     supportedActions = BASIC_CATALOG_ACTIONS,
   }: AgentSequenceOptions,
@@ -556,42 +196,23 @@ export function validateAgentSequence(
       if (!catalog.components.includes(component.component)) {
         return `当前 Agent 线不支持组件: ${String(component.component)}`;
       }
-      const schema = registry.getComponentSchema(catalogId, component.component);
-      if (schema) {
-        const propsError = validateComponentProps(component, schema);
-        if (propsError) return propsError;
-      }
+      const capabilityError = registry.getComponentDiagnostics(catalogId, component)[0];
+      if (capabilityError) return capabilityError.message;
 
       if (catalogId === WORKBENCH_CATALOG) {
         const workbenchButtonError = validateWorkbenchButton(component);
         if (workbenchButtonError) return workbenchButtonError;
       }
 
-      if (catalogId === BASIC_CATALOG || catalogId === WORKBENCH_CATALOG) {
-        const imageError = validateBasicImage(component);
-        if (imageError) return imageError;
-        const textFieldError = validateBasicTextField(component, catalogId === BASIC_CATALOG);
+      if (catalogId === NEXUS_BASIC_TASK_CATALOG || catalogId === WORKBENCH_CATALOG) {
+        const textFieldError = validateTextFieldRegexp(component);
         if (textFieldError) return textFieldError;
-        const checkBoxError = validateBasicCheckBox(component);
-        if (checkBoxError) return checkBoxError;
-        const choicePickerError = validateChoicePicker(component);
-        if (choicePickerError) return choicePickerError;
-        const sliderError = validateBasicSlider(component);
+        const sliderError = validateBasicSliderRelationship(component);
         if (sliderError) return sliderError;
         const dateTimeInputError = validateBasicDateTimeInput(component);
         if (dateTimeInputError) return dateTimeInputError;
         const textError = validateBasicText(component);
         if (textError) return textError;
-      }
-      if (catalogId === BASIC_CATALOG) {
-        const buttonError = validateBasicButton(component);
-        if (buttonError) return buttonError;
-        const mediaError = validateBasicMedia(component);
-        if (mediaError) return mediaError;
-        if (component.checks !== undefined) {
-          const checksError = validateBasicChecks(component);
-          if (checksError) return checksError;
-        }
       }
       const actionName = component.action?.event?.name;
       if (actionName !== undefined && !supportedActions.includes(actionName)) {
@@ -873,7 +494,7 @@ function collectCatalogDiagnostics(
   sequence: AgentSequenceOptions,
 ): ComponentSchemaDiagnostic[] {
   const registry = sequence.registry ?? agentCatalogRegistry;
-  const catalogId = sequence.catalogId ?? BASIC_CATALOG;
+  const catalogId = sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
   const diagnostics: ComponentSchemaDiagnostic[] = [];
 
   for (const component of components) {
@@ -934,7 +555,7 @@ export function validateAgentStreamMessageDetailed(
       );
     }
     const requiredBasicMedia =
-      (sequence.catalogId ?? BASIC_CATALOG) === BASIC_CATALOG
+      (sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === NEXUS_BASIC_TASK_CATALOG
         ? getRequiredBasicMedia(sequence.message)
         : { Image: false, Video: false, AudioPlayer: false };
     const mediaLabels = {
@@ -998,13 +619,16 @@ export function validateAgentStreamFinal(
 ): string | null {
   if (sequence.kind !== 'generate' || !state.hasRoot) return null;
   const components = [...state.componentsById.values()];
-  if ((sequence.catalogId ?? BASIC_CATALOG) === WORKBENCH_CATALOG) {
+  if ((sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === WORKBENCH_CATALOG) {
     return validateWorkbenchContract(components);
   }
   if (isSearchRequest(sequence.message)) {
     return validateSearchContract(components);
   }
-  if (isFormRequest(sequence.message) && (sequence.catalogId ?? BASIC_CATALOG) === BASIC_CATALOG) {
+  if (
+    isFormRequest(sequence.message) &&
+    (sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === NEXUS_BASIC_TASK_CATALOG
+  ) {
     return validateSubmitContract(components);
   }
   return null;

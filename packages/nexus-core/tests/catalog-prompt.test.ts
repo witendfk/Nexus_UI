@@ -61,6 +61,30 @@ describe('createCatalogPromptContract', () => {
     );
   });
 
+  it('renders capability policies as machine-derived prompt rules', () => {
+    const contract = createCatalogPromptContract({
+      catalogId: 'profile',
+      components: ['Button'],
+      actions: ['submit'],
+      componentPolicies: {
+        Button: {
+          origin: 'nexus-extension',
+          fields: {
+            disabled: { binding: 'forbidden', origin: 'nexus-extension' },
+          },
+          action: { allowed: true },
+          checks: { enabled: true, functions: ['required'], maxRules: 8 },
+        },
+      },
+    });
+
+    assert.match(contract, /Component Button policy:/);
+    assert.match(contract, /Origin: nexus-extension/);
+    assert.match(contract, /- disabled: binding=forbidden, origin=nexus-extension/);
+    assert.match(contract, /Action: allowed=true, required=false/);
+    assert.match(contract, /Checks: enabled=true, functions=required, maxRules=8/);
+  });
+
   it('rejects the same invalid definitions as CatalogRegistry', () => {
     assert.throws(
       () =>

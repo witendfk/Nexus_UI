@@ -8,7 +8,7 @@ import {
   validateAgentStreamMessage,
 } from '../src/agent/agent-guard';
 import { BASIC_CATALOG, createWorkbenchFixture } from '../src/agent/mock-agent';
-import { WORKBENCH_CATALOG } from '../src/agent/catalog';
+import { NEXUS_BASIC_TASK_CATALOG, WORKBENCH_CATALOG } from '../src/agent/catalog';
 import { CatalogRegistry } from '@nexus-ui/core';
 import type { A2UIMessage, Component } from '@nexus-ui/core';
 
@@ -534,7 +534,7 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'createSurface.catalogId 必须保持为 https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json',
+      `createSurface.catalogId 必须保持为 ${NEXUS_BASIC_TASK_CATALOG}`,
     );
     assert.equal(
       validateAgentSequence(updateWithUnsupportedComponent, 1, {
@@ -568,7 +568,7 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog TextField.value 必须是 { path } 绑定',
+      'TextField.value 必须是 { path } 绑定',
     );
   });
 
@@ -601,15 +601,15 @@ describe('validateAgentSequence', () => {
     assert.equal(validateAgentSequence(updateWithValidCheckBox, 1, options), null);
     assert.equal(
       validateAgentSequence(updateWithLiteralCheckBoxValue, 1, options),
-      'Basic Catalog CheckBox.value 必须是 { path } 绑定',
+      'CheckBox.value 必须是 { path } 绑定',
     );
     assert.equal(
       validateAgentSequence(updateWithUnknownCheckBoxField, 1, options),
-      'Basic Catalog CheckBox 只支持 id/component/label/value',
+      'CheckBox.checked 不是 Catalog Contract 允许的字段',
     );
     assert.equal(
       validateAgentSequence(updateWithCheckBoxAction, 1, options),
-      'CheckBox 不支持挂载 action',
+      'CheckBox.action 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -640,7 +640,7 @@ describe('validateAgentSequence', () => {
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'ChoicePicker 只支持 id/component/label/variant/options/value/displayStyle/filterable',
+      'ChoicePicker.checks 不是 Catalog Contract 允许的字段',
     );
     assert.equal(
       validateAgentSequence(
@@ -648,7 +648,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'ChoicePicker 不支持挂载 action',
+      'ChoicePicker.action 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -675,11 +675,11 @@ describe('validateAgentSequence', () => {
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, min: { path: '/min' } }), 1, options),
-      'Slider.min 必须是有限数字',
+      'Slider.min 不支持 { path } 绑定',
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, max: undefined }), 1, options),
-      'Slider.max 必须是有限数字',
+      'Slider.max 必须是 number',
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, min: 1 }), 1, options),
@@ -692,7 +692,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'Slider 不支持挂载 action',
+      'Slider.action 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -785,7 +785,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'checks.condition.call 只支持 required/regex/length/numeric/email',
+      'TextField.checks[0].condition.call 只支持 required/regex/length/numeric/email',
     );
     assert.equal(
       validateAgentSequence(
@@ -796,7 +796,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'checks[] 必须是只包含 condition 和 message 的对象',
+      'TextField.checks[0] 必须是只包含 condition 和 message 的对象',
     );
     assert.equal(
       validateAgentSequence(
@@ -816,7 +816,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'checks.condition.args.pattern 长度不能超过 256',
+      'TextField.checks[0].condition.args.pattern 必须是不超过 256 个字符的字符串',
     );
     assert.equal(
       validateAgentSequence(
@@ -824,7 +824,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'checks[].message 必须是 1-200 个字符',
+      'TextField.checks[0].message 必须是 1-200 个字符',
     );
     assert.equal(
       validateAgentSequence(
@@ -838,7 +838,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'Basic Catalog CheckBox 只支持 id/component/label/value',
+      'CheckBox.checks 不是 Catalog Contract 允许的字段',
     );
 
     const workbenchOptions = {
@@ -848,7 +848,7 @@ describe('validateAgentSequence', () => {
     };
     assert.equal(
       validateAgentSequence(message(textField), 1, workbenchOptions),
-      'Basic Catalog TextField 只支持 id/component/label/value/variant/validationRegexp',
+      'TextField.checks 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -893,11 +893,11 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'DateTimeInput 不支持挂载 action',
+      'DateTimeInput.action 不是 Catalog Contract 允许的字段',
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'DateTimeInput 只支持 id/component/label/value/enableDate/enableTime/min/max',
+      'DateTimeInput.checks 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -907,7 +907,7 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      '当前 Agent 线 action 只能挂载在 Button 组件上',
+      'Text.action 不是 Catalog Contract 允许的字段',
     );
   });
 
@@ -937,7 +937,7 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog Image 不支持 src/alt，请使用 url/description',
+      'Image.src 不是 Catalog Contract 允许的字段',
     );
     assert.equal(
       validateAgentSequence(updateWithImage, 1, {
@@ -954,7 +954,7 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog Image.variant 只支持 avatar',
+      'Image.variant 只支持 "avatar"',
     );
   });
 
@@ -971,14 +971,14 @@ describe('validateAgentSequence', () => {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog Video 只支持 id/component/url',
+      'Video.src 不是 Catalog Contract 允许的字段',
     );
     assert.equal(
       validateAgentSequence(updateWithInvalidAudioDescription, 1, {
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Basic Catalog AudioPlayer.description 必须是字符串或 { path } 绑定',
+      'AudioPlayer.description 必须是 string',
     );
   });
 

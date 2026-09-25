@@ -7,14 +7,14 @@ import { toClientActionMessage } from '../lib/client-action';
 import { TASK_CATALOG_ID, catalogRenderMaps as taskCatalogRenderMaps } from '../catalog/task';
 import { WORKBENCH_CATALOG_ID, workbenchRenderMap } from '../catalog/workbench';
 
-const BASIC_CATALOG_ID = 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json';
+const BASIC_CATALOG_ID = 'https://example.com/catalogs/nexus-basic-task/v1';
 const CATALOG_OPTIONS = [
   {
     id: WORKBENCH_CATALOG_ID,
     label: 'Workbench',
     message: '帮我给华云科技创建一条客户跟进任务，并在明天 10:00 提醒我。',
   },
-  { id: BASIC_CATALOG_ID, label: 'Basic', message: '生成一张联系人卡片' },
+  { id: BASIC_CATALOG_ID, label: 'Nexus Basic', message: '生成一张联系人卡片' },
   { id: TASK_CATALOG_ID, label: 'Task' },
 ] as const;
 

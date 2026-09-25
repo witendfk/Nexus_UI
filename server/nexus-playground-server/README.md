@@ -38,7 +38,7 @@ SSE 事件：
 - LLM 输出必须是 A2UI JSONL。
 - 每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard。
 - 生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`。
-- Agent guard 基于 `CatalogRegistry` 校验组件边界，并按 catalog 校验 action 名称；自定义 catalog 可通过 `CatalogDefinition.actions` 声明宿主 action 白名单，未声明时保留内置兼容边界。generate 默认 Nexus Basic Task Profile，也可显式选择已注册 task / Workbench catalog。该 Profile 不冒充官方 Basic Catalog 完整 conformance。
+- Agent guard 基于 `CatalogRegistry` 校验组件、props、capability policy 和 action 边界；自定义 catalog 可通过 `componentPolicies` 声明字段 / 绑定 / checks / action 契约，并通过 `actions` 声明宿主 action 白名单。generate 默认 Nexus Basic Task Profile（`https://example.com/catalogs/nexus-basic-task/v1`），也可显式选择已注册 task / Workbench catalog。旧 URL 会归一化到该 Profile；官方 Basic Catalog ID 不注册，因此不会被当作官方 conformance 边界。
 - action 响应只能 `updateComponents` / `updateDataModel`。
 - Task 样例使用进程内状态维护 `pending -> active -> completed`；重复迁移返回 400，重启后状态重置。
 - 失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
