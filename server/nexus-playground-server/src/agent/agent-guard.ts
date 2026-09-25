@@ -1,4 +1,4 @@
-import type { A2UIMessage, Component } from '@nexus-ui/core';
+import type { A2UIErrorCode, A2UIMessage, Component } from '@nexus-ui/core';
 import type { CatalogRegistry } from '@nexus-ui/core';
 import { applyDataModelUpdate } from '@nexus-ui/core';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
@@ -33,12 +33,16 @@ function getMessageInfo(message: A2UIMessage): { key: string; surfaceId: string 
   return { key: 'deleteSurface', surfaceId: message.deleteSurface.surfaceId };
 }
 
-/** Keep the LLM inside the one-surface Agent line even when its JSON is structurally valid. */
-export function validateAgentSequence(
+interface AgentSequenceValidationIssue {
+  readonly message: string;
+  readonly boundaryCode?: A2UIErrorCode;
+}
+
+function validateAgentSequenceDetailed(
   message: A2UIMessage,
   index: number,
   sequence: AgentSequenceOptions,
-): string | null {
+): AgentSequenceValidationIssue | null {
   const kind = sequence.kind;
   const surfaceId = sequence.surfaceId;
   const catalogId = sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
@@ -52,48 +56,99 @@ export function validateAgentSequence(
     message: sequence.message,
   };
   const info = getMessageInfo(message);
-  if (info.surfaceId !== surfaceId) return `消息 surfaceId 必须保持为 ${surfaceId}`;
+  if (info.surfaceId !== surfaceId) {
+    return {
+      boundaryCode: 'LIFECYCLE_INVALID',
+      message: `消息 surfaceId 必须保持为 ${surfaceId}`,
+    };
+  }
   const catalog = registry.get(catalogId);
-  if (!catalog) return `Agent catalog 未注册: ${catalogId}`;
+  if (!catalog) {
+    return {
+      boundaryCode: 'CATALOG_UNSUPPORTED',
+      message: `Agent catalog 未注册: ${catalogId}`,
+    };
+  }
 
   if ('createSurface' in message && message.createSurface.catalogId !== catalogId) {
-    return `createSurface.catalogId 必须保持为 ${catalogId}`;
+    return {
+      boundaryCode: 'LIFECYCLE_INVALID',
+      message: `createSurface.catalogId 必须保持为 ${catalogId}`,
+    };
   }
   if ('updateComponents' in message) {
     for (const component of message.updateComponents.components) {
       if (!catalog.components.includes(component.component)) {
-        return `当前 Agent 线不支持组件: ${String(component.component)}`;
+        return {
+          boundaryCode: 'CATALOG_UNSUPPORTED',
+          message: `当前 Agent 线不支持组件: ${String(component.component)}`,
+        };
       }
       const capabilityError = registry.getComponentDiagnostics(catalogId, component)[0];
-      if (capabilityError) return capabilityError.message;
+      if (capabilityError) {
+        return {
+          boundaryCode: 'CATALOG_UNSUPPORTED',
+          message: capabilityError.message,
+        };
+      }
 
       const componentPolicyError = resolvedPolicy.validateComponent(component, policyContext);
-      if (componentPolicyError) return componentPolicyError;
+      if (componentPolicyError) {
+        return { boundaryCode: 'POLICY_REJECTED', message: componentPolicyError };
+      }
       const mediaPolicyError = resolvedPolicy.validateLiteralMedia(component, policyContext);
-      if (mediaPolicyError) return mediaPolicyError;
+      if (mediaPolicyError) {
+        return { boundaryCode: 'POLICY_REJECTED', message: mediaPolicyError };
+      }
       const actionName = component.action?.event?.name;
       if (actionName !== undefined && !supportedActions.includes(actionName)) {
-        return `当前 Agent 线不支持 action: ${actionName}`;
+        return {
+          boundaryCode: 'CATALOG_UNSUPPORTED',
+          message: `当前 Agent 线不支持 action: ${actionName}`,
+        };
       }
       if (actionName !== undefined) {
         const actionComponent = catalogId === TASK_CATALOG ? 'TaskButton' : 'Button';
         if (component.component !== actionComponent) {
-          return `当前 Agent 线 action 只能挂载在 ${actionComponent} 组件上`;
+          return {
+            boundaryCode: 'CATALOG_UNSUPPORTED',
+            message: `当前 Agent 线 action 只能挂载在 ${actionComponent} 组件上`,
+          };
         }
       }
     }
   }
   if (kind === 'action') {
     if (info.key === 'createSurface' || info.key === 'deleteSurface') {
-      return 'action 响应只能包含 updateComponents 或 updateDataModel';
+      return {
+        boundaryCode: 'LIFECYCLE_INVALID',
+        message: 'action 响应只能包含 updateComponents 或 updateDataModel',
+      };
     }
     return null;
   }
-  if (index === 0 && info.key !== 'createSurface') return '生成流第一条消息必须是 createSurface';
+  if (index === 0 && info.key !== 'createSurface') {
+    return {
+      boundaryCode: 'LIFECYCLE_INVALID',
+      message: '生成流第一条消息必须是 createSurface',
+    };
+  }
   if (index > 0 && info.key !== 'updateComponents' && info.key !== 'updateDataModel') {
-    return 'createSurface 之后只能包含 updateComponents 或 updateDataModel';
+    return {
+      boundaryCode: 'LIFECYCLE_INVALID',
+      message: 'createSurface 之后只能包含 updateComponents 或 updateDataModel',
+    };
   }
   return null;
+}
+
+/** Backward-compatible string wrapper for sequence validation. */
+export function validateAgentSequence(
+  message: A2UIMessage,
+  index: number,
+  sequence: AgentSequenceOptions,
+): string | null {
+  return validateAgentSequenceDetailed(message, index, sequence)?.message ?? null;
 }
 
 export interface AgentStreamState {
@@ -105,6 +160,7 @@ export interface AgentStreamState {
 
 export interface AgentStreamValidationIssue {
   readonly message: string;
+  readonly boundaryCode?: A2UIErrorCode;
   readonly diagnostics?: readonly ComponentSchemaDiagnostic[];
 }
 
@@ -139,8 +195,13 @@ function formatDiagnostics(diagnostics: readonly ComponentSchemaDiagnostic[]): s
 function createIssue(
   message: string,
   diagnostics: readonly ComponentSchemaDiagnostic[] = [],
+  boundaryCode?: A2UIErrorCode,
 ): AgentStreamValidationIssue {
-  return diagnostics.length > 0 ? { message, diagnostics } : { message };
+  return {
+    ...(boundaryCode === undefined ? {} : { boundaryCode }),
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    message,
+  };
 }
 
 /**
@@ -153,7 +214,6 @@ export function validateAgentStreamMessageDetailed(
   sequence: AgentSequenceOptions,
   state: AgentStreamState,
 ): AgentStreamValidationIssue | null {
-  const sequenceError = validateAgentSequence(message, index, sequence);
   const resolvedPolicy = resolveAgentPolicy(sequence.policy);
   const policyContext = {
     kind: sequence.kind,
@@ -161,6 +221,7 @@ export function validateAgentStreamMessageDetailed(
     catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
     message: sequence.message,
   };
+  const sequenceError = validateAgentSequenceDetailed(message, index, sequence);
 
   if ('updateComponents' in message) {
     const nextComponents = new Map(state.componentsById);
@@ -170,7 +231,9 @@ export function validateAgentStreamMessageDetailed(
     const components = [...nextComponents.values()];
 
     const catalogDiagnostics = collectCatalogDiagnostics(components, state.dataModel, sequence);
-    if (sequenceError) return createIssue(sequenceError, catalogDiagnostics);
+    if (sequenceError) {
+      return createIssue(sequenceError.message, catalogDiagnostics, sequenceError.boundaryCode);
+    }
     if (catalogDiagnostics.length > 0) {
       return {
         message: formatDiagnostics(catalogDiagnostics),
@@ -184,7 +247,7 @@ export function validateAgentStreamMessageDetailed(
         state.dataModel,
         policyContext,
       );
-      if (textError) return createIssue(textError);
+      if (textError) return createIssue(textError, undefined, 'POLICY_REJECTED');
     }
 
     const hasRoot = state.hasRoot || components.some((component) => component.id === 'root');
@@ -204,6 +267,8 @@ export function validateAgentStreamMessageDetailed(
       if (requiredBasicMedia[mediaComponent] && hasRoot && !hasBasicMedia[mediaComponent]) {
         return createIssue(
           `请求${mediaLabels[mediaComponent]}内容的生成流必须包含 Basic Catalog ${mediaComponent} 组件`,
+          undefined,
+          'POLICY_REJECTED',
         );
       }
     }
@@ -221,7 +286,9 @@ export function validateAgentStreamMessageDetailed(
       nextDataModel,
       sequence,
     );
-    if (sequenceError) return createIssue(sequenceError, catalogDiagnostics);
+    if (sequenceError) {
+      return createIssue(sequenceError.message, catalogDiagnostics, sequenceError.boundaryCode);
+    }
     if (catalogDiagnostics.length > 0) {
       return {
         message: formatDiagnostics(catalogDiagnostics),
@@ -235,12 +302,14 @@ export function validateAgentStreamMessageDetailed(
         nextDataModel,
         policyContext,
       );
-      if (textError) return createIssue(textError);
+      if (textError) return createIssue(textError, undefined, 'POLICY_REJECTED');
     }
     state.dataModel = nextDataModel;
   }
 
-  if (sequenceError) return createIssue(sequenceError);
+  if (sequenceError) {
+    return createIssue(sequenceError.message, undefined, sequenceError.boundaryCode);
+  }
   return null;
 }
 
@@ -258,6 +327,13 @@ export function validateAgentStreamFinal(
   sequence: AgentSequenceOptions,
   state: AgentStreamState,
 ): string | null {
+  return validateAgentStreamFinalDetailed(sequence, state)?.message ?? null;
+}
+
+export function validateAgentStreamFinalDetailed(
+  sequence: AgentSequenceOptions,
+  state: AgentStreamState,
+): AgentStreamValidationIssue | null {
   if (sequence.kind !== 'generate' || !state.hasRoot) return null;
   const policyContext = {
     kind: sequence.kind,
@@ -265,7 +341,8 @@ export function validateAgentStreamFinal(
     catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
     message: sequence.message,
   };
-  return resolveAgentPolicy(sequence.policy).validateFinal(policyContext, [
+  const finalError = resolveAgentPolicy(sequence.policy).validateFinal(policyContext, [
     ...state.componentsById.values(),
   ]);
+  return finalError ? { boundaryCode: 'POLICY_REJECTED', message: finalError } : null;
 }

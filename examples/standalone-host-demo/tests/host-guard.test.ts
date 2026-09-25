@@ -302,6 +302,7 @@ describe('standalone host example', () => {
     const result = await sendAgentRun(transport.ctx, generation.run, 'standalone-policy');
     assert.equal(result.ok, false);
     assert.match(transport.getOutput(), /host policy rejected Text/);
+    assert.match(transport.getOutput(), /"boundaryCode":"POLICY_REJECTED"/);
     assert.doesNotMatch(transport.getOutput(), /event: done/);
   });
 

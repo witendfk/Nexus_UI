@@ -4,7 +4,7 @@ import type { A2UIErrorCode } from '@nexus-ui/core';
 import { validateNexusProfileMessage, validateProtocolMessage } from '@nexus-ui/core';
 import {
   createAgentStreamState,
-  validateAgentStreamFinal,
+  validateAgentStreamFinalDetailed,
   validateAgentStreamMessageDetailed,
 } from '../agent/agent-guard';
 import type { AgentSequenceOptions } from '../agent/agent-guard';
@@ -76,7 +76,11 @@ export function sendMessages(
           streamState,
         );
         if (sequenceIssue) {
-          throw createAgentStreamError(sequenceIssue.message, sequenceIssue.diagnostics);
+          throw createAgentStreamError(
+            sequenceIssue.message,
+            sequenceIssue.diagnostics,
+            sequenceIssue.boundaryCode,
+          );
         }
         if (
           'updateComponents' in result.message &&
@@ -92,8 +96,14 @@ export function sendMessages(
       }
       if (sent.length === 0) throw new Error('Agent 没有返回 A2UI 消息');
       if (!hasRoot) throw new Error('生成流必须包含 id 为 root 的组件');
-      const finalError = validateAgentStreamFinal(sequence, streamState);
-      if (finalError) throw new Error(finalError);
+      const finalIssue = validateAgentStreamFinalDetailed(sequence, streamState);
+      if (finalIssue) {
+        throw createAgentStreamError(
+          finalIssue.message,
+          finalIssue.diagnostics,
+          finalIssue.boundaryCode,
+        );
+      }
       await beforeDone(sent);
       stream.write(formatSseEvent('done', {}, `${idPrefix}:done`));
     } catch (error) {

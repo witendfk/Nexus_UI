@@ -102,6 +102,10 @@ validateA2UIMessage()          -> compatibility composition of both checks
 
 Runtime diagnostics now carry `PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, and `FEATURE_UNSUPPORTED` codes. `POLICY_REJECTED` is reserved for the host policy boundary as server guard classification is migrated.
 
+### P15-b — Policy Rejection Boundary — Completed
+
+P15-b completed the boundary vocabulary. Default policy rules and injected host policy hooks now emit `POLICY_REJECTED`, and the reference SSE error payload exposes it as `boundaryCode`. This lets hosts distinguish business-policy rejection from protocol, lifecycle, catalog, and runtime-feature failures without parsing error text.
+
 ### P14-b-a — Catalog Identity — Completed
 
 P14-b-a separated the three identities, made the Nexus profile canonical, normalized the legacy URL for existing records, and explicitly refused the official Basic Catalog ID until a conformant catalog exists.
@@ -137,6 +141,10 @@ P14-c-b added `AgentPolicy` to the server host-assembly API. `AgentAdapterOption
 | `validateFinal` | Enforces final-surface workflow ownership. |
 
 `resolveAgentPolicy` merges a host policy over `nexusAgentPolicy`. The reference AgentAdapter therefore can enforce an enterprise workflow without changing Catalog contracts, the A2UI runtime, or the guard orchestration layer.
+
+### P15-c — Real Agent Acceptance Harness — Completed
+
+The standalone template now includes a command-driven acceptance harness. Given an external Agent endpoint, it starts a temporary host, validates NDJSON generation, exercises host policy rejection, captures runtime action context, dispatches the official action flow, and verifies same-surface patching. This gives a real Agent project a concrete integration gate before browser work begins.
 
 ### P15-a — Minimal Host Template Policy — Completed
 

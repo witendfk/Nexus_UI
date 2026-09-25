@@ -12,6 +12,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "test": "tsx --test tests/*.test.ts && vitest run --environment jsdom tests/browser-app.test.tsx",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "tsx scripts/verify-host.ts",
     "lint": "eslint src scripts tests --ext .ts,.tsx"
   },
   "dependencies": {

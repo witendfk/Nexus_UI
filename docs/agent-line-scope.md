@@ -135,6 +135,10 @@ P14-c-b 已完成。`AgentAdapterOptions.policy` 和 `AgentSequenceOptions.polic
 
 P15-a 已完成。standalone 最小宿主模板暴露 `policy` 注入点，Catalog Contract 增加 `componentPolicies` 示例：`ApprovalSummary` 标记为宿主扩展并强制 title / amount 路径绑定，`Button.disabled` 标记为宿主扩展，`Button.child` 标记为 ComponentId。catalog prompt 会向外部 Agent 声明这些能力边界；standalone host policy 测试证明注入策略可以在 SSE 前拒绝远端候选输出。Host Quickstart 同步更新为 P15-a。
 
+P15-b 已完成。host policy 拒绝现在携带 `POLICY_REJECTED` 边界码；detailed guard issue 和 SSE `error.boundaryCode` 都会暴露该码，覆盖组件策略、媒体策略、必需媒体缺失和 final workflow。旧 `validateAgentSequence` / `validateAgentStreamFinal` 字符串入口保持兼容；server 新增 detailed 路径供 SSE 和宿主遥测使用。
+
+P15-c 已完成。standalone demo 新增 `verify` 命令和 `verifyExternalAgentIntegration` API：给定真实外部 Agent endpoint 时，自动启动临时 host，验收 NDJSON 生成流、默认 / 注入 host policy、`POLICY_REJECTED` 边界码、runtime action context、action 回流、同一 `surfaceId`、不新增 create、`root` 稳定 patch。API 级验收器使用本地 fixture 测试锁定；浏览器 patch 仍由 React DOM 测试覆盖。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

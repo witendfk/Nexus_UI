@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { Component } from '@nexus-ui/core';
-import { validateAgentSequence } from '../src/agent/agent-guard';
+import type { A2UIMessage, Component } from '@nexus-ui/core';
+import {
+  createAgentStreamState,
+  validateAgentStreamFinalDetailed,
+  validateAgentStreamMessageDetailed,
+} from '../src/agent/agent-guard';
 import { resolveAgentPolicy } from '../src/agent/policy';
 import { AgentAdapter } from '../src/agent/adapter';
 import { validateComponentPolicy } from '../src/agent/policy/component-policy';
@@ -93,17 +97,51 @@ describe('host policy layer', () => {
         surfaceId: 'surface-1',
         components: [{ id: 'root', component: 'Text', text: 'allowed by catalog' }],
       },
-    } as unknown as Parameters<typeof validateAgentSequence>[0];
-    const error = validateAgentSequence(message, 1, {
-      kind: 'generate',
-      surfaceId: 'surface-1',
-      policy: {
-        name: 'host-policy',
-        validateComponent: () => 'host policy rejected',
+    } as unknown as A2UIMessage;
+    const issue = validateAgentStreamMessageDetailed(
+      message,
+      1,
+      {
+        kind: 'generate',
+        surfaceId: 'surface-1',
+        policy: {
+          name: 'host-policy',
+          validateComponent: () => 'host policy rejected',
+        },
       },
-    });
+      createAgentStreamState(),
+    );
 
-    assert.equal(error, 'host policy rejected');
+    assert.deepEqual(issue, {
+      boundaryCode: 'POLICY_REJECTED',
+      message: 'host policy rejected',
+    });
+  });
+
+  it('marks final workflow rejections as POLICY_REJECTED', () => {
+    const state = createAgentStreamState();
+    state.hasRoot = true;
+    state.componentsById.set('root', {
+      id: 'root',
+      component: 'Text',
+      text: 'final surface',
+    });
+    const issue = validateAgentStreamFinalDetailed(
+      {
+        kind: 'generate',
+        surfaceId: 'surface-1',
+        policy: {
+          name: 'host-policy',
+          validateFinal: () => 'workflow rejected',
+        },
+      },
+      state,
+    );
+
+    assert.deepEqual(issue, {
+      boundaryCode: 'POLICY_REJECTED',
+      message: 'workflow rejected',
+    });
   });
 
   it('attaches an adapter-level policy to generation runs', async () => {

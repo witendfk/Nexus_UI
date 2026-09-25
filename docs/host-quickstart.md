@@ -221,6 +221,32 @@ const adapter = createStandaloneHostAdapter({
 
 未覆盖的 hook 使用 `nexusAgentPolicy` 默认实现。注入策略运行在协议、Profile、Catalog 和生命周期 guard 之后，适合承载审批、工单和权限上下文等宿主业务规则。
 
+### Verify A Real Agent
+
+实现外部 Agent 后，用一条命令验收完整宿主契约：
+
+```bash
+NEXUS_VERIFY_AGENT_ENDPOINT=https://agent.your-domain.example/a2ui \
+  pnpm --filter @nexus-ui/standalone-host-demo verify
+```
+
+也可以传参：
+
+```bash
+pnpm --filter @nexus-ui/standalone-host-demo verify -- \
+  --endpoint https://agent.your-domain.example/a2ui
+```
+
+验收器会启动临时 host API，并检查：
+
+1. 外部 Agent 返回 NDJSON 生成流，最终以 `done` 结束。
+2. host policy 要求 root 是 `ApprovalSummary` 且存在可执行 action。
+3. runtime 能解析 action context 并触发回流。
+4. action 响应保持同一 `surfaceId`，不 create surface，且 `root` 仍可 patch。
+5. 一个独立的 `POLICY_REJECTED` 探针会验证 host policy 拒绝能进入 SSE `boundaryCode`。
+
+成功时输出 JSON report；失败时非零退出并显示第一个未满足的契约。
+
 ## 4. Replace The Agent Endpoint
 
 外部 Agent 不需要理解 React、HTML、浏览器 DOM 或你的设计系统内部实现。它只需要实现一个 HTTP POST endpoint：

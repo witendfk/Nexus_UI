@@ -17,6 +17,15 @@ LLM-backed external business Agent
 
 Demo Agent 的 system prompt 由 `createCatalogPromptContract(standaloneHostCatalog)` 生成基础协议契约，再追加本 Demo 的审批业务规则；宿主和 Agent 共用 `shared/catalog-contract.ts` 中的同一份 CatalogDefinition（包括 `componentPolicies`），但 Agent 不依赖 React renderMap。外部 Agent 不强制使用这段 prompt，输出仍必须通过统一 guard。宿主还可通过 `createStandaloneHostAdapter({ policy })` 注入部分 host policy，用于承载审批工作流等业务边界。
 
+真实 Agent 接入完成后，运行 API 级验收：
+
+```bash
+NEXUS_VERIFY_AGENT_ENDPOINT=https://your-agent.example/a2ui \
+  pnpm --filter @nexus-ui/standalone-host-demo verify
+```
+
+该命令验证生成流、host policy 拒绝、action 回流、同一 `surfaceId` patch 和稳定组件 ID。
+
 宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此浏览器可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约；页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
 
 外部宿主最小复制路径、catalog / renderMap / action 替换点和坏输出验收见 [../../docs/host-quickstart.md](../../docs/host-quickstart.md)。

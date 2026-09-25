@@ -228,6 +228,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P14-c-a | 宿主 Policy Layer 拆分 | 完成 |
 | P14-c-b | 宿主 Policy 注入接口 | 完成 |
 | P15-a | 最小宿主模板 Policy 收口 | 完成 |
+| P15-b | Policy 拒绝边界码 | 完成 |
+| P15-c | 真实 Agent 验收命令 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 

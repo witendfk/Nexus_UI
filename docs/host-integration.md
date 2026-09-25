@@ -354,7 +354,7 @@ Guard failures caused by catalog component contracts can carry structured diagno
 }
 ```
 
-`boundaryCode` identifies the failed boundary (`PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, or `FEATURE_UNSUPPORTED`) when core classification has run. Each diagnostic contains `path`, `message`, and optional `dataPath`. `path` identifies the component props location; `dataPath` identifies the dataModel path behind a `{ path }` binding when applicable. The `diagnostics` field is omitted for ordinary stream and transport failures. Hosts should consume these fields instead of parsing `message`.
+`boundaryCode` identifies the failed boundary (`PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, `FEATURE_UNSUPPORTED`, or `POLICY_REJECTED`). `POLICY_REJECTED` is used by default media/component rules and injected host policies. Each diagnostic contains `path`, `message`, and optional `dataPath`. `path` identifies the component props location; `dataPath` identifies the dataModel path behind a `{ path }` binding when applicable. The `diagnostics` field is omitted for ordinary stream and transport failures. Hosts should consume these fields instead of parsing `message`.
 
 ### Send an action
 
