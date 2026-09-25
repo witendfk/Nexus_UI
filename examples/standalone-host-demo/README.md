@@ -15,7 +15,7 @@ LLM-backed external business Agent
 
 这个 Demo 的业务 Agent 默认真实调用 OpenAI-compatible LLM，并把模型输出作为候选 A2UI JSONL 交给宿主 guard。它不是完整业务 Agent 工程；后续完整 Agent 可以独立建仓，只要实现相同的 JSONL RPC endpoint，宿主侧替换 `NEXUS_DEMO_AGENT_ENDPOINT` 即可接入。
 
-Demo Agent 的 system prompt 由 `createCatalogPromptContract(standaloneHostCatalog)` 生成基础协议契约，再追加本 Demo 的审批业务规则；宿主和 Agent 共用 `shared/catalog-contract.ts` 中的同一份 CatalogDefinition，但 Agent 不依赖 React renderMap。外部 Agent 不强制使用这段 prompt，输出仍必须通过统一 guard。
+Demo Agent 的 system prompt 由 `createCatalogPromptContract(standaloneHostCatalog)` 生成基础协议契约，再追加本 Demo 的审批业务规则；宿主和 Agent 共用 `shared/catalog-contract.ts` 中的同一份 CatalogDefinition（包括 `componentPolicies`），但 Agent 不依赖 React renderMap。外部 Agent 不强制使用这段 prompt，输出仍必须通过统一 guard。宿主还可通过 `createStandaloneHostAdapter({ policy })` 注入部分 host policy，用于承载审批工作流等业务边界。
 
 宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此浏览器可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约；页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
 

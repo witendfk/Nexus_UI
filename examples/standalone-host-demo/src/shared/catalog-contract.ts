@@ -15,5 +15,30 @@ export const standaloneHostCatalog: CatalogDefinition = {
         amount: { type: 'string', dynamic: 'required' },
       },
     },
+    Button: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        disabled: { type: 'boolean', dynamic: 'forbidden' },
+      },
+    },
+  },
+  componentPolicies: {
+    ApprovalSummary: {
+      origin: 'host-extension',
+      fields: {
+        title: { binding: 'required', origin: 'host-extension' },
+        amount: { binding: 'required', origin: 'host-extension' },
+      },
+      action: { allowed: false },
+    },
+    Button: {
+      origin: 'host-extension',
+      fields: {
+        child: { componentRef: true, binding: 'forbidden', origin: 'official-basic' },
+        disabled: { binding: 'forbidden', origin: 'host-extension' },
+      },
+      action: { allowed: true },
+    },
   },
 };

@@ -133,6 +133,8 @@ P14-c-a 已完成。server 新增独立 policy layer：`component-policy` 承接
 
 P14-c-b 已完成。`AgentAdapterOptions.policy` 和 `AgentSequenceOptions.policy` 支持宿主注入 `AgentPolicy`；宿主可覆盖组件语义、literal/dynamic 媒体策略、必需媒体分类和 final workflow，未覆盖的 hook 回落到 `nexusAgentPolicy`。server 公开 API 暴露 policy 类型和 `resolveAgentPolicy`，stream guard 通过 resolved policy 执行；默认行为保持不变，新增 partial override、sequence 注入和公开导出面测试。
 
+P15-a 已完成。standalone 最小宿主模板暴露 `policy` 注入点，Catalog Contract 增加 `componentPolicies` 示例：`ApprovalSummary` 标记为宿主扩展并强制 title / amount 路径绑定，`Button.disabled` 标记为宿主扩展，`Button.child` 标记为 ComponentId。catalog prompt 会向外部 Agent 声明这些能力边界；standalone host policy 测试证明注入策略可以在 SSE 前拒绝远端候选输出。Host Quickstart 同步更新为 P15-a。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

@@ -16,5 +16,8 @@ describe('standalone demo catalog prompt', () => {
     assert.match(DEMO_SYSTEM_PROMPT, /Allowed components: ApprovalSummary, Text, Button\./);
     assert.match(DEMO_SYSTEM_PROMPT, /Allowed action names: approve\./);
     assert.match(DEMO_SYSTEM_PROMPT, /"dynamic": "required"/);
+    assert.match(DEMO_SYSTEM_PROMPT, /Component ApprovalSummary policy:/);
+    assert.match(DEMO_SYSTEM_PROMPT, /- title: binding=required, origin=host-extension/);
+    assert.match(DEMO_SYSTEM_PROMPT, /- disabled: binding=forbidden, origin=host-extension/);
   });
 });

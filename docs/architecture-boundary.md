@@ -137,3 +137,7 @@ P14-c-b added `AgentPolicy` to the server host-assembly API. `AgentAdapterOption
 | `validateFinal` | Enforces final-surface workflow ownership. |
 
 `resolveAgentPolicy` merges a host policy over `nexusAgentPolicy`. The reference AgentAdapter therefore can enforce an enterprise workflow without changing Catalog contracts, the A2UI runtime, or the guard orchestration layer.
+
+### P15-a — Minimal Host Template Policy — Completed
+
+The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

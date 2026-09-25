@@ -1,6 +1,6 @@
 # Host Quickstart
 
-状态：P12-b Catalog Contract HTTP 发布。
+状态：P15-a Host Policy 注入。
 适用版本：Nexus UI MVP `0.1.0`。  
 目标：让宿主开发者以 `examples/standalone-host-demo` 为模板，接入自己的 catalog、renderMap、action handler 和外部 Agent endpoint。
 
@@ -26,7 +26,7 @@ examples/standalone-host-demo/scripts/run-host.ts
 
 | File | Host responsibility |
 | --- | --- |
-| `shared/catalog-contract.ts` | 声明 catalogId、组件白名单、action 白名单和 props schema；宿主与 Agent 可共用 |
+| `shared/catalog-contract.ts` | 声明 catalogId、组件 / action 白名单、props schema 和 componentPolicies；宿主与 Agent 可共用 |
 | `shared/catalog.tsx` | 导入 CatalogDefinition、注册 Registry，并声明 React renderMap |
 | `shared/action-mode.ts` | 解析 external / local action 策略 |
 | `host/adapter.ts` | 组装 Agent Adapter、外部 JSONL RPC source、action handler 和 history store |
@@ -71,6 +71,22 @@ export const hostCatalog: CatalogDefinition = {
       },
     },
   },
+  componentPolicies: {
+    CustomerSummary: {
+      origin: 'host-extension',
+      fields: {
+        customerName: { binding: 'required', origin: 'host-extension' },
+      },
+      action: { allowed: false },
+    },
+    Button: {
+      fields: {
+        child: { componentRef: true, binding: 'forbidden', origin: 'official-basic' },
+        disabled: { binding: 'forbidden', origin: 'host-extension' },
+      },
+      action: { allowed: true },
+    },
+  },
 };
 ```
 
@@ -93,6 +109,7 @@ export const hostRenderMap: RenderMap = {
 - `components` 是 Agent 可用组件的白名单，不在列表内的组件会被拒绝。
 - `actions` 是该 catalog 的 action 白名单，未声明 action 不能出现在 UI 或请求中。
 - `componentSchemas` 声明自定义组件 props 契约；Agent 不能输出未知字段。
+- `componentPolicies` 声明字段允许范围、`{ path }` 绑定、action 挂载和 checks 范围；`origin` 区分官方 Basic 字段、Nexus 扩展和宿主扩展。
 - renderMap 只由宿主持有；Agent 输出描述，不输出 React / HTML 源码。
 - 在 React 装配层保持 catalog registry 是稳定实例，不要在每次 render 时重建。
 
@@ -108,7 +125,7 @@ const systemPrompt = [
 ].join('\n\n');
 ```
 
-生成内容包括 A2UI NDJSON 生命周期、组件和 action 白名单、props schema、dynamic binding 语义，以及“宿主 guard 是最终边界”。宿主仍需为没有 schema 的标准组件和业务语义补充说明；prompt 不是放行条件，非法输出会被 guard 拒绝。
+生成内容包括 A2UI NDJSON 生命周期、组件和 action 白名单、props schema、componentPolicies、dynamic binding 语义，以及“宿主 guard 是最终边界”。宿主仍需为业务语义补充说明；prompt 不是放行条件，非法输出会被 guard 拒绝。
 
 如果希望把契约提供给外部 Agent 开发者或验收页面，必须在 HTTP 装配时显式发布；仅注册 Catalog 不会自动公开：
 
@@ -170,6 +187,39 @@ NEXUS_DEMO_AGENT_MODE=deterministic NEXUS_DEMO_ACTION_MODE=local pnpm demo:stand
   "actionMode": "local"
 }
 ```
+
+### Inject Host Policy
+
+宿主业务工作流不必写死在 Nexus guard 里。`AgentAdapterOptions.policy` 可以注入部分或完整策略：
+
+```ts
+import type { AgentPolicy } from '@nexus-ui/server';
+
+const policy: AgentPolicy = {
+  name: 'approval-policy',
+  validateFinal: (context, components) => {
+    const submit = components.find((component) => component.id === 'submit');
+    return submit ? null : 'approval workflow requires a submit control';
+  },
+};
+
+const adapter = createStandaloneHostAdapter({
+  endpoint: 'https://agent.your-domain.example/a2ui',
+  policy,
+});
+```
+
+可覆盖的 hook：
+
+| Hook | 用途 |
+| --- | --- |
+| `validateComponent` | 跨字段组件语义和宿主组件规则 |
+| `validateLiteralMedia` | 字面量媒体安全 |
+| `validateDynamicMedia` | 基于 dataModel 的动态媒体安全 |
+| `getRequiredMedia` | 根据任务请求声明必需媒体组件 |
+| `validateFinal` | 最终 surface 的工作流归属校验 |
+
+未覆盖的 hook 使用 `nexusAgentPolicy` 默认实现。注入策略运行在协议、Profile、Catalog 和生命周期 guard 之后，适合承载审批、工单和权限上下文等宿主业务规则。
 
 ## 4. Replace The Agent Endpoint
 

@@ -278,6 +278,33 @@ describe('standalone host example', () => {
     assert.deepEqual(runtime.store.getState().errors, []);
   });
 
+  it('applies an injected host policy to external Agent output', async () => {
+    const { endpoint } = await startRemoteAgent();
+    const adapter = createStandaloneHostAdapter({
+      endpoint,
+      timeoutMs: 1000,
+      createSurfaceId: () => surfaceId,
+      policy: {
+        name: 'standalone-host-policy',
+        validateComponent: (component) =>
+          component.component === 'Text' ? 'host policy rejected Text' : null,
+      },
+    });
+
+    const generation = await adapter.prepareGeneration({
+      message: '创建审批任务面',
+      catalogId: STANDALONE_HOST_CATALOG_ID,
+    });
+    assert.ok(generation.ok);
+    assert.equal(generation.run.sequence.policy?.name, 'standalone-host-policy');
+
+    const transport = createSseContext();
+    const result = await sendAgentRun(transport.ctx, generation.run, 'standalone-policy');
+    assert.equal(result.ok, false);
+    assert.match(transport.getOutput(), /host policy rejected Text/);
+    assert.doesNotMatch(transport.getOutput(), /event: done/);
+  });
+
   it('rejects an undeclared catalog action before it reaches SSE', async () => {
     const generation = await createStandaloneHostAdapter({
       endpoint: 'https://agent.invalid/a2ui',

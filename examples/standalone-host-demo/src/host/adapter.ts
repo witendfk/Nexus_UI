@@ -4,13 +4,14 @@ import {
   createExternalAgentGenerationSource,
   InMemorySurfaceHistoryStore,
 } from '@nexus-ui/server';
-import type { AgentActionHandler, ExternalAgentRpcConfig } from '@nexus-ui/server';
+import type { AgentActionHandler, AgentPolicy, ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION } from '../contract';
 import { createStandaloneHostRegistry } from '../shared/catalog';
 
 export interface StandaloneHostAdapterOptions extends ExternalAgentRpcConfig {
   createSurfaceId?: () => string;
   actionHandler?: AgentActionHandler;
+  policy?: AgentPolicy;
 }
 
 /**
@@ -26,6 +27,7 @@ export function createStandaloneHostAdapter(options: StandaloneHostAdapterOption
     useLlm: () => false,
     createSurfaceId: options.createSurfaceId,
     createGenerationSource: createExternalAgentGenerationSource(options),
+    policy: options.policy,
   });
   adapter.registerActionHandler(DEMO_AGENT_CATALOG_ID, DEMO_AGENT_ACTION, actionHandler);
   return adapter;

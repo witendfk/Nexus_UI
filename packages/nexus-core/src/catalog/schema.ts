@@ -118,6 +118,9 @@ export function validateComponentPolicyDiagnostics(
   const structuralKeys = new Set([
     'id',
     'component',
+    'children',
+    'child',
+    'tabs',
     ...(actionAllowed ? ['action'] : []),
     ...(checksEnabled ? ['checks'] : []),
   ]);
