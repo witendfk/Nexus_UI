@@ -111,3 +111,29 @@ P14-b-a separated the three identities, made the Nexus profile canonical, normal
 P14-b-b added declarative component policies for allowed fields, dynamic binding, action attachment, check scope, and field origin. The Nexus Basic and Workbench catalogs now carry these contracts; the server consumes the same registry boundary instead of hand-writing Basic field and checks rules. `Button.disabled` is explicitly marked `nexus-extension`, while official Basic fields remain marked `official-basic`.
 
 Host-specific workflow rules (for example Workbench exact IDs and submit bindings), URL safety policy, and cross-field semantic checks remain in the policy layer. They are intentionally separate from component capability contracts.
+
+### P14-c-a — Host Policy Layer — Completed
+
+P14-c-a extracted the remaining host policies out of `agent-guard.ts`:
+
+| Module | Responsibility |
+| --- | --- |
+| `policy/component-policy.ts` | Cross-field component semantics such as slider range, date-time enablement, ISO bounds, and regex validity. |
+| `policy/media-policy.ts` | Media intent classification and the rule that URL-like values may not pass through `Text`. |
+| `policy/workflow-policy.ts` | Search, submit, and Workbench final-surface workflow ownership. |
+
+`agent-guard.ts` now orchestrates protocol, profile, catalog, lifecycle, and policy checks. This keeps host policy replaceable without changing catalog contracts or the A2UI runtime.
+
+### P14-c-b — Injectable Host Policy — Completed
+
+P14-c-b added `AgentPolicy` to the server host-assembly API. `AgentAdapterOptions.policy` and `AgentSequenceOptions.policy` accept a partial policy with these hooks:
+
+| Hook | Purpose |
+| --- | --- |
+| `validateComponent` | Cross-field component semantics and host component rules. |
+| `validateLiteralMedia` | Literal media-safety rules before dynamic values arrive. |
+| `validateDynamicMedia` | Media-safety rules against the current dataModel. |
+| `getRequiredMedia` | Classifies media components required by the task request. |
+| `validateFinal` | Enforces final-surface workflow ownership. |
+
+`resolveAgentPolicy` merges a host policy over `nexusAgentPolicy`. The reference AgentAdapter therefore can enforce an enterprise workflow without changing Catalog contracts, the A2UI runtime, or the guard orchestration layer.

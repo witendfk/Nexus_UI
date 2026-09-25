@@ -32,6 +32,7 @@ SSE 事件：
 - 宿主可注入进程内 generation source；Agent Adapter 负责 surfaceId 生成、catalog 解析、生成源选择和 LLM / 宿主 source 成功流后的 surface history 提交。
 - 宿主可通过异步 `historyStore` 注入独立 surface history 存储；catalog 与 turn 由一次 `commitGeneration` 提交，便于数据库实现使用事务。默认实现为进程内内存，保留最近 64 个 surface、每 surface 最近 20 条 turn，并以只读拷贝提供给生成源和 action handler。配置 `NEXUS_HISTORY_FILE` 后启用本地单进程文件持久化，重启后可恢复 catalog 与 history。
 - 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；当前提供 Nexus Basic Task Profile 的 `call / search / submit`、Task `start / complete` 和 Workbench `submit`。
+- `AgentAdapterOptions.policy` 支持注入部分或完整 host policy，可覆盖组件语义、媒体安全、必需媒体分类和 final workflow；未声明的 hook 使用 `nexusAgentPolicy` 默认实现。注入策略仍然运行在协议、Profile、Catalog 和生命周期 guard 之后。
 - `external-agent.ts` 提供最小 HTTP JSONL RPC helper，可把初始生成与业务 action 转发给宿主自有 Agent；输出仍必须通过同一 Agent guard。
 - 仓库根部 [examples/standalone-host-demo](../../examples/standalone-host-demo/README.md) 负责独立宿主与 LLM 外部 Agent 链路验证；server 只维护参考服务与可复用 Agent Adapter / RPC 能力。
 - 未注册 action 在进入 SSE 前返回 400，避免半流失败。

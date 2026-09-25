@@ -12,6 +12,8 @@ describe('server host-assembly public API surface', () => {
       'createAgentRouter',
       'createExternalAgentActionHandler',
       'createExternalAgentGenerationSource',
+      'nexusAgentPolicy',
+      'resolveAgentPolicy',
       'sendAgentRun',
     ]);
   });

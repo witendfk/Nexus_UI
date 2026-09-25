@@ -10,6 +10,7 @@ import {
   WORKBENCH_CATALOG,
 } from './catalog';
 import type { AgentSequenceOptions } from './agent-guard';
+import { resolveAgentPolicy, type AgentPolicy } from './policy';
 import type { AgentTurn } from './llm-agent';
 import { defaultSurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
@@ -85,6 +86,7 @@ export interface AgentAdapterOptions {
   createSurfaceId?: () => string;
   taskStateStore?: TaskStateStore;
   workbenchTaskStore?: WorkbenchTaskStore;
+  policy?: AgentPolicy;
 }
 
 function createActionHandlerKey(catalogId: string, actionName: string): string {
@@ -140,11 +142,13 @@ export class AgentAdapter {
   private readonly createSurfaceId: () => string;
   private readonly taskStateStore: TaskStateStore;
   private readonly workbenchTaskStore: WorkbenchTaskStore;
+  private readonly policy = resolveAgentPolicy();
 
   constructor(options: AgentAdapterOptions = {}) {
     this.registry = options.registry ?? agentCatalogRegistry;
     this.taskStateStore = options.taskStateStore ?? taskStateStore;
     this.workbenchTaskStore = options.workbenchTaskStore ?? workbenchTaskStore;
+    this.policy = resolveAgentPolicy(options.policy);
     this.actionHandlers =
       options.actionHandlers ??
       createDefaultActionHandlers(this.taskStateStore, this.workbenchTaskStore);
@@ -229,6 +233,7 @@ export class AgentAdapter {
           registry: this.registry,
           supportedActions: getCatalogActions(catalogId, catalog),
           message,
+          policy: this.policy,
         },
         commit: async (messages) => {
           const surfaceCatalog = findSurfaceCatalog(messages);
@@ -295,6 +300,7 @@ export class AgentAdapter {
           catalogId,
           registry: this.registry,
           supportedActions: getCatalogActions(catalogId, catalog),
+          policy: this.policy,
         },
         commit: () => undefined,
       },

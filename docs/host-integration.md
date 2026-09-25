@@ -130,6 +130,24 @@ const adapter = new AgentAdapter({
 
 Every custom-source message still passes the same `validateA2UIMessage` and Agent stream guard. Invalid output ends with an SSE `error`, never `done`, and is not committed to surface history.
 
+### Replaceable host policy
+
+`AgentAdapterOptions.policy` accepts a partial host policy. A host can override any subset of the default media, component-semantic, and workflow checks:
+
+```ts
+const adapter = new AgentAdapter({
+  policy: {
+    name: 'crm-approval-policy',
+    validateFinal: (context, components) => {
+      // Return null when the final surface satisfies host workflow rules.
+      return null;
+    },
+  },
+});
+```
+
+Omitted hooks continue to use `nexusAgentPolicy`. Overrides apply to generation and action streams for that adapter; every stream still passes protocol, profile, lifecycle, and Catalog boundaries before host policy results are emitted.
+
 Business action handlers now receive a second read-only context:
 
 ```ts
@@ -435,7 +453,7 @@ A host custom catalog must satisfy four conditions:
 3. Every supported action has a business handler registered by `catalogId + action.name`.
 4. Guard tests reject unregistered components, cross-catalog components, unsupported actions, and action responses that change surface lifecycle.
 
-Current boundary: Catalog Registry enforces component names, declarative component capability policies (allowed fields, binding policy, action attachment, checks scope, and field origin), a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy), and Workbench submit-loop policy. Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. This is not a complete standard JSON Schema engine, official Basic Catalog conformance layer, or replacement for host authorization. Enterprises should not treat catalog registration alone as a full security policy.
+Current boundary: Catalog Registry enforces component names, declarative component capability policies (allowed fields, binding policy, action attachment, checks scope, and field origin), a deterministic schema subset for custom catalog props (`type`, `required`, `enum`, ranges, lengths, `pattern`, nested arrays / objects, and `{ path }` binding policy). A separate host policy layer enforces media safety, cross-field component semantics, and workflow ownership such as search, submit, and Workbench loops. Diagnostics are aggregated. When a `{ path }` binding resolves to an existing dataModel value, that resolved value is also validated; a missing path remains pending to preserve streaming semantics. This is not a complete standard JSON Schema engine, official Basic Catalog conformance layer, or replacement for host authorization. Enterprises should not treat catalog registration alone as a full security policy.
 
 `CatalogDefinition.actions` is a Nexus host-boundary extension, not a new A2UI wire field:
 

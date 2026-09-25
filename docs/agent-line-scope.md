@@ -129,6 +129,10 @@ P14-b-a 已完成。默认 playground catalog 更名为 Nexus Basic Task Profile
 
 P14-b-b 已完成。core `CatalogDefinition` 新增 `componentPolicies`，可声明字段允许范围、`{ path }` 绑定策略、action 挂载、checks 白名单 / 上限和字段来源；`Button.disabled` 明确标记为 Nexus extension。Nexus Basic 与 Workbench catalog 已迁移到该契约，server guard 移除了手写 Basic 字段、媒体字段、选项结构和 checks 规则；URL 安全策略、Slider / DateTime 跨字段语义和 Workbench 工作流闭环仍保留在 policy layer。Catalog Prompt Contract 会输出同一份 capability policy。
 
+P14-c-a 已完成。server 新增独立 policy layer：`component-policy` 承接跨字段组件语义，`media-policy` 承接媒体意图分类和 URL 不入 `Text` 的安全规则，`workflow-policy` 承接搜索、订阅表单和 Workbench 精确闭环。`agent-guard` 保留协议 / Profile / Catalog / 生命周期编排职责；行为和错误契约保持不变，server 测试新增 policy layer 单元验收。
+
+P14-c-b 已完成。`AgentAdapterOptions.policy` 和 `AgentSequenceOptions.policy` 支持宿主注入 `AgentPolicy`；宿主可覆盖组件语义、literal/dynamic 媒体策略、必需媒体分类和 final workflow，未覆盖的 hook 回落到 `nexusAgentPolicy`。server 公开 API 暴露 policy 类型和 `resolveAgentPolicy`，stream guard 通过 resolved policy 执行；默认行为保持不变，新增 partial override、sequence 注入和公开导出面测试。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

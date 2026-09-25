@@ -225,6 +225,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P14-a | 协议校验 / Runtime Profile 边界拆分 | 完成 |
 | P14-b-a | Nexus Basic Task Profile 身份收口 | 完成 |
 | P14-b-b | Catalog 能力契约迁移 | 完成 |
+| P14-c-a | 宿主 Policy Layer 拆分 | 完成 |
+| P14-c-b | 宿主 Policy 注入接口 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 

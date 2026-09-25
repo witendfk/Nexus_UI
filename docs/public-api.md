@@ -73,6 +73,7 @@ Stable host-assembly exports in `0.1.x`:
 - Adapter: `AgentAdapter`, `AgentAdapterOptions`, `AgentGenerateRequest`, `AgentPlan`, `AgentRun`, and `AgentMessageSource`.
 - Generation source seam: `AgentGenerationSource`, `AgentGenerationSourceRequest`.
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
+- Host policy seam: `AgentPolicy`, `AgentPolicyContext`, `ResolvedAgentPolicy`, `MediaComponent`, `RequiredMediaPolicy`, `nexusAgentPolicy`, and `resolveAgentPolicy`.
 - External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
 - HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides and explicit `catalogContracts` publication; the guarded router can expose the read-only catalog-contract route.
@@ -89,6 +90,8 @@ The assembly API intentionally does not export:
 - The reference Koa `app`, `router`, and listener.
 
 A host still owns credentials, deployment policy, transport hardening, durable storage, tenant isolation, and business systems. The promise is narrower: an external host can assemble `AgentAdapter`, its own catalog, external Agent RPC, history, action handler, and the guarded router without importing server source internals. The guarded router's `/health` endpoint reports the selected `agentMode` and `actionMode` labels supplied by the assembling host.
+
+`AgentAdapterOptions.policy` accepts a partial `AgentPolicy`. Omitted hooks use `nexusAgentPolicy`; provided hooks become the authoritative policy for that adapter. For example, a host can override `validateFinal` to enforce its own approval workflow without changing Catalog contracts or the runtime.
 
 ## Compatibility Policy
 

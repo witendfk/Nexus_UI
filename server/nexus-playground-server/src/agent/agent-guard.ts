@@ -1,14 +1,14 @@
 import type { A2UIMessage, Component } from '@nexus-ui/core';
 import type { CatalogRegistry } from '@nexus-ui/core';
-import { applyDataModelUpdate, getByPath } from '@nexus-ui/core';
+import { applyDataModelUpdate } from '@nexus-ui/core';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import {
   BASIC_CATALOG_ACTIONS,
   NEXUS_BASIC_TASK_CATALOG,
   TASK_CATALOG,
-  WORKBENCH_CATALOG,
   agentCatalogRegistry,
 } from './catalog';
+import { resolveAgentPolicy, type AgentPolicy } from './policy';
 
 export interface AgentSequenceOptions {
   kind: 'generate' | 'action';
@@ -17,6 +17,7 @@ export interface AgentSequenceOptions {
   registry?: CatalogRegistry;
   supportedActions?: readonly string[];
   message?: string;
+  policy?: AgentPolicy;
 }
 
 function getMessageInfo(message: A2UIMessage): { key: string; surfaceId: string } {
@@ -32,157 +33,24 @@ function getMessageInfo(message: A2UIMessage): { key: string; surfaceId: string 
   return { key: 'deleteSurface', surfaceId: message.deleteSurface.surfaceId };
 }
 
-function isDynamicString(value: unknown): boolean {
-  return (
-    typeof value === 'string' ||
-    (typeof value === 'object' &&
-      value !== null &&
-      !Array.isArray(value) &&
-      Object.keys(value).length === 1 &&
-      typeof (value as { path?: unknown }).path === 'string')
-  );
-}
-
-function getDataBindingPath(value: unknown): string | null {
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 1 &&
-    typeof (value as { path?: unknown }).path === 'string'
-  ) {
-    return (value as { path: string }).path;
-  }
-  return null;
-}
-
-function isIsoDateTimeLiteral(value: string): boolean {
-  const date = /^\d{4}-\d{2}-\d{2}$/;
-  const time = /^\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
-  const dateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
-  return date.test(value) || time.test(value) || dateTime.test(value);
-}
-
-function hasOnlyComponentKeys(component: Component, allowed: readonly string[]): boolean {
-  return hasOnlyKeys(component, allowed);
-}
-
-function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
-  return Object.keys(value).every((key) => allowed.includes(key));
-}
-
-function getChoiceOptionValues(component: Component): string[] {
-  return Array.isArray(component.options)
-    ? component.options
-        .map((option) =>
-          typeof option === 'object' &&
-          option !== null &&
-          !Array.isArray(option) &&
-          typeof option.value === 'string'
-            ? option.value
-            : null,
-        )
-        .filter((value): value is string => value !== null)
-    : [];
-}
-
-function validateBasicSliderRelationship(component: Component): string | null {
-  if (component.component !== 'Slider') return null;
-  const min = component.min;
-  const max = component.max;
-  if (
-    typeof min === 'number' &&
-    Number.isFinite(min) &&
-    typeof max === 'number' &&
-    Number.isFinite(max) &&
-    min >= max
-  ) {
-    return 'Slider.min 必须小于 max';
-  }
-  return null;
-}
-function validateTextFieldRegexp(component: Component): string | null {
-  if (component.component !== 'TextField') return null;
-  const validationRegexp = component.validationRegexp;
-  if (validationRegexp === undefined) return null;
-  if (typeof validationRegexp !== 'string') {
-    return 'TextField.validationRegexp 必须是字符串';
-  }
-  try {
-    new RegExp(validationRegexp);
-  } catch {
-    return 'TextField.validationRegexp 必须是合法正则表达式';
-  }
-  return null;
-}
-
-function validateBasicDateTimeInput(component: Component): string | null {
-  if (component.component !== 'DateTimeInput') return null;
-  const enableDate = component.enableDate;
-  const enableTime = component.enableTime;
-  if (enableDate !== true && enableTime !== true) {
-    return 'DateTimeInput.enableDate/enableTime 至少一个为 true';
-  }
-  for (const key of ['min', 'max'] as const) {
-    const value = component[key];
-    if (value === undefined) continue;
-    if (!isDynamicString(value)) {
-      return `DateTimeInput.${key} 必须是 ISO 8601 字符串或 { path } 绑定`;
-    }
-    if (typeof value === 'string' && !isIsoDateTimeLiteral(value)) {
-      return `DateTimeInput.${key} 必须是 ISO 8601 date/time/date-time 字符串`;
-    }
-  }
-  return null;
-}
-
-function validateWorkbenchButton(component: Component): string | null {
-  if (component.component !== 'Button') return null;
-  if (!hasOnlyComponentKeys(component, ['id', 'component', 'child', 'disabled', 'action'])) {
-    return 'Workbench Button 只支持 id/component/child/disabled/action';
-  }
-  if (typeof component.child !== 'string') return 'Workbench Button.child 必须是组件 id';
-  if (component.disabled !== undefined && typeof component.disabled !== 'boolean') {
-    return 'Workbench Button.disabled 必须是布尔值';
-  }
-  if (component.action?.event === undefined) return 'Workbench Button 必须挂载 submit action';
-  return null;
-}
-
-function validateBasicText(component: Component): string | null {
-  if (component.component !== 'Text' || typeof component.text !== 'string') return null;
-  if (/https?:\/\//i.test(component.text)) {
-    return 'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
-  }
-  return null;
-}
-
-function validateDynamicText(component: Component, dataModel?: unknown): string | null {
-  if (component.component !== 'Text') return null;
-  const path = getDataBindingPath(component.text);
-  if (path === null) return null;
-  if (/(avatar|image|photo|picture|icon|logo|url|link|website)/i.test(path)) {
-    return 'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
-  }
-  const value = getByPath(dataModel, path);
-  if (typeof value === 'string' && /https?:\/\//i.test(value)) {
-    return 'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url';
-  }
-  return null;
-}
-
 /** Keep the LLM inside the one-surface Agent line even when its JSON is structurally valid. */
 export function validateAgentSequence(
   message: A2UIMessage,
   index: number,
-  {
+  sequence: AgentSequenceOptions,
+): string | null {
+  const kind = sequence.kind;
+  const surfaceId = sequence.surfaceId;
+  const catalogId = sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
+  const registry = sequence.registry ?? agentCatalogRegistry;
+  const supportedActions = sequence.supportedActions ?? BASIC_CATALOG_ACTIONS;
+  const resolvedPolicy = resolveAgentPolicy(sequence.policy);
+  const policyContext = {
     kind,
     surfaceId,
-    catalogId = NEXUS_BASIC_TASK_CATALOG,
-    registry = agentCatalogRegistry,
-    supportedActions = BASIC_CATALOG_ACTIONS,
-  }: AgentSequenceOptions,
-): string | null {
+    catalogId,
+    message: sequence.message,
+  };
   const info = getMessageInfo(message);
   if (info.surfaceId !== surfaceId) return `消息 surfaceId 必须保持为 ${surfaceId}`;
   const catalog = registry.get(catalogId);
@@ -199,21 +67,10 @@ export function validateAgentSequence(
       const capabilityError = registry.getComponentDiagnostics(catalogId, component)[0];
       if (capabilityError) return capabilityError.message;
 
-      if (catalogId === WORKBENCH_CATALOG) {
-        const workbenchButtonError = validateWorkbenchButton(component);
-        if (workbenchButtonError) return workbenchButtonError;
-      }
-
-      if (catalogId === NEXUS_BASIC_TASK_CATALOG || catalogId === WORKBENCH_CATALOG) {
-        const textFieldError = validateTextFieldRegexp(component);
-        if (textFieldError) return textFieldError;
-        const sliderError = validateBasicSliderRelationship(component);
-        if (sliderError) return sliderError;
-        const dateTimeInputError = validateBasicDateTimeInput(component);
-        if (dateTimeInputError) return dateTimeInputError;
-        const textError = validateBasicText(component);
-        if (textError) return textError;
-      }
+      const componentPolicyError = resolvedPolicy.validateComponent(component, policyContext);
+      if (componentPolicyError) return componentPolicyError;
+      const mediaPolicyError = resolvedPolicy.validateLiteralMedia(component, policyContext);
+      if (mediaPolicyError) return mediaPolicyError;
       const actionName = component.action?.event?.name;
       if (actionName !== undefined && !supportedActions.includes(actionName)) {
         return `当前 Agent 线不支持 action: ${actionName}`;
@@ -239,212 +96,6 @@ export function validateAgentSequence(
   return null;
 }
 
-function isSearchRequest(message?: string): boolean {
-  return typeof message === 'string' && /搜索|search/i.test(message);
-}
-
-function isFormRequest(message?: string): boolean {
-  return typeof message === 'string' && /表单|form|订阅|subscribe/i.test(message);
-}
-
-function validateSearchContract(components: Component[]): string | null {
-  const textFields = components.filter((component) => component.component === 'TextField');
-  if (textFields.length === 0) {
-    return '搜索 UI 必须包含 TextField，且 value 使用 { path } 绑定';
-  }
-  if (!components.some((component) => component.id === 'searchResult')) {
-    return '搜索 UI 必须包含 id 为 searchResult 的 Text 结果组件';
-  }
-  const searchButton = components.find(
-    (component) => component.component === 'Button' && component.action?.event?.name === 'search',
-  );
-  if (!searchButton) return '搜索 UI 必须包含 action 为 search 的 Button';
-
-  const fieldPaths = new Set(
-    textFields
-      .map((component) => getDataBindingPath(component.value))
-      .filter((path): path is string => path !== null),
-  );
-  const keywordPath = getDataBindingPath(searchButton.action?.event?.context?.keyword);
-  if (keywordPath === null || !fieldPaths.has(keywordPath)) {
-    return 'search action 的 keyword.context 必须绑定 TextField.value 的同一个 path';
-  }
-  return null;
-}
-
-function validateSubmitContract(components: Component[]): string | null {
-  const textFields = components.filter((component) => component.component === 'TextField');
-  const checkBoxes = components.filter((component) => component.component === 'CheckBox');
-  if (textFields.length === 0 || checkBoxes.length === 0) {
-    return '表单 UI 必须同时包含 TextField 和 CheckBox，且 value 使用 { path } 绑定';
-  }
-  if (
-    !components.some(
-      (component) => component.id === 'submitResult' && component.component === 'Text',
-    )
-  ) {
-    return '表单 UI 必须包含 id 为 submitResult 的 Text 结果组件';
-  }
-  const submitButton = components.find(
-    (component) => component.component === 'Button' && component.action?.event?.name === 'submit',
-  );
-  if (!submitButton) return '表单 UI 必须包含 action 为 submit 的 Button';
-
-  const fieldPaths = new Set(
-    textFields
-      .map((component) => getDataBindingPath(component.value))
-      .filter((path): path is string => path !== null),
-  );
-  const checkBoxPaths = new Set(
-    checkBoxes
-      .map((component) => getDataBindingPath(component.value))
-      .filter((path): path is string => path !== null),
-  );
-  const contextPaths = new Set(
-    Object.values(submitButton.action?.event?.context ?? {})
-      .map((value) => getDataBindingPath(value))
-      .filter((path): path is string => path !== null),
-  );
-  if (![...contextPaths].some((path) => fieldPaths.has(path))) {
-    return 'submit action 的 context 必须绑定 TextField.value 的同一个 path';
-  }
-  if (![...contextPaths].some((path) => checkBoxPaths.has(path))) {
-    return 'submit action 的 context 必须绑定 CheckBox.value 的同一个 path';
-  }
-  const reachableIds = collectReachableIds(components);
-  const requiredGroups = [
-    textFields.map((component) => component.id),
-    checkBoxes.map((component) => component.id),
-    [submitButton.id],
-    ['submitResult'],
-  ];
-  if (!requiredGroups.every((ids) => ids.some((id) => reachableIds.has(id)))) {
-    return '表单 UI 的 TextField/CheckBox/submit/submitResult 必须挂在 root 渲染树内';
-  }
-  return null;
-}
-
-function collectReachableIds(components: Component[]): Set<string> {
-  const byId = new Map(components.map((component) => [component.id, component]));
-  const root = byId.get('root');
-  const reachable = new Set<string>();
-  if (!root) return reachable;
-
-  const pending = [root.id];
-  while (pending.length > 0) {
-    const id = pending.pop() as string;
-    if (reachable.has(id)) continue;
-    const component = byId.get(id);
-    if (!component) continue;
-    reachable.add(id);
-    if (Array.isArray(component.children)) pending.push(...component.children);
-    if (typeof component.child === 'string') pending.push(component.child);
-    if (Array.isArray(component.tabs)) {
-      for (const tab of component.tabs) {
-        if (typeof tab?.child === 'string') pending.push(tab.child);
-      }
-    }
-  }
-  return reachable;
-}
-
-function validateWorkbenchContract(components: Component[]): string | null {
-  const byId = new Map(components.map((component) => [component.id, component]));
-  const root = byId.get('root');
-  if (!root || root.component !== 'Column') return 'Workbench root 必须是 Column';
-
-  const customer = byId.get('customer');
-  if (!customer || customer.component !== 'CustomerSummary') {
-    return 'Workbench UI 必须包含 id 为 customer 的 CustomerSummary';
-  }
-  const taskTitle = byId.get('taskTitle');
-  if (
-    !taskTitle ||
-    taskTitle.component !== 'TextField' ||
-    getDataBindingPath(taskTitle.value) !== '/taskTitle'
-  ) {
-    return 'Workbench UI 的 taskTitle 必须是绑定 /taskTitle 的 TextField';
-  }
-  const reminderAt = byId.get('reminderAt');
-  if (
-    !reminderAt ||
-    reminderAt.component !== 'DateTimeInput' ||
-    getDataBindingPath(reminderAt.value) !== '/reminderAt' ||
-    reminderAt.enableDate !== true ||
-    reminderAt.enableTime !== true
-  ) {
-    return 'Workbench UI 的 reminderAt 必须是同时启用日期和时间的 DateTimeInput';
-  }
-  const priority = byId.get('priority');
-  if (
-    !priority ||
-    priority.component !== 'ChoicePicker' ||
-    getDataBindingPath(priority.value) !== '/priority' ||
-    priority.variant !== 'mutuallyExclusive'
-  ) {
-    return 'Workbench UI 的 priority 必须是绑定 /priority 的单选 ChoicePicker';
-  }
-  const priorityValues = getChoiceOptionValues(priority);
-  if (
-    priorityValues.length !== 3 ||
-    !priorityValues.includes('high') ||
-    !priorityValues.includes('normal') ||
-    !priorityValues.includes('low')
-  ) {
-    return 'Workbench priority 必须提供 high/normal/low 三个选项';
-  }
-  const submitButton = byId.get('submitButton');
-  if (
-    !submitButton ||
-    submitButton.component !== 'Button' ||
-    submitButton.child !== 'submitLabel' ||
-    submitButton.action?.event?.name !== 'submit'
-  ) {
-    return 'Workbench UI 必须包含 child 为 submitLabel 且 action 为 submit 的 Button';
-  }
-  const submitLabel = byId.get('submitLabel');
-  const submitResult = byId.get('submitResult');
-  if (
-    !submitLabel ||
-    submitLabel.component !== 'Text' ||
-    getDataBindingPath(submitLabel.text) !== '/actionLabel' ||
-    !submitResult ||
-    submitResult.component !== 'Text' ||
-    getDataBindingPath(submitResult.text) !== '/result'
-  ) {
-    return 'Workbench UI 必须包含 submitLabel 和 submitResult';
-  }
-
-  const context = submitButton.action?.event?.context ?? {};
-  const contextPaths = new Set(
-    Object.values(context)
-      .map((value) => getDataBindingPath(value))
-      .filter((path): path is string => path !== null),
-  );
-  if (
-    !contextPaths.has('/taskTitle') ||
-    !contextPaths.has('/reminderAt') ||
-    !contextPaths.has('/priority') ||
-    !contextPaths.has('/customer/customerId')
-  ) {
-    return 'Workbench submit context 必须绑定 /taskTitle、/reminderAt、/priority 和 /customer/customerId';
-  }
-
-  const reachableIds = collectReachableIds(components);
-  const requiredIds = [
-    'customer',
-    'taskTitle',
-    'priority',
-    'reminderAt',
-    'submitButton',
-    'submitResult',
-  ];
-  if (!requiredIds.every((id) => reachableIds.has(id))) {
-    return 'Workbench UI 的关键组件必须挂在 root 渲染树内';
-  }
-  return null;
-}
-
 export interface AgentStreamState {
   componentsById: Map<string, Component>;
   dataModel: unknown;
@@ -463,28 +114,6 @@ export function createAgentStreamState(): AgentStreamState {
     dataModel: undefined,
     hasRoot: false,
     hasBasicMedia: { Image: false, Video: false, AudioPlayer: false },
-  };
-}
-
-function getRequiredBasicMedia(message: string | undefined): {
-  Image: boolean;
-  Video: boolean;
-  AudioPlayer: boolean;
-} {
-  if (typeof message !== 'string') {
-    return { Image: false, Video: false, AudioPlayer: false };
-  }
-  const hasUrl = /https?:\/\//i.test(message);
-  return {
-    Image:
-      /(头像|图片|照片|avatar|image|photo|picture)/i.test(message) ||
-      /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(message),
-    Video:
-      (hasUrl && /(视频|video|trailer)/i.test(message)) ||
-      /https?:\/\/\S+\.(?:mp4|webm|mov|m4v|ogv)(?:[?#]|$)/i.test(message),
-    AudioPlayer:
-      (hasUrl && /(音频|音乐|播客|audio|music|podcast)/i.test(message)) ||
-      /https?:\/\/\S+\.(?:mp3|wav|ogg|m4a|aac|flac)(?:[?#]|$)/i.test(message),
   };
 }
 
@@ -525,6 +154,13 @@ export function validateAgentStreamMessageDetailed(
   state: AgentStreamState,
 ): AgentStreamValidationIssue | null {
   const sequenceError = validateAgentSequence(message, index, sequence);
+  const resolvedPolicy = resolveAgentPolicy(sequence.policy);
+  const policyContext = {
+    kind: sequence.kind,
+    surfaceId: sequence.surfaceId,
+    catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
+    message: sequence.message,
+  };
 
   if ('updateComponents' in message) {
     const nextComponents = new Map(state.componentsById);
@@ -543,7 +179,11 @@ export function validateAgentStreamMessageDetailed(
     }
 
     for (const component of components) {
-      const textError = validateDynamicText(component, state.dataModel);
+      const textError = resolvedPolicy.validateDynamicMedia(
+        component,
+        state.dataModel,
+        policyContext,
+      );
       if (textError) return createIssue(textError);
     }
 
@@ -554,10 +194,7 @@ export function validateAgentStreamMessageDetailed(
         (component) => component.component === mediaComponent,
       );
     }
-    const requiredBasicMedia =
-      (sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === NEXUS_BASIC_TASK_CATALOG
-        ? getRequiredBasicMedia(sequence.message)
-        : { Image: false, Video: false, AudioPlayer: false };
+    const requiredBasicMedia = resolvedPolicy.getRequiredMedia(policyContext);
     const mediaLabels = {
       Image: '图片',
       Video: '视频',
@@ -593,7 +230,11 @@ export function validateAgentStreamMessageDetailed(
     }
 
     for (const component of state.componentsById.values()) {
-      const textError = validateDynamicText(component, nextDataModel);
+      const textError = resolvedPolicy.validateDynamicMedia(
+        component,
+        nextDataModel,
+        policyContext,
+      );
       if (textError) return createIssue(textError);
     }
     state.dataModel = nextDataModel;
@@ -618,18 +259,13 @@ export function validateAgentStreamFinal(
   state: AgentStreamState,
 ): string | null {
   if (sequence.kind !== 'generate' || !state.hasRoot) return null;
-  const components = [...state.componentsById.values()];
-  if ((sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === WORKBENCH_CATALOG) {
-    return validateWorkbenchContract(components);
-  }
-  if (isSearchRequest(sequence.message)) {
-    return validateSearchContract(components);
-  }
-  if (
-    isFormRequest(sequence.message) &&
-    (sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG) === NEXUS_BASIC_TASK_CATALOG
-  ) {
-    return validateSubmitContract(components);
-  }
-  return null;
+  const policyContext = {
+    kind: sequence.kind,
+    surfaceId: sequence.surfaceId,
+    catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
+    message: sequence.message,
+  };
+  return resolveAgentPolicy(sequence.policy).validateFinal(policyContext, [
+    ...state.componentsById.values(),
+  ]);
 }
