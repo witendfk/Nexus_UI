@@ -235,6 +235,8 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P16-c | Onboarding checks 与 verifier 验收闭环 | 完成 |
 | P17-a | Onboarding Contract 驱动验收 API | 完成 |
 | P17-b | Onboarding Contract 浏览器验收面 | 完成 |
+| P18-a | Published Catalog Discovery | 完成 |
+| P18-b | Discovery 驱动浏览器契约面板 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 

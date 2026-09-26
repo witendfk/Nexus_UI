@@ -152,6 +152,8 @@ GET /api/a2ui/agent-onboarding?catalogId=https%3A%2F%2Fyour-host.example.com%2Fc
 
 它把 catalog contract、外部 RPC 请求 / 响应形状、错误边界码和带稳定 id 的验收要求合并成机器可读 JSON。宿主可在 `agentOnboarding.rpcEndpoint` 中显式选择是否披露 Agent endpoint。`verifyExternalAgentIntegration` 的 report 会按这些 id 返回逐项 check 结果。
 
+外部 Agent 也可以先读取 `/api/a2ui/published-catalogs` 发现宿主显式发布的 catalog 摘要和两个 contract 的绝对 URL；该接口不会列出只注册在 adapter 内、未显式发布的 catalog。
+
 ## 3. Register The Action Path
 
 `host/adapter.ts` 是 action 的组合点。当前模板中：

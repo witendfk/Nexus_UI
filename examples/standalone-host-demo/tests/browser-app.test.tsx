@@ -157,6 +157,25 @@ const onboardingContract = {
   },
 };
 
+const catalogContractUrl =
+  'https://host.invalid/api/a2ui/catalog-contract?catalogId=demo-from-discovery';
+const agentOnboardingUrl =
+  'https://host.invalid/api/a2ui/agent-onboarding?catalogId=demo-from-discovery';
+
+const publishedCatalogs = {
+  serverApiVersion: 1,
+  kind: 'published-catalog-list',
+  catalogs: [
+    {
+      catalogId: DEMO_AGENT_CATALOG_ID,
+      components: ['ApprovalSummary', 'Button', 'Text'],
+      actions: [DEMO_AGENT_ACTION],
+      catalogContractUrl,
+      agentOnboardingUrl,
+    },
+  ],
+};
+
 function toSseResponse(messages: unknown[]): Response {
   const encoder = new TextEncoder();
   const output = messages
@@ -192,13 +211,21 @@ describe('standalone host browser app', () => {
           }),
         );
       }
+      if (url === '/api/a2ui/published-catalogs') {
+        return Promise.resolve(
+          new Response(JSON.stringify(publishedCatalogs), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
       if (url.endsWith('/api/a2ui/generate')) {
         return Promise.resolve(toSseResponse(generationMessages));
       }
       if (url.endsWith('/api/a2ui/event')) {
         return Promise.resolve(toSseResponse(actionMessages));
       }
-      if (url.includes('/api/a2ui/catalog-contract')) {
+      if (url === catalogContractUrl) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -210,7 +237,7 @@ describe('standalone host browser app', () => {
           ),
         );
       }
-      if (url.includes('/api/a2ui/agent-onboarding')) {
+      if (url === agentOnboardingUrl) {
         return Promise.resolve(
           new Response(JSON.stringify(onboardingContract), {
             status: 200,
@@ -226,6 +253,9 @@ describe('standalone host browser app', () => {
 
     await waitFor(() => {
       expect(screen.getByText('action: local handler')).to.exist;
+    });
+    await waitFor(() => {
+      expect(screen.getByText('catalog discovery: done')).to.exist;
     });
 
     fireEvent.click(screen.getByRole('button', { name: '查看 Catalog Contract' }));
@@ -264,7 +294,7 @@ describe('standalone host browser app', () => {
       .closest('section');
     expect(surfaceAfter).to.equal(surfaceBefore);
 
-    const actionBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body)) as {
+    const actionBody = JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body)) as {
       action?: { name?: string; surfaceId?: string };
     };
     expect(actionBody.action?.name).to.equal(DEMO_AGENT_ACTION);
@@ -293,6 +323,9 @@ describe('standalone host browser app', () => {
     });
     expect(screen.getByText('host policy rejection returns POLICY_REJECTED')).to.exist;
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/a2ui/published-catalogs');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(catalogContractUrl);
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(agentOnboardingUrl);
   });
 });

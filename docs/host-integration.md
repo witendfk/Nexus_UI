@@ -435,6 +435,32 @@ Semantics:
 - The route returns the catalog definition and prompt only; it does not expose React render maps, action handlers, credentials, or business systems.
 - Authentication, tenant authorization, and public rate limiting remain host deployment responsibilities.
 
+### Discover published catalogs
+
+```http
+GET /api/a2ui/published-catalogs
+```
+
+The discovery route lists only the catalogs explicitly passed through `catalogContracts`. Each item is a small summary, not the full contract:
+
+```json
+{
+  "serverApiVersion": 1,
+  "kind": "published-catalog-list",
+  "catalogs": [
+    {
+      "catalogId": "https://host.example/catalogs/workbench/v1",
+      "components": ["CustomerSummary"],
+      "actions": ["submit"],
+      "catalogContractUrl": "https://host.example/api/a2ui/catalog-contract?catalogId=...",
+      "agentOnboardingUrl": "https://host.example/api/a2ui/agent-onboarding?catalogId=..."
+    }
+  ]
+}
+```
+
+URLs are absolute for the current request origin; reverse proxies must preserve or set the public `Host`/protocol correctly. The route does not list adapter-registered catalogs, render maps, action handlers, credentials, policies, or business systems. If the host publishes nothing, `catalogs` is empty.
+
 ### Read a published Agent Onboarding Contract
 
 ```http

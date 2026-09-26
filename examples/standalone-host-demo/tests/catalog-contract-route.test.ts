@@ -82,4 +82,42 @@ describe('standalone host catalog contract route', () => {
       ],
     );
   });
+
+  it('discovers the standalone demo catalog contracts', async () => {
+    const server = createStandaloneHostApp({
+      endpoint: 'https://agent.invalid/a2ui',
+      timeoutMs: 1,
+    }).listen(0, '127.0.0.1') as Server;
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const { port } = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const response = await fetch(`${baseUrl}/api/a2ui/published-catalogs`);
+    const payload = (await response.json()) as {
+      kind?: string;
+      catalogs?: {
+        catalogId?: string;
+        components?: string[];
+        actions?: string[];
+        catalogContractUrl?: string;
+        agentOnboardingUrl?: string;
+      }[];
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.kind, 'published-catalog-list');
+    assert.deepEqual(payload.catalogs, [
+      {
+        catalogId: DEMO_AGENT_CATALOG_ID,
+        components: ['ApprovalSummary', 'Text', 'Button'],
+        actions: ['approve'],
+        catalogContractUrl: `${baseUrl}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(
+          DEMO_AGENT_CATALOG_ID,
+        )}`,
+        agentOnboardingUrl: `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(
+          DEMO_AGENT_CATALOG_ID,
+        )}`,
+      },
+    ]);
+  });
 });

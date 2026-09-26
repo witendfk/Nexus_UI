@@ -44,6 +44,26 @@ export interface CatalogContractPayload {
 
 export type { AgentOnboardingContractPayload };
 
+export interface PublishedCatalogSummary {
+  readonly catalogId: string;
+  readonly components: readonly string[];
+  readonly actions: readonly string[];
+  readonly catalogContractUrl: string;
+  readonly agentOnboardingUrl: string;
+}
+
+export interface PublishedCatalogsPayload {
+  readonly serverApiVersion: 1;
+  readonly kind: 'published-catalog-list';
+  readonly catalogs: readonly PublishedCatalogSummary[];
+}
+
+function contractUrl(ctx: Koa.Context, path: string, catalogId: string): string {
+  const url = new URL(path, ctx.origin);
+  url.searchParams.set('catalogId', catalogId);
+  return url.toString();
+}
+
 export function createAgentRouter(options: AgentRouterOptions): Router {
   const router = new Router();
   const catalogContracts = new Map<string, CatalogContractPayload>();
@@ -140,6 +160,30 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
     }
 
     ctx.body = contract;
+  });
+
+  router.get('/api/a2ui/published-catalogs', (ctx) => {
+    const catalogs: PublishedCatalogSummary[] = [...catalogContracts.values()].map((contract) => ({
+      catalogId: contract.catalog.catalogId,
+      components: contract.catalog.components,
+      actions: contract.catalog.actions ?? [],
+      catalogContractUrl: contractUrl(
+        ctx,
+        '/api/a2ui/catalog-contract',
+        contract.catalog.catalogId,
+      ),
+      agentOnboardingUrl: contractUrl(
+        ctx,
+        '/api/a2ui/agent-onboarding',
+        contract.catalog.catalogId,
+      ),
+    }));
+
+    ctx.body = {
+      serverApiVersion: SERVER_API_VERSION,
+      kind: 'published-catalog-list',
+      catalogs,
+    } satisfies PublishedCatalogsPayload;
   });
 
   router.get('/api/a2ui/agent-onboarding', (ctx) => {

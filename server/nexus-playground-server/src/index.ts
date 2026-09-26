@@ -45,6 +45,8 @@ export type {
   AgentOnboardingContractPayload,
   AgentRouterOptions,
   CatalogContractPayload,
+  PublishedCatalogsPayload,
+  PublishedCatalogSummary,
 } from './api/routes';
 export {
   AGENT_ONBOARDING_BOUNDARY_CODES,

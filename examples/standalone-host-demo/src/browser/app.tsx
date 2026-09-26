@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { A2UIProvider, useA2UI } from '@nexus-ui/react';
 import type { ActionEvent, A2UIRuntime } from '@nexus-ui/core';
-import type { AgentOnboardingContractPayload } from '@nexus-ui/server';
+import type { AgentOnboardingContractPayload, PublishedCatalogsPayload } from '@nexus-ui/server';
 import { streamSse } from './sse';
 import type { SseEvent } from './sse';
 import { createStandaloneHostRegistry, standaloneHostRenderMap } from '../shared/catalog';
@@ -25,18 +25,22 @@ function feedRuntime(runtime: A2UIRuntime, event: SseEvent): void {
   if (event.event === 'error') throw new Error(agentError(event.data));
 }
 
-function CatalogContractPanel(): ReactElement {
+type PublishedCatalogUrls = Pick<
+  PublishedCatalogsPayload['catalogs'][number],
+  'agentOnboardingUrl' | 'catalogContractUrl'
+>;
+
+function CatalogContractPanel({ url }: { url: string | null }): ReactElement {
   const [contract, setContract] = useState<string | null>(null);
   const [status, setStatus] = useState('idle');
   const [busy, setBusy] = useState(false);
 
   const loadContract = async (): Promise<void> => {
+    if (!url) return;
     setBusy(true);
     setStatus('loading');
     try {
-      const response = await fetch(
-        `/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(DEMO_CATALOG_ID)}`,
-      );
+      const response = await fetch(url);
       const payload = (await response.json()) as { promptContract?: string };
       if (!response.ok || !payload.promptContract) throw new Error('Catalog contract 获取失败');
       setContract(payload.promptContract);
@@ -51,7 +55,7 @@ function CatalogContractPanel(): ReactElement {
   return (
     <section className="contract-panel" aria-label="Catalog Contract">
       <div className="command-row">
-        <button type="button" disabled={busy} onClick={() => void loadContract()}>
+        <button type="button" disabled={busy || url === null} onClick={() => void loadContract()}>
           查看 Catalog Contract
         </button>
         <span className="status">{status}</span>
@@ -61,18 +65,17 @@ function CatalogContractPanel(): ReactElement {
   );
 }
 
-function AgentOnboardingPanel(): ReactElement {
+function AgentOnboardingPanel({ url }: { url: string | null }): ReactElement {
   const [contract, setContract] = useState<AgentOnboardingContractPayload | null>(null);
   const [status, setStatus] = useState('idle');
   const [busy, setBusy] = useState(false);
 
   const loadContract = async (): Promise<void> => {
+    if (!url) return;
     setBusy(true);
     setStatus('loading');
     try {
-      const response = await fetch(
-        `/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(DEMO_CATALOG_ID)}`,
-      );
+      const response = await fetch(url);
       const payload = (await response.json()) as AgentOnboardingContractPayload;
       if (!response.ok || payload.kind !== 'agent-onboarding-contract') {
         throw new Error('Agent onboarding contract 获取失败');
@@ -91,7 +94,7 @@ function AgentOnboardingPanel(): ReactElement {
   return (
     <section className="contract-panel" aria-label="Agent Onboarding Contract">
       <div className="command-row">
-        <button type="button" disabled={busy} onClick={() => void loadContract()}>
+        <button type="button" disabled={busy || url === null} onClick={() => void loadContract()}>
           查看 Agent Onboarding
         </button>
         <span className="status">{status}</span>
@@ -240,6 +243,38 @@ const standaloneHostRegistry = createStandaloneHostRegistry();
 export function DemoApp(): ReactElement {
   const [lastAction, setLastAction] = useState<ActionEvent | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionEvent | null>(null);
+  const [contractUrls, setContractUrls] = useState<PublishedCatalogUrls | null>(null);
+  const [discoveryStatus, setDiscoveryStatus] = useState('loading');
+
+  useEffect(() => {
+    let active = true;
+    const discoverCatalogs = async (): Promise<void> => {
+      try {
+        const response = await fetch('/api/a2ui/published-catalogs');
+        const payload = (await response.json()) as PublishedCatalogsPayload;
+        if (!response.ok || payload.kind !== 'published-catalog-list') {
+          throw new Error('Published catalog discovery 获取失败');
+        }
+        const catalog = payload.catalogs.find((item) => item.catalogId === DEMO_CATALOG_ID);
+        if (!catalog) throw new Error('Published catalogs 不包含 demo catalog');
+        if (!active) return;
+        setContractUrls({
+          agentOnboardingUrl: catalog.agentOnboardingUrl,
+          catalogContractUrl: catalog.catalogContractUrl,
+        });
+        setDiscoveryStatus('done');
+      } catch (error) {
+        if (active) {
+          setDiscoveryStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    };
+
+    void discoverCatalogs();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <A2UIProvider
@@ -251,8 +286,11 @@ export function DemoApp(): ReactElement {
       }}
     >
       <DemoControls pendingAction={pendingAction} />
-      <CatalogContractPanel />
-      <AgentOnboardingPanel />
+      <p className="discovery-status" aria-label="Published catalog discovery status">
+        catalog discovery: {discoveryStatus}
+      </p>
+      <CatalogContractPanel url={contractUrls?.catalogContractUrl ?? null} />
+      <AgentOnboardingPanel url={contractUrls?.agentOnboardingUrl ?? null} />
       {lastAction ? (
         <p className="status">
           action: {lastAction.name} · surface: {lastAction.surfaceId}

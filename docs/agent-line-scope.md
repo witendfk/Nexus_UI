@@ -149,6 +149,10 @@ P17-a 已完成。server 新增 `verifyExternalAgentOnboarding`：输入宿主�
 
 P17-b 已完成。standalone demo 浏览器页新增独立的 Agent Onboarding 面板，展示 A2UI v0.9 / JSONL、catalog 组件和 action 边界、RPC endpoint 披露状态、SSE 错误边界码、六个验收 checks 和验收命令；endpoint 未披露时不猜测或暴露内部地址。React DOM 测试锁定请求路径和完整展示。
 
+P18-a 已完成。server 新增 `GET /api/a2ui/published-catalogs` 只读发现接口，仅枚举宿主显式传入 `catalogContracts` 的 catalog，返回 `catalogId`、components、actions、catalog contract URL 和 agent onboarding URL。URL 基于当前请求 origin 生成；未发布时返回空列表，注册在 adapter 内但未显式发布的 catalog 不会出现。
+
+P18-b 已完成。standalone demo 浏览器启动时读取 published catalog discovery，找到 demo catalog 后才启用两个契约面板；Catalog Contract 和 Agent Onboarding Contract 都使用 discovery 返回的绝对 URL 加载，不再由浏览器拼接 `catalogId`。React DOM 测试锁定 discovery -> catalog contract -> onboarding contract -> action 回流的完整链路。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

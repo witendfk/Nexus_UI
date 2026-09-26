@@ -113,6 +113,65 @@ describe('catalog contract route', () => {
     );
   });
 
+  it('discovers only explicitly published catalog contracts', async () => {
+    const response = await fetch(`${baseUrl}/api/a2ui/published-catalogs`);
+    const payload = (await response.json()) as {
+      serverApiVersion?: number;
+      kind?: string;
+      catalogs?: {
+        catalogId?: string;
+        components?: string[];
+        actions?: string[];
+        catalogContractUrl?: string;
+        agentOnboardingUrl?: string;
+      }[];
+    };
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+    assert.equal(payload.serverApiVersion, 1);
+    assert.equal(payload.kind, 'published-catalog-list');
+    assert.deepEqual(payload.catalogs, [
+      {
+        catalogId: catalog.catalogId,
+        components: ['CustomerSummary', 'Text', 'Button'],
+        actions: ['submit'],
+        catalogContractUrl: `${baseUrl}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(
+          catalog.catalogId,
+        )}`,
+        agentOnboardingUrl: `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(
+          catalog.catalogId,
+        )}`,
+      },
+    ]);
+  });
+
+  it('returns an empty discovery list when the host publishes nothing', async () => {
+    const app = new Koa();
+    const router = createAgentRouter({
+      adapter: new AgentAdapter({ useLlm: () => false }),
+    });
+    app.use(router.routes());
+    app.use(router.allowedMethods());
+    const server = app.listen(0, '127.0.0.1') as Server;
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/a2ui/published-catalogs`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        serverApiVersion: 1,
+        kind: 'published-catalog-list',
+        catalogs: [],
+      });
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('rejects missing ids and unpublished agent onboarding contracts', async () => {
     const missing = await fetch(`${baseUrl}/api/a2ui/agent-onboarding`);
     assert.equal(missing.status, 400);

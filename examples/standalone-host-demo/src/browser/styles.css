@@ -104,6 +104,12 @@ button:disabled {
   line-height: 1;
 }
 
+.discovery-status {
+  margin: -8px 0 10px;
+  color: #526274;
+  font-size: 13px;
+}
+
 .contract-text {
   max-height: 260px;
   margin: 0;

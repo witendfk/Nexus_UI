@@ -33,7 +33,7 @@ NEXUS_VERIFY_ONBOARDING_URL='http://127.0.0.1:3101/api/a2ui/agent-onboarding?cat
 
 该命令复用 `@nexus-ui/server` 的公共 verifier，验证生成流、catalog 稳定、host policy 拒绝、action 回流、同一 `surfaceId` patch 和稳定组件 ID；输出中的 `checks` 会逐项对应 Agent Onboarding Contract 的六个稳定验收 id。
 
-宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此浏览器可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约；页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
+宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此外部 Agent 可以先读取 `GET /api/a2ui/published-catalogs` 发现 catalog 摘要和 contract URL；浏览器也可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约。页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
 
 外部宿主最小复制路径、catalog / renderMap / action 替换点和坏输出验收见 [../../docs/host-quickstart.md](../../docs/host-quickstart.md)。
 
@@ -98,18 +98,24 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 ### Catalog Contract
 
 1. Open the web host page.
-2. Click `查看 Catalog Contract`.
-3. Confirm the status becomes `done` and the panel shows the A2UI NDJSON lifecycle, allowed components and actions, props schema, dynamic binding rules, and the final guard boundary.
-4. The same contract can be fetched directly from the host API using the demo catalog ID and a URL-encoded `catalogId` query.
+2. Wait for `catalog discovery: done`.
+3. Click `查看 Catalog Contract`.
+4. Confirm the status becomes `done` and the panel shows the A2UI NDJSON lifecycle, allowed components and actions, props schema, dynamic binding rules, and the final guard boundary. The browser uses the absolute URL returned by discovery.
 
 ### Agent Onboarding Contract
 
 1. Open the web host page.
-2. Click `查看 Agent Onboarding`.
-3. Confirm the status becomes `done` and the panel shows A2UI v0.9 / JSONL, the demo catalog boundary, disclosed RPC endpoint, SSE boundary codes, six acceptance checks, and the host verification command.
-4. The same contract can be fetched directly from `/api/a2ui/agent-onboarding?catalogId=...`; a host that does not disclose the endpoint shows `not disclosed`.
+2. Wait for `catalog discovery: done`.
+3. Click `查看 Agent Onboarding`.
+4. Confirm the status becomes `done` and the panel shows A2UI v0.9 / JSONL, the demo catalog boundary, disclosed RPC endpoint, SSE boundary codes, six acceptance checks, and the host verification command. The browser uses the absolute URL returned by discovery; an undisclosed endpoint still shows `not disclosed`.
 
-The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled. The same DOM test now loads the onboarding panel and checks its protocol, catalog, endpoint, boundary-code, check, and command rendering.
+### Published Catalog Discovery
+
+1. Fetch `GET /api/a2ui/published-catalogs`.
+2. Confirm the response has kind `published-catalog-list` and contains exactly the demo approval catalog.
+3. The browser already uses the returned absolute `catalogContractUrl` and `agentOnboardingUrl`; external Agent code should do the same instead of hand-copying the catalog ID.
+
+The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled. The same DOM test first requires discovery to finish, then uses the exact returned contract URLs to load Catalog Contract and Agent Onboarding panels and checks their protocol, catalog, endpoint, boundary-code, check, and command rendering.
 
 ## Boundary
 
