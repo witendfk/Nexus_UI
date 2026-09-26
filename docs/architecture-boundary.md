@@ -146,6 +146,12 @@ P14-c-b added `AgentPolicy` to the server host-assembly API. `AgentAdapterOption
 
 The standalone template now includes a command-driven acceptance harness. Given an external Agent endpoint, it starts a temporary host, validates NDJSON generation, exercises host policy rejection, captures runtime action context, dispatches the official action flow, and verifies same-surface patching. This gives a real Agent project a concrete integration gate before browser work begins.
 
+### P16-a — Reusable Verification API — Completed
+
+The verification path moved into `@nexus-ui/server` as `verifyExternalAgentIntegration`. A host supplies its Catalog, optional `AgentPolicy`, RPC endpoint, task message, and action selector. The verifier runs the same guarded adapter path, checks generation and action streams, confirms same-surface patching, performs a `POLICY_REJECTED` probe, and returns a structured report.
+
+The standalone demo remains a template; the reusable API is the integration gate for real Agent projects.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

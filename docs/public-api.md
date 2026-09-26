@@ -74,6 +74,7 @@ Stable host-assembly exports in `0.1.x`:
 - Generation source seam: `AgentGenerationSource`, `AgentGenerationSourceRequest`.
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
 - Host policy seam: `AgentPolicy`, `AgentPolicyContext`, `ResolvedAgentPolicy`, `MediaComponent`, `RequiredMediaPolicy`, `nexusAgentPolicy`, and `resolveAgentPolicy`.
+- External Agent verification seam: `verifyExternalAgentIntegration`, `ExternalAgentVerificationOptions`, and `ExternalAgentVerificationReport`.
 - External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
 - HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides and explicit `catalogContracts` publication; the guarded router can expose the read-only catalog-contract route.

@@ -139,6 +139,8 @@ P15-b 已完成。host policy 拒绝现在携带 `POLICY_REJECTED` 边界码；d
 
 P15-c 已完成。standalone demo 新增 `verify` 命令和 `verifyExternalAgentIntegration` API：给定真实外部 Agent endpoint 时，自动启动临时 host，验收 NDJSON 生成流、默认 / 注入 host policy、`POLICY_REJECTED` 边界码、runtime action context、action 回流、同一 `surfaceId`、不新增 create、`root` 稳定 patch。API 级验收器使用本地 fixture 测试锁定；浏览器 patch 仍由 React DOM 测试覆盖。
 
+P16-a 已完成。`verifyExternalAgentIntegration` 提升为 `@nexus-ui/server` 公开 API，不再绑定 standalone demo catalog。宿主可传入自己的 `CatalogDefinition`、`AgentPolicy`、外部 RPC 配置、任务请求和 `actionSelector`。verifier 生成结构化 report，覆盖 generation / action 消息数、action 组件、组件 ID 变化和 `POLICY_REJECTED` 探针；server 测试使用独立 fake JSONL Agent 锁定全流程。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

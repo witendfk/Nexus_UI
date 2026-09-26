@@ -21,6 +21,11 @@ export type { ExternalAgentRpcConfig } from './agent/external-agent';
 export { InMemorySurfaceHistoryStore } from './agent/history';
 export type { InMemorySurfaceHistoryStoreOptions, SurfaceHistoryStore } from './agent/history';
 export type { AgentTurn } from './agent/llm-agent';
+export { verifyExternalAgentIntegration } from './agent/verification';
+export type {
+  ExternalAgentVerificationOptions,
+  ExternalAgentVerificationReport,
+} from './agent/verification';
 export type {
   AgentPolicy,
   AgentPolicyContext,

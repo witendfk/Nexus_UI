@@ -15,6 +15,7 @@ describe('server host-assembly public API surface', () => {
       'nexusAgentPolicy',
       'resolveAgentPolicy',
       'sendAgentRun',
+      'verifyExternalAgentIntegration',
     ]);
   });
 

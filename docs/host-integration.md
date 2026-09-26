@@ -148,6 +148,23 @@ const adapter = new AgentAdapter({
 
 Omitted hooks continue to use `nexusAgentPolicy`. Overrides apply to generation and action streams for that adapter; every stream still passes protocol, profile, lifecycle, and Catalog boundaries before host policy results are emitted.
 
+### Reusable external Agent verification
+
+`verifyExternalAgentIntegration` accepts the host's Catalog, optional policy, external Agent RPC config, task message, and an action selector. It starts a temporary guarded host path, calls the external Agent for generation and action, verifies `POLICY_REJECTED` handling, and returns a structured report:
+
+```ts
+const report = await verifyExternalAgentIntegration({
+  endpoint: 'https://agent.internal.example/a2ui',
+  catalog: hostCatalog,
+  policy: approvalPolicy,
+  message: 'Create a customer follow-up task',
+  actionSelector: (components) =>
+    components.find((component) => component.id === 'submit') ?? null,
+});
+```
+
+Use it in CI or a host-owned verification command. A successful report confirms generation, policy boundaries, action dispatch, and same-surface patching at the API contract level.
+
 Business action handlers now receive a second read-only context:
 
 ```ts
