@@ -74,9 +74,9 @@ Stable host-assembly exports in `0.1.x`:
 - Generation source seam: `AgentGenerationSource`, `AgentGenerationSourceRequest`.
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
 - Host policy seam: `AgentPolicy`, `AgentPolicyContext`, `ResolvedAgentPolicy`, `MediaComponent`, `RequiredMediaPolicy`, `nexusAgentPolicy`, and `resolveAgentPolicy`.
-- External Agent verification seam: `verifyExternalAgentIntegration`, `ExternalAgentVerificationOptions`, and `ExternalAgentVerificationReport`.
+- External Agent verification seam: `verifyExternalAgentIntegration`, `ExternalAgentVerificationOptions`, `ExternalAgentVerificationReport`, `ExternalAgentVerificationCheck`, `verifyExternalAgentOnboarding`, `ExternalAgentOnboardingVerificationOptions`, and `ExternalAgentOnboardingVerificationReport`.
 - External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`.
-- Agent onboarding: `createAgentOnboardingContract`, `AgentOnboardingContractPayload`, and `AgentRouterOptions.agentOnboarding`.
+- Agent onboarding: `createAgentOnboardingContract`, `AgentOnboardingContractPayload`, `AgentRouterOptions.agentOnboarding`, `AGENT_ONBOARDING_CONTRACT_VERSION`, `AGENT_ONBOARDING_BOUNDARY_CODES`, `AGENT_ONBOARDING_CHECKS`, `AgentOnboardingBoundaryCode`, and `AgentOnboardingCheckId`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
 - HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides and explicit `catalogContracts` publication; the guarded router can expose the read-only catalog-contract route.
 - Custom Koa transport seam: `sendAgentRun`, `SendMessagesResult`.

@@ -143,6 +143,12 @@ P16-a 已完成。`verifyExternalAgentIntegration` 提升为 `@nexus-ui/server` 
 
 P16-b 已完成。server 新增 `GET /api/a2ui/agent-onboarding?catalogId=...`，只允许读取已显式发布的 Catalog Contract。payload 合并 A2UI v0.9 传输规则、Catalog Contract、外部 Agent JSONL RPC generate / action 请求形状、NDJSON 响应约束、五个边界码和外部 Agent 验收 checks。宿主可选择公开 RPC endpoint 和验收命令；未发布 catalog 仍返回 404。
 
+P16-c 已完成。onboarding `verification.checks` 升级为带稳定 id 的机器可读规则，覆盖 generation lifecycle、catalog 稳定、`root` 渲染、action 同 surface patch、`root` 稳定和 `POLICY_REJECTED`。server verifier report 返回同源 check 结果、解析后的 action context，并在 policy 探针边界码不匹配时失败。standalone demo verifier 改为注入 demo catalog / approval policy 后复用公共 API，消除了第二套验收实现。
+
+P17-a 已完成。server 新增 `verifyExternalAgentOnboarding`：输入宿主发布的 onboarding URL 后自动拉取 contract，校验 API / contract 版本、A2UI JSONL 声明、catalog、RPC endpoint、边界码和六个 checks，再使用 contract 内嵌 catalog 驱动现有外部 Agent 验收。宿主未披露 endpoint 时允许调用方显式补充；`expectedCatalogId` 可锁定目标 catalog。standalone verify 命令支持 `NEXUS_VERIFY_ONBOARDING_URL` / `--contract-url`。
+
+P17-b 已完成。standalone demo 浏览器页新增独立的 Agent Onboarding 面板，展示 A2UI v0.9 / JSONL、catalog 组件和 action 边界、RPC endpoint 披露状态、SSE 错误边界码、六个验收 checks 和验收命令；endpoint 未披露时不猜测或暴露内部地址。React DOM 测试锁定请求路径和完整展示。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

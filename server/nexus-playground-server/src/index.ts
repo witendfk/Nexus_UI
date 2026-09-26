@@ -24,8 +24,14 @@ export type { AgentTurn } from './agent/llm-agent';
 export { verifyExternalAgentIntegration } from './agent/verification';
 export type {
   ExternalAgentVerificationOptions,
+  ExternalAgentVerificationCheck,
   ExternalAgentVerificationReport,
 } from './agent/verification';
+export { verifyExternalAgentOnboarding } from './agent/onboarding-verification';
+export type {
+  ExternalAgentOnboardingVerificationOptions,
+  ExternalAgentOnboardingVerificationReport,
+} from './agent/onboarding-verification';
 export type {
   AgentPolicy,
   AgentPolicyContext,
@@ -40,6 +46,12 @@ export type {
   AgentRouterOptions,
   CatalogContractPayload,
 } from './api/routes';
-export { createAgentOnboardingContract } from './api/agent-onboarding';
+export {
+  AGENT_ONBOARDING_BOUNDARY_CODES,
+  AGENT_ONBOARDING_CHECKS,
+  AGENT_ONBOARDING_CONTRACT_VERSION,
+  createAgentOnboardingContract,
+} from './api/agent-onboarding';
+export type { AgentOnboardingBoundaryCode, AgentOnboardingCheckId } from './api/agent-onboarding';
 export { sendAgentRun } from './api/send-messages';
 export type { SendMessagesResult } from './api/send-messages';

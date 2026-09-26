@@ -24,7 +24,14 @@ NEXUS_VERIFY_AGENT_ENDPOINT=https://your-agent.example/a2ui \
   pnpm --filter @nexus-ui/standalone-host-demo verify
 ```
 
-该命令验证生成流、host policy 拒绝、action 回流、同一 `surfaceId` patch 和稳定组件 ID。
+如果宿主已经发布 Agent Onboarding Contract，优先使用 contract URL 验收：
+
+```bash
+NEXUS_VERIFY_ONBOARDING_URL='http://127.0.0.1:3101/api/a2ui/agent-onboarding?catalogId=https%3A%2F%2Fexample.com%2Fcatalogs%2Fhost-approval%2Fv1' \
+  pnpm --filter @nexus-ui/standalone-host-demo verify
+```
+
+该命令复用 `@nexus-ui/server` 的公共 verifier，验证生成流、catalog 稳定、host policy 拒绝、action 回流、同一 `surfaceId` patch 和稳定组件 ID；输出中的 `checks` 会逐项对应 Agent Onboarding Contract 的六个稳定验收 id。
 
 宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此浏览器可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约；页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
 
@@ -95,7 +102,14 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 3. Confirm the status becomes `done` and the panel shows the A2UI NDJSON lifecycle, allowed components and actions, props schema, dynamic binding rules, and the final guard boundary.
 4. The same contract can be fetched directly from the host API using the demo catalog ID and a URL-encoded `catalogId` query.
 
-The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled.
+### Agent Onboarding Contract
+
+1. Open the web host page.
+2. Click `查看 Agent Onboarding`.
+3. Confirm the status becomes `done` and the panel shows A2UI v0.9 / JSONL, the demo catalog boundary, disclosed RPC endpoint, SSE boundary codes, six acceptance checks, and the host verification command.
+4. The same contract can be fetched directly from `/api/a2ui/agent-onboarding?catalogId=...`; a host that does not disclose the endpoint shows `not disclosed`.
+
+The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled. The same DOM test now loads the onboarding panel and checks its protocol, catalog, endpoint, boundary-code, check, and command rendering.
 
 ## Boundary
 

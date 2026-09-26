@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
 import type { CatalogDefinition } from '@nexus-ui/core';
+import { AGENT_ONBOARDING_CHECKS } from '../src/api/agent-onboarding';
 import { verifyExternalAgentIntegration } from '../src/agent/verification';
 
 const catalog: CatalogDefinition = {
@@ -176,10 +177,109 @@ describe('verifyExternalAgentIntegration', () => {
     assert.equal(report.surfaceId.startsWith('surface-'), true);
     assert.equal(report.actionName, 'submit');
     assert.equal(report.actionComponentId, 'submit');
+    assert.deepEqual(report.actionContext, { title: 'Server verification task' });
     assert.ok(report.componentIdsAfterGeneration.includes('root'));
     assert.ok(report.componentIdsAfterAction.includes('root'));
     assert.equal(report.policyRejection.rejected, true);
     assert.equal(report.policyRejection.boundaryCode, 'POLICY_REJECTED');
     assert.ok(generationRequest);
+    assert.deepEqual(
+      report.checks.map((check) => [check.id, check.status]),
+      AGENT_ONBOARDING_CHECKS.map((check) => [check.id, 'passed']),
+    );
+  });
+
+  it('rejects a policy probe that returns a different boundary code', async () => {
+    let generateRequestCount = 0;
+    const server = createServer((request, response) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        const payload = JSON.parse(body) as { kind?: string; surfaceId?: string };
+        const surfaceId = payload.surfaceId ?? 'surface-boundary-probe';
+        response.setHeader('Content-Type', 'application/x-ndjson');
+
+        if (payload.kind === 'action') {
+          response.write(
+            `${JSON.stringify({
+              version: 'v0.9',
+              updateDataModel: {
+                surfaceId,
+                value: { title: 'Submitted', status: 'Submitted' },
+              },
+            })}\n`,
+          );
+          response.end();
+          return;
+        }
+
+        generateRequestCount += 1;
+        if (generateRequestCount === 1) {
+          const messages = [
+            {
+              version: 'v0.9',
+              createSurface: { surfaceId, catalogId: catalog.catalogId },
+            },
+            {
+              version: 'v0.9',
+              updateComponents: {
+                surfaceId,
+                components: [
+                  {
+                    id: 'root',
+                    component: 'TaskSummary',
+                    title: { path: '/title' },
+                    status: { path: '/status' },
+                    children: ['submit'],
+                  },
+                  {
+                    id: 'submit',
+                    component: 'Button',
+                    action: { event: { name: 'submit' } },
+                  },
+                ],
+              },
+            },
+            {
+              version: 'v0.9',
+              updateDataModel: {
+                surfaceId,
+                value: { title: 'Boundary probe', status: 'Pending' },
+              },
+            },
+          ];
+          for (const message of messages) response.write(`${JSON.stringify(message)}\n`);
+          response.end();
+          return;
+        }
+
+        response.write(
+          `${JSON.stringify({
+            version: 'v0.9',
+            deleteSurface: { surfaceId },
+          })}\n`,
+        );
+        response.end();
+      });
+    });
+
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    await assert.rejects(
+      verifyExternalAgentIntegration({
+        endpoint: `http://127.0.0.1:${address.port}/agent`,
+        catalog,
+        timeoutMs: 1000,
+        actionSelector: (components) =>
+          components.find((component) => component.id === 'submit') ?? null,
+      }),
+      /预期 POLICY_REJECTED.*LIFECYCLE_INVALID/s,
+    );
   });
 });

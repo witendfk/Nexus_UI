@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { A2UIProvider, useA2UI } from '@nexus-ui/react';
 import type { ActionEvent, A2UIRuntime } from '@nexus-ui/core';
+import type { AgentOnboardingContractPayload } from '@nexus-ui/server';
 import { streamSse } from './sse';
 import type { SseEvent } from './sse';
 import { createStandaloneHostRegistry, standaloneHostRenderMap } from '../shared/catalog';
@@ -56,6 +57,89 @@ function CatalogContractPanel(): ReactElement {
         <span className="status">{status}</span>
       </div>
       {contract ? <pre className="contract-text">{contract}</pre> : null}
+    </section>
+  );
+}
+
+function AgentOnboardingPanel(): ReactElement {
+  const [contract, setContract] = useState<AgentOnboardingContractPayload | null>(null);
+  const [status, setStatus] = useState('idle');
+  const [busy, setBusy] = useState(false);
+
+  const loadContract = async (): Promise<void> => {
+    setBusy(true);
+    setStatus('loading');
+    try {
+      const response = await fetch(
+        `/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(DEMO_CATALOG_ID)}`,
+      );
+      const payload = (await response.json()) as AgentOnboardingContractPayload;
+      if (!response.ok || payload.kind !== 'agent-onboarding-contract') {
+        throw new Error('Agent onboarding contract 获取失败');
+      }
+      setContract(payload);
+      setStatus('done');
+    } catch (error) {
+      setStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const catalog = contract?.catalogContract.catalog;
+
+  return (
+    <section className="contract-panel" aria-label="Agent Onboarding Contract">
+      <div className="command-row">
+        <button type="button" disabled={busy} onClick={() => void loadContract()}>
+          查看 Agent Onboarding
+        </button>
+        <span className="status">{status}</span>
+      </div>
+      {contract && catalog ? (
+        <div className="onboarding-contract">
+          <dl className="contract-summary">
+            <div>
+              <dt>Protocol</dt>
+              <dd>A2UI v0.9 · JSONL</dd>
+            </div>
+            <div>
+              <dt>Catalog</dt>
+              <dd>{catalog.catalogId}</dd>
+            </div>
+            <div>
+              <dt>Components</dt>
+              <dd>{catalog.components.join(', ')}</dd>
+            </div>
+            <div>
+              <dt>Actions</dt>
+              <dd>{catalog.actions?.join(', ') || 'none'}</dd>
+            </div>
+            <div>
+              <dt>RPC endpoint</dt>
+              <dd>
+                {contract.rpc.endpoint.disclosed ? contract.rpc.endpoint.url : 'not disclosed'}
+              </dd>
+            </div>
+            <div>
+              <dt>Boundary codes</dt>
+              <dd>{contract.errors.boundaryCodes.join(', ')}</dd>
+            </div>
+          </dl>
+          <ul className="check-list" aria-label="Agent acceptance checks">
+            {contract.verification.checks.map((check) => (
+              <li key={check.id}>
+                <strong>{check.id}</strong>
+                <span>{check.requirement}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="command-line">
+            <strong>Verify command</strong>
+            <code>{contract.verification.command ?? 'not provided'}</code>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -168,6 +252,7 @@ export function DemoApp(): ReactElement {
     >
       <DemoControls pendingAction={pendingAction} />
       <CatalogContractPanel />
+      <AgentOnboardingPanel />
       {lastAction ? (
         <p className="status">
           action: {lastAction.name} · surface: {lastAction.surfaceId}

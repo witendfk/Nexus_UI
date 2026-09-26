@@ -81,7 +81,10 @@ describe('catalog contract route', () => {
         response?: { contentType?: string[] };
       };
       errors?: { boundaryCodes?: string[] };
-      verification?: { command?: string };
+      verification?: {
+        command?: string;
+        checks?: readonly { id?: string }[];
+      };
     };
 
     assert.equal(response.status, 200);
@@ -97,6 +100,17 @@ describe('catalog contract route', () => {
     ]);
     assert.ok(payload.errors?.boundaryCodes?.includes('POLICY_REJECTED'));
     assert.match(payload.verification?.command ?? '', /pnpm verify-agent/);
+    assert.deepEqual(
+      payload.verification?.checks?.map((check) => check.id),
+      [
+        'generation-lifecycle',
+        'catalog-stability',
+        'generation-root',
+        'action-same-surface',
+        'action-root-stability',
+        'policy-rejection',
+      ],
+    );
   });
 
   it('rejects missing ids and unpublished agent onboarding contracts', async () => {

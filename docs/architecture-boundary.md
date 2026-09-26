@@ -156,6 +156,18 @@ The standalone demo remains a template; the reusable API is the integration gate
 
 `GET /api/a2ui/agent-onboarding` now publishes a machine-readable contract for an explicitly released catalog. It combines the Catalog Contract with external RPC request/response rules, transport constraints, SSE error boundary codes, and acceptance checks. The endpoint is included only when the host explicitly chooses to disclose it.
 
+### P16-c — Verifiable Onboarding Checks — Completed
+
+Onboarding checks now have stable ids: `generation-lifecycle`, `catalog-stability`, `generation-root`, `action-same-surface`, `action-root-stability`, and `policy-rejection`. `verifyExternalAgentIntegration` returns one check result for each id, exposes the resolved action context, and fails when the policy probe returns a boundary other than `POLICY_REJECTED`. The standalone demo delegates to this reusable verifier instead of maintaining a second acceptance implementation.
+
+### P17-a — Contract-Driven Verification — Completed
+
+`verifyExternalAgentOnboarding` accepts a host-published onboarding URL, fetches and validates the v1 contract, uses the embedded Catalog, resolves the disclosed Agent endpoint, and delegates to the reusable integration verifier. A caller can supply an explicit Agent endpoint when the host intentionally leaves the endpoint undisclosed, and `expectedCatalogId` prevents verifying the wrong published profile.
+
+### P17-b — Onboarding Browser Surface — Completed
+
+The standalone demo now exposes a dedicated onboarding panel next to the Catalog Contract panel. It renders the protocol/catalog summary, disclosed RPC endpoint, SSE boundary codes, six stable acceptance checks, and host verification command. React DOM tests lock the query, rendering, and mobile-safe contract layout.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

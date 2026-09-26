@@ -163,7 +163,21 @@ const report = await verifyExternalAgentIntegration({
 });
 ```
 
-Use it in CI or a host-owned verification command. A successful report confirms generation, policy boundaries, action dispatch, and same-surface patching at the API contract level.
+Use it in CI or a host-owned verification command. A successful report contains one result for every Agent Onboarding Contract check id: `generation-lifecycle`, `catalog-stability`, `generation-root`, `action-same-surface`, `action-root-stability`, and `policy-rejection`. The report also includes the resolved `actionContext`; the policy probe must return `POLICY_REJECTED` instead of a generic stream error.
+
+For contract-first onboarding, pass the published read-only URL to `verifyExternalAgentOnboarding`. It validates the contract versions, protocol declaration, Catalog, RPC endpoint, boundary codes, and check set before running the Agent. Use `expectedCatalogId` when the caller knows the exact profile:
+
+```ts
+const report = await verifyExternalAgentOnboarding({
+  contractUrl:
+    'https://host.example/api/a2ui/agent-onboarding?catalogId=https%3A%2F%2Fhost.example%2Fcatalogs%2Fworkbench%2Fv1',
+  expectedCatalogId: 'https://host.example/catalogs/workbench/v1',
+  policy: approvalPolicy,
+  message: 'Create a customer follow-up task',
+});
+```
+
+The Agent endpoint comes from `rpc.endpoint.url` when the host discloses it. If disclosure is disabled, pass `endpoint` explicitly; this keeps private deployments verifiable without publishing their internal address.
 
 Business action handlers now receive a second read-only context:
 
@@ -427,7 +441,7 @@ Semantics:
 GET /api/a2ui/agent-onboarding?catalogId=<encoded-catalog-id>
 ```
 
-This route is available only for a catalog explicitly passed through `catalogContracts`. It combines the Catalog Contract with external JSONL RPC request/response rules, SSE error boundary codes, and acceptance checks. The host may disclose its Agent endpoint and verification command through:
+This route is available only for a catalog explicitly passed through `catalogContracts`. It combines the Catalog Contract with external JSONL RPC request/response rules, SSE error boundary codes, and machine-readable acceptance checks (`id` + `requirement`). The host may disclose its Agent endpoint and verification command through:
 
 ```ts
 createAgentRouter({

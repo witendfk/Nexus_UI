@@ -90,6 +90,73 @@ const actionMessages = [
   },
 ];
 
+const onboardingChecks = [
+  'generation-lifecycle',
+  'catalog-stability',
+  'generation-root',
+  'action-same-surface',
+  'action-root-stability',
+  'policy-rejection',
+] as const;
+
+const onboardingRequirements = [
+  'generation starts with createSurface and ends with done',
+  'catalogId remains stable across the stream',
+  'a component with id root is rendered',
+  'action response uses the same surfaceId and does not create or delete it',
+  'root remains available for same-surface patching',
+  'host policy rejection returns POLICY_REJECTED',
+] as const;
+
+const onboardingContract = {
+  serverApiVersion: 1,
+  contractVersion: 1,
+  kind: 'agent-onboarding-contract',
+  protocol: {
+    name: 'A2UI',
+    version: 'v0.9',
+    wireFormat: 'JSONL',
+    surfaceModel: 'flat components + dataModel + stable component ids',
+  },
+  catalogContract: {
+    serverApiVersion: 1,
+    kind: 'catalog-contract',
+    catalog: {
+      catalogId: DEMO_AGENT_CATALOG_ID,
+      components: ['ApprovalSummary', 'Button', 'Text'],
+      actions: [DEMO_AGENT_ACTION],
+    },
+    promptContract: 'Published host catalog prompt contract',
+  },
+  rpc: {
+    endpoint: {
+      method: 'POST',
+      disclosed: true,
+      url: 'https://agent.invalid/a2ui',
+    },
+  },
+  errors: {
+    transport: 'SSE error event',
+    boundaryCodes: [
+      'PROTOCOL_INVALID',
+      'LIFECYCLE_INVALID',
+      'CATALOG_UNSUPPORTED',
+      'FEATURE_UNSUPPORTED',
+      'POLICY_REJECTED',
+    ],
+  },
+  verification: {
+    required: true,
+    type: 'external-agent',
+    checks: onboardingChecks.map((id, index) => ({
+      id,
+      requirement: onboardingRequirements[index],
+    })),
+    command:
+      'pnpm --filter @nexus-ui/standalone-host-demo verify -- --endpoint https://agent.invalid/a2ui',
+  },
+};
+
 function toSseResponse(messages: unknown[]): Response {
   const encoder = new TextEncoder();
   const output = messages
@@ -143,6 +210,14 @@ describe('standalone host browser app', () => {
           ),
         );
       }
+      if (url.includes('/api/a2ui/agent-onboarding')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(onboardingContract), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -189,11 +264,35 @@ describe('standalone host browser app', () => {
       .closest('section');
     expect(surfaceAfter).to.equal(surfaceBefore);
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
     const actionBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body)) as {
       action?: { name?: string; surfaceId?: string };
     };
     expect(actionBody.action?.name).to.equal(DEMO_AGENT_ACTION);
     expect(actionBody.action?.surfaceId).to.equal(surfaceId);
+
+    fireEvent.click(screen.getByRole('button', { name: '查看 Agent Onboarding' }));
+    await waitFor(() => {
+      expect(screen.getByText('A2UI v0.9 · JSONL')).to.exist;
+      expect(screen.getByText(DEMO_AGENT_CATALOG_ID)).to.exist;
+      expect(screen.getByText('ApprovalSummary, Button, Text')).to.exist;
+      expect(screen.getByText(DEMO_AGENT_ACTION)).to.exist;
+      expect(screen.getByText('https://agent.invalid/a2ui')).to.exist;
+      expect(
+        screen.getByText(
+          'PROTOCOL_INVALID, LIFECYCLE_INVALID, CATALOG_UNSUPPORTED, FEATURE_UNSUPPORTED, POLICY_REJECTED',
+        ),
+      ).to.exist;
+      for (const id of onboardingChecks) {
+        expect(screen.getByText(id)).to.exist;
+      }
+      expect(
+        screen.getByText(
+          'pnpm --filter @nexus-ui/standalone-host-demo verify -- --endpoint https://agent.invalid/a2ui',
+        ),
+      ).to.exist;
+    });
+    expect(screen.getByText('host policy rejection returns POLICY_REJECTED')).to.exist;
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });

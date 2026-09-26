@@ -62,6 +62,7 @@ describe('standalone host catalog contract route', () => {
       catalogContract?: { catalog?: { catalogId?: string } };
       rpc?: { endpoint?: { disclosed?: boolean; url?: string } };
       errors?: { boundaryCodes?: string[] };
+      verification?: { checks?: readonly { id?: string }[] };
     };
 
     assert.equal(response.status, 200);
@@ -69,5 +70,16 @@ describe('standalone host catalog contract route', () => {
     assert.equal(payload.catalogContract?.catalog?.catalogId, DEMO_AGENT_CATALOG_ID);
     assert.equal(payload.rpc?.endpoint?.url, 'https://agent.invalid/a2ui');
     assert.ok(payload.errors?.boundaryCodes?.includes('POLICY_REJECTED'));
+    assert.deepEqual(
+      payload.verification?.checks?.map((check) => check.id),
+      [
+        'generation-lifecycle',
+        'catalog-stability',
+        'generation-root',
+        'action-same-surface',
+        'action-root-stability',
+        'policy-rejection',
+      ],
+    );
   });
 });

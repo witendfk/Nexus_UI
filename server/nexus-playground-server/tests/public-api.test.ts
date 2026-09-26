@@ -5,6 +5,9 @@ import * as publicApi from '../src/index';
 describe('server host-assembly public API surface', () => {
   it('exports only the documented root-entry contract', () => {
     assert.deepEqual(Object.keys(publicApi).sort(), [
+      'AGENT_ONBOARDING_BOUNDARY_CODES',
+      'AGENT_ONBOARDING_CHECKS',
+      'AGENT_ONBOARDING_CONTRACT_VERSION',
       'AgentAdapter',
       'InMemorySurfaceHistoryStore',
       'SERVER_API_VERSION',
@@ -17,6 +20,7 @@ describe('server host-assembly public API surface', () => {
       'resolveAgentPolicy',
       'sendAgentRun',
       'verifyExternalAgentIntegration',
+      'verifyExternalAgentOnboarding',
     ]);
   });
 

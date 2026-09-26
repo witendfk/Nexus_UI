@@ -150,7 +150,7 @@ GET /api/a2ui/catalog-contract?catalogId=https%3A%2F%2Fyour-host.example.com%2Fc
 GET /api/a2ui/agent-onboarding?catalogId=https%3A%2F%2Fyour-host.example.com%2Fcatalogs%2Fworkbench%2Fv1
 ```
 
-它把 catalog contract、外部 RPC 请求 / 响应形状、错误边界码和验收要求合并成机器可读 JSON。宿主可在 `agentOnboarding.rpcEndpoint` 中显式选择是否披露 Agent endpoint。
+它把 catalog contract、外部 RPC 请求 / 响应形状、错误边界码和带稳定 id 的验收要求合并成机器可读 JSON。宿主可在 `agentOnboarding.rpcEndpoint` 中显式选择是否披露 Agent endpoint。`verifyExternalAgentIntegration` 的 report 会按这些 id 返回逐项 check 结果。
 
 ## 3. Register The Action Path
 

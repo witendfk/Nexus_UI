@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
+import { createCatalogPromptContract } from '@nexus-ui/core';
+import { createAgentOnboardingContract } from '@nexus-ui/server';
 import { DEMO_AGENT_ACTION, DEMO_AGENT_CATALOG_ID } from '../src/contract';
-import { verifyExternalAgentIntegration } from '../src/host/verify';
+import { standaloneHostCatalog } from '../src/shared/catalog-contract';
+import { verifyExternalAgentIntegration, verifyExternalAgentOnboarding } from '../src/host/verify';
 
 const surfaceId = 'surface-verify-host';
 const servers: Server[] = [];
@@ -23,6 +26,24 @@ afterEach(async () => {
 describe('verifyExternalAgentIntegration', () => {
   it('accepts a compliant external Agent and verifies policy rejection', async () => {
     const server = createServer((request, response) => {
+      if (request.url === '/onboarding') {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(
+          JSON.stringify(
+            createAgentOnboardingContract({
+              catalogContract: {
+                serverApiVersion: 1,
+                kind: 'catalog-contract',
+                catalog: standaloneHostCatalog,
+                promptContract: createCatalogPromptContract(standaloneHostCatalog),
+              },
+              rpcEndpoint: `http://${request.headers.host}/agent`,
+            }),
+          ),
+        );
+        return;
+      }
+
       let body = '';
       request.setEncoding('utf8');
       request.on('data', (chunk) => {
@@ -122,11 +143,36 @@ describe('verifyExternalAgentIntegration', () => {
     });
 
     assert.match(report.surfaceId, /^surface-/);
-    assert.equal(report.action.name, DEMO_AGENT_ACTION);
-    assert.equal(report.action.context.approvalId, 'approval-verify-001');
+    assert.equal(report.actionName, DEMO_AGENT_ACTION);
+    assert.equal(report.actionComponentId, 'submit');
+    assert.deepEqual(report.actionContext, {
+      approvalId: 'approval-verify-001',
+      amount: 'USD 12,000',
+    });
     assert.ok(report.componentIdsAfterGeneration.includes('root'));
     assert.ok(report.componentIdsAfterAction.includes('root'));
     assert.equal(report.policyRejection.rejected, true);
     assert.equal(report.policyRejection.boundaryCode, 'POLICY_REJECTED');
+    assert.deepEqual(
+      report.checks.map((check) => [check.id, check.status]),
+      [
+        ['generation-lifecycle', 'passed'],
+        ['catalog-stability', 'passed'],
+        ['generation-root', 'passed'],
+        ['action-same-surface', 'passed'],
+        ['action-root-stability', 'passed'],
+        ['policy-rejection', 'passed'],
+      ],
+    );
+
+    const onboardingReport = await verifyExternalAgentOnboarding({
+      contractUrl: `http://127.0.0.1:${address.port}/onboarding`,
+      message: '创建验收审批任务',
+      timeoutMs: 1000,
+    });
+    assert.equal(onboardingReport.contractUrl, `http://127.0.0.1:${address.port}/onboarding`);
+    assert.equal(onboardingReport.catalogId, DEMO_AGENT_CATALOG_ID);
+    assert.equal(onboardingReport.actionName, DEMO_AGENT_ACTION);
+    assert.equal(onboardingReport.policyRejection.boundaryCode, 'POLICY_REJECTED');
   });
 });

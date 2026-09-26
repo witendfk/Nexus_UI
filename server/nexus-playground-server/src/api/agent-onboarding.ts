@@ -12,6 +12,35 @@ export const AGENT_ONBOARDING_BOUNDARY_CODES = [
 
 export type AgentOnboardingBoundaryCode = (typeof AGENT_ONBOARDING_BOUNDARY_CODES)[number];
 
+export const AGENT_ONBOARDING_CHECKS = [
+  {
+    id: 'generation-lifecycle',
+    requirement: 'generation starts with createSurface and ends with done',
+  },
+  {
+    id: 'catalog-stability',
+    requirement: 'catalogId remains stable across the stream',
+  },
+  {
+    id: 'generation-root',
+    requirement: 'a component with id root is rendered',
+  },
+  {
+    id: 'action-same-surface',
+    requirement: 'action response uses the same surfaceId and does not create or delete it',
+  },
+  {
+    id: 'action-root-stability',
+    requirement: 'root remains available for same-surface patching',
+  },
+  {
+    id: 'policy-rejection',
+    requirement: 'host policy rejection returns POLICY_REJECTED',
+  },
+] as const;
+
+export type AgentOnboardingCheckId = (typeof AGENT_ONBOARDING_CHECKS)[number]['id'];
+
 export interface AgentOnboardingContractOptions {
   catalogContract: CatalogContractPayload;
   /** Publish only when the host intentionally wants to disclose its Agent endpoint. */
@@ -65,7 +94,7 @@ export interface AgentOnboardingContractPayload {
   readonly verification: {
     readonly required: true;
     readonly type: 'external-agent';
-    readonly checks: readonly string[];
+    readonly checks: typeof AGENT_ONBOARDING_CHECKS;
     readonly command?: string;
   };
 }
@@ -130,14 +159,7 @@ export function createAgentOnboardingContract({
     verification: {
       required: true,
       type: 'external-agent',
-      checks: [
-        'generation starts with createSurface and ends with done',
-        'catalogId remains stable across the stream',
-        'a component with id root is rendered',
-        'action response uses the same surfaceId and does not create or delete it',
-        'root remains available for same-surface patching',
-        'host policy rejection returns POLICY_REJECTED',
-      ],
+      checks: AGENT_ONBOARDING_CHECKS,
       ...(verificationCommand === undefined ? {} : { command: verificationCommand }),
     },
   };

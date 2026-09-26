@@ -12,6 +12,7 @@ import {
 } from './external-agent';
 import { sendAgentRun } from '../api/send-messages';
 import type { AgentRun } from './adapter';
+import { AGENT_ONBOARDING_CHECKS, type AgentOnboardingCheckId } from '../api/agent-onboarding';
 
 export interface ExternalAgentVerificationOptions extends ExternalAgentRpcConfig {
   /** The catalog this external Agent is expected to implement. */
@@ -34,6 +35,7 @@ export interface ExternalAgentVerificationReport {
   generationMessages: number;
   actionName: string;
   actionComponentId: string;
+  actionContext: Record<string, unknown>;
   actionMessages: number;
   componentIdsAfterGeneration: string[];
   componentIdsAfterAction: string[];
@@ -42,6 +44,13 @@ export interface ExternalAgentVerificationReport {
     boundaryCode?: A2UIErrorCode;
     message?: string;
   };
+  checks: ExternalAgentVerificationCheck[];
+}
+
+export interface ExternalAgentVerificationCheck {
+  id: AgentOnboardingCheckId;
+  status: 'passed' | 'skipped';
+  detail: string;
 }
 
 interface SseRun {
@@ -195,6 +204,21 @@ function applyVerificationMessages(messages: A2UIMessage[]): {
   return { components, dataModel };
 }
 
+function getMessageSurfaceId(message: A2UIMessage): string {
+  if ('createSurface' in message) return message.createSurface.surfaceId;
+  if ('updateComponents' in message) return message.updateComponents.surfaceId;
+  if ('updateDataModel' in message) return message.updateDataModel.surfaceId;
+  return message.deleteSurface.surfaceId;
+}
+
+function createCheck(
+  id: AgentOnboardingCheckId,
+  status: 'passed' | 'skipped',
+  detail: string,
+): ExternalAgentVerificationCheck {
+  return { id, status, detail };
+}
+
 function defaultActionSelector(components: readonly Component[]): Component | null {
   return components.find((component) => typeof component.action?.event?.name === 'string') ?? null;
 }
@@ -240,12 +264,33 @@ export async function verifyExternalAgentIntegration(
   if (!surfaceId) throw new Error('生成流验收失败：缺少 createSurface.surfaceId');
 
   const generatedMessages = generation.messages as A2UIMessage[];
+  const generationStartsCorrectly =
+    generation.done &&
+    generatedMessages.length > 0 &&
+    'createSurface' in generatedMessages[0] &&
+    generatedMessages[0].createSurface.surfaceId === surfaceId;
+  if (!generationStartsCorrectly) {
+    throw new Error('生成流验收失败：必须以 createSurface 开始并以 done 结束');
+  }
+
+  const catalogIdIsStable = generatedMessages.every((message) => {
+    const observedCatalogId =
+      'createSurface' in message ? message.createSurface.catalogId : catalogId;
+    return observedCatalogId === catalogId;
+  });
+  if (!catalogIdIsStable) {
+    throw new Error(`生成流验收失败：catalogId 必须保持为 ${catalogId}`);
+  }
+
   const generated = applyVerificationMessages(generatedMessages);
   const selectedAction = selectActionComponent(generated.components, options);
   const actionContext = resolveContext(
     selectedAction.component.action?.event?.context,
     generated.dataModel,
   );
+  if (!generated.components.has('root')) {
+    throw new Error('生成流验收失败：缺少 id 为 root 的组件');
+  }
 
   generationAdapter.registerActionHandler(
     catalogId,
@@ -265,8 +310,14 @@ export async function verifyExternalAgentIntegration(
   if (action.error) throw new Error(`action 流验收失败: ${action.error.message}`);
   if (!action.done) throw new Error('action 流验收失败：没有 SSE done');
   const actionMessages = action.messages as A2UIMessage[];
-  if (actionMessages.some((message) => 'createSurface' in message)) {
-    throw new Error('action 流验收失败：action 响应不能 create surface');
+  const actionSurfaceIsStable = actionMessages.every(
+    (message) => getMessageSurfaceId(message) === surfaceId,
+  );
+  const actionLifecycleIsPatchOnly = actionMessages.every(
+    (message) => !('createSurface' in message || 'deleteSurface' in message),
+  );
+  if (!actionSurfaceIsStable || !actionLifecycleIsPatchOnly) {
+    throw new Error('action 流验收失败：必须 patch 同一 surfaceId，不能 create 或 delete');
   }
 
   const actionState = applyVerificationMessages([...generatedMessages, ...actionMessages]);
@@ -296,6 +347,37 @@ export async function verifyExternalAgentIntegration(
       boundaryCode: rejection.error.boundaryCode,
       message: rejection.error.message,
     };
+    if (policyRejection.boundaryCode !== 'POLICY_REJECTED') {
+      throw new Error(
+        `policy rejection 验收失败：预期 POLICY_REJECTED，实际 ${policyRejection.boundaryCode ?? '未提供边界码'}`,
+      );
+    }
+  }
+
+  const checks: ExternalAgentVerificationCheck[] = [
+    createCheck(
+      'generation-lifecycle',
+      'passed',
+      `${generatedMessages.length} messages ended with SSE done`,
+    ),
+    createCheck('catalog-stability', 'passed', catalogId),
+    createCheck('generation-root', 'passed', 'root component is present'),
+    createCheck(
+      'action-same-surface',
+      'passed',
+      `${actionMessages.length} patch messages used ${surfaceId}`,
+    ),
+    createCheck('action-root-stability', 'passed', 'root component remains present'),
+    createCheck(
+      'policy-rejection',
+      verifyPolicyRejection ? 'passed' : 'skipped',
+      verifyPolicyRejection
+        ? 'POLICY_REJECTED boundary was returned'
+        : 'policy rejection probe was skipped',
+    ),
+  ];
+  if (checks.length !== AGENT_ONBOARDING_CHECKS.length) {
+    throw new Error('Agent onboarding verification checks are incomplete');
   }
 
   return {
@@ -306,9 +388,11 @@ export async function verifyExternalAgentIntegration(
     generationMessages: generation.messages.length,
     actionName: selectedAction.name,
     actionComponentId: selectedAction.component.id,
+    actionContext,
     actionMessages: action.messages.length,
     componentIdsAfterGeneration: [...generated.components.keys()],
     componentIdsAfterAction: [...actionState.components.keys()],
     policyRejection,
+    checks,
   };
 }
