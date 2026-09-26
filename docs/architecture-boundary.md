@@ -152,6 +152,10 @@ The verification path moved into `@nexus-ui/server` as `verifyExternalAgentInteg
 
 The standalone demo remains a template; the reusable API is the integration gate for real Agent projects.
 
+### P16-b — Agent Onboarding Contract — Completed
+
+`GET /api/a2ui/agent-onboarding` now publishes a machine-readable contract for an explicitly released catalog. It combines the Catalog Contract with external RPC request/response rules, transport constraints, SSE error boundary codes, and acceptance checks. The endpoint is included only when the host explicitly chooses to disclose it.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

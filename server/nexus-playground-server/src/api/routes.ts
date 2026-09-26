@@ -8,6 +8,10 @@ import { parseClientActionMessage } from './client-event';
 import { isRecord, readJsonBody } from './request';
 import { sendAgentRun } from './send-messages';
 import { SERVER_API_VERSION } from '../version';
+import {
+  createAgentOnboardingContract,
+  type AgentOnboardingContractPayload,
+} from './agent-onboarding';
 
 function invalidRequest(ctx: Koa.Context, message: string): void {
   ctx.status = 400;
@@ -24,6 +28,11 @@ export interface AgentRouterOptions {
   requestBodyTimeoutMs?: number;
   /** Catalogs the host explicitly publishes to external Agent developers. */
   readonly catalogContracts?: readonly CatalogDefinition[];
+  /** Optional onboarding publication details; never inferred from adapter internals. */
+  agentOnboarding?: {
+    rpcEndpoint?: string;
+    verificationCommand?: string;
+  };
 }
 
 export interface CatalogContractPayload {
@@ -32,6 +41,8 @@ export interface CatalogContractPayload {
   readonly catalog: CatalogDefinition;
   readonly promptContract: string;
 }
+
+export type { AgentOnboardingContractPayload };
 
 export function createAgentRouter(options: AgentRouterOptions): Router {
   const router = new Router();
@@ -46,6 +57,18 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       catalog,
       promptContract: createCatalogPromptContract(catalog),
     });
+  }
+
+  const onboardingContracts = new Map<string, AgentOnboardingContractPayload>();
+  for (const [catalogId, catalogContract] of catalogContracts) {
+    onboardingContracts.set(
+      catalogId,
+      createAgentOnboardingContract({
+        catalogContract,
+        rpcEndpoint: options.agentOnboarding?.rpcEndpoint,
+        verificationCommand: options.agentOnboarding?.verificationCommand,
+      }),
+    );
   }
 
   router.get('/health', (ctx) => {
@@ -112,6 +135,26 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       ctx.body = {
         error: 'CATALOG_CONTRACT_NOT_FOUND',
         message: '该 catalog contract 未公开',
+      };
+      return;
+    }
+
+    ctx.body = contract;
+  });
+
+  router.get('/api/a2ui/agent-onboarding', (ctx) => {
+    const catalogId = ctx.query.catalogId;
+    if (typeof catalogId !== 'string' || catalogId === '') {
+      invalidRequest(ctx, 'catalogId 必须是非空字符串');
+      return;
+    }
+
+    const contract = onboardingContracts.get(catalogId);
+    if (!contract) {
+      ctx.status = 404;
+      ctx.body = {
+        error: 'AGENT_ONBOARDING_CONTRACT_NOT_FOUND',
+        message: '该 catalog 的 agent onboarding contract 未公开',
       };
       return;
     }

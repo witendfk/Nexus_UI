@@ -144,6 +144,14 @@ GET /api/a2ui/catalog-contract?catalogId=https%3A%2F%2Fyour-host.example.com%2Fc
 
 成功响应包含 `serverApiVersion: 1`、`kind: "catalog-contract"`、原始 `catalog` 和可注入 system prompt 的 `promptContract`。缺失或空 `catalogId` 返回 400；未显式传入 `catalogContracts` 的 catalog 返回 404；重复 `catalogId` 会在宿主装配期失败。
 
+同一个已发布 catalog 也会生成 Agent Onboarding Contract：
+
+```http
+GET /api/a2ui/agent-onboarding?catalogId=https%3A%2F%2Fyour-host.example.com%2Fcatalogs%2Fworkbench%2Fv1
+```
+
+它把 catalog contract、外部 RPC 请求 / 响应形状、错误边界码和验收要求合并成机器可读 JSON。宿主可在 `agentOnboarding.rpcEndpoint` 中显式选择是否披露 Agent endpoint。
+
 ## 3. Register The Action Path
 
 `host/adapter.ts` 是 action 的组合点。当前模板中：

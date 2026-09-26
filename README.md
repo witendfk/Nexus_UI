@@ -231,6 +231,7 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P15-b | Policy 拒绝边界码 | 完成 |
 | P15-c | 真实 Agent 验收命令 | 完成 |
 | P16-a | 可复用 Agent 验收 API | 完成 |
+| P16-b | Agent Onboarding Contract API | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 

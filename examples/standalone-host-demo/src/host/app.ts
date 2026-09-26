@@ -33,6 +33,10 @@ export function createStandaloneHostApp(options: StandaloneHostAppOptions): Koa 
     maxRequestBodyBytes: options.maxRequestBodyBytes,
     requestBodyTimeoutMs: options.requestBodyTimeoutMs,
     catalogContracts: [standaloneHostCatalog],
+    agentOnboarding: {
+      rpcEndpoint: adapterOptions.endpoint,
+      verificationCommand: `pnpm --filter @nexus-ui/standalone-host-demo verify -- --endpoint ${adapterOptions.endpoint}`,
+    },
   });
   const app = new Koa();
 

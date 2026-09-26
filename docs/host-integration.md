@@ -421,6 +421,27 @@ Semantics:
 - The route returns the catalog definition and prompt only; it does not expose React render maps, action handlers, credentials, or business systems.
 - Authentication, tenant authorization, and public rate limiting remain host deployment responsibilities.
 
+### Read a published Agent Onboarding Contract
+
+```http
+GET /api/a2ui/agent-onboarding?catalogId=<encoded-catalog-id>
+```
+
+This route is available only for a catalog explicitly passed through `catalogContracts`. It combines the Catalog Contract with external JSONL RPC request/response rules, SSE error boundary codes, and acceptance checks. The host may disclose its Agent endpoint and verification command through:
+
+```ts
+createAgentRouter({
+  adapter,
+  catalogContracts: [hostCatalog],
+  agentOnboarding: {
+    rpcEndpoint: 'https://agent.internal.example/a2ui',
+    verificationCommand: 'pnpm verify-agent',
+  },
+});
+```
+
+Missing or unpublished catalogs return HTTP 404. The contract is documentation and a verification target; it does not authorize an Agent or bypass the guard.
+
 ## 5. Catalog Contract
 
 The reference server registers:

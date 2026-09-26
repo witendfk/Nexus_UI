@@ -9,6 +9,7 @@ describe('server host-assembly public API surface', () => {
       'InMemorySurfaceHistoryStore',
       'SERVER_API_VERSION',
       'VERSION',
+      'createAgentOnboardingContract',
       'createAgentRouter',
       'createExternalAgentActionHandler',
       'createExternalAgentGenerationSource',

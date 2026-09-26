@@ -30,6 +30,10 @@ const app = new Koa();
 const router = createAgentRouter({
   adapter: new AgentAdapter({ useLlm: () => false }),
   catalogContracts: [catalog],
+  agentOnboarding: {
+    rpcEndpoint: 'https://agent.example.internal/a2ui',
+    verificationCommand: 'pnpm verify-agent --endpoint https://agent.example.internal/a2ui',
+  },
 });
 app.use(router.routes());
 app.use(router.allowedMethods());
@@ -61,6 +65,50 @@ describe('catalog contract route', () => {
     assert.equal(payload.kind, 'catalog-contract');
     assert.deepEqual(payload.catalog, catalog);
     assert.equal(payload.promptContract, createCatalogPromptContract(catalog));
+  });
+
+  it('publishes an explicit agent onboarding contract for a published catalog', async () => {
+    const response = await fetch(
+      `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(catalog.catalogId)}`,
+    );
+    const payload = (await response.json()) as {
+      serverApiVersion?: number;
+      contractVersion?: number;
+      kind?: string;
+      catalogContract?: { kind?: string };
+      rpc?: {
+        endpoint?: { disclosed?: boolean; url?: string };
+        response?: { contentType?: string[] };
+      };
+      errors?: { boundaryCodes?: string[] };
+      verification?: { command?: string };
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.serverApiVersion, 1);
+    assert.equal(payload.contractVersion, 1);
+    assert.equal(payload.kind, 'agent-onboarding-contract');
+    assert.equal(payload.catalogContract?.kind, 'catalog-contract');
+    assert.equal(payload.rpc?.endpoint?.disclosed, true);
+    assert.equal(payload.rpc?.endpoint?.url, 'https://agent.example.internal/a2ui');
+    assert.deepEqual(payload.rpc?.response?.contentType, [
+      'application/x-ndjson',
+      'application/jsonl',
+    ]);
+    assert.ok(payload.errors?.boundaryCodes?.includes('POLICY_REJECTED'));
+    assert.match(payload.verification?.command ?? '', /pnpm verify-agent/);
+  });
+
+  it('rejects missing ids and unpublished agent onboarding contracts', async () => {
+    const missing = await fetch(`${baseUrl}/api/a2ui/agent-onboarding`);
+    assert.equal(missing.status, 400);
+    assert.match(await missing.text(), /catalogId 必须是非空字符串/);
+
+    const unknown = await fetch(
+      `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent('unknown-catalog')}`,
+    );
+    assert.equal(unknown.status, 404);
+    assert.match(await unknown.text(), /AGENT_ONBOARDING_CONTRACT_NOT_FOUND/);
   });
 
   it('rejects missing ids and unpublished catalogs', async () => {

@@ -141,6 +141,8 @@ P15-c 已完成。standalone demo 新增 `verify` 命令和 `verifyExternalAgent
 
 P16-a 已完成。`verifyExternalAgentIntegration` 提升为 `@nexus-ui/server` 公开 API，不再绑定 standalone demo catalog。宿主可传入自己的 `CatalogDefinition`、`AgentPolicy`、外部 RPC 配置、任务请求和 `actionSelector`。verifier 生成结构化 report，覆盖 generation / action 消息数、action 组件、组件 ID 变化和 `POLICY_REJECTED` 探针；server 测试使用独立 fake JSONL Agent 锁定全流程。
 
+P16-b 已完成。server 新增 `GET /api/a2ui/agent-onboarding?catalogId=...`，只允许读取已显式发布的 Catalog Contract。payload 合并 A2UI v0.9 传输规则、Catalog Contract、外部 Agent JSONL RPC generate / action 请求形状、NDJSON 响应约束、五个边界码和外部 Agent 验收 checks。宿主可选择公开 RPC endpoint 和验收命令；未发布 catalog 仍返回 404。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

@@ -35,6 +35,11 @@ export type {
 } from './agent/policy';
 export { nexusAgentPolicy, resolveAgentPolicy } from './agent/policy';
 export { createAgentRouter } from './api/routes';
-export type { AgentRouterOptions, CatalogContractPayload } from './api/routes';
+export type {
+  AgentOnboardingContractPayload,
+  AgentRouterOptions,
+  CatalogContractPayload,
+} from './api/routes';
+export { createAgentOnboardingContract } from './api/agent-onboarding';
 export { sendAgentRun } from './api/send-messages';
 export type { SendMessagesResult } from './api/send-messages';
