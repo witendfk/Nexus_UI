@@ -176,6 +176,10 @@ The standalone demo now exposes a dedicated onboarding panel next to the Catalog
 
 The standalone browser app discovers published catalogs before enabling either contract panel. It uses the returned absolute contract URLs directly, so the browser no longer constructs `catalogId` query strings for documentation loading. React DOM tests assert the discovery request, exact URL reuse, Catalog Contract loading, Agent Onboarding loading, and the runtime action loop.
 
+### P19-a — Discovery-Driven Verification CLI — Completed
+
+The standalone verify command now accepts `NEXUS_DISCOVERY_URL` or `--discovery-url`. It validates the published-catalog payload, selects the requested catalog (the demo catalog by default), uses the returned onboarding URL, and delegates to the contract-driven verifier. The report records the discovery result, and an unpublished catalog selection fails before invoking the Agent.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

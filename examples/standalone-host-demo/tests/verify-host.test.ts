@@ -5,7 +5,12 @@ import { createCatalogPromptContract } from '@nexus-ui/core';
 import { createAgentOnboardingContract } from '@nexus-ui/server';
 import { DEMO_AGENT_ACTION, DEMO_AGENT_CATALOG_ID } from '../src/contract';
 import { standaloneHostCatalog } from '../src/shared/catalog-contract';
-import { verifyExternalAgentIntegration, verifyExternalAgentOnboarding } from '../src/host/verify';
+import {
+  resolveAgentOnboardingContract,
+  verifyExternalAgentIntegration,
+  verifyExternalAgentOnboarding,
+  verifyExternalAgentOnboardingByDiscovery,
+} from '../src/host/verify';
 
 const surfaceId = 'surface-verify-host';
 const servers: Server[] = [];
@@ -26,6 +31,26 @@ afterEach(async () => {
 describe('verifyExternalAgentIntegration', () => {
   it('accepts a compliant external Agent and verifies policy rejection', async () => {
     const server = createServer((request, response) => {
+      if (request.url === '/discovery') {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(
+          JSON.stringify({
+            serverApiVersion: 1,
+            kind: 'published-catalog-list',
+            catalogs: [
+              {
+                catalogId: DEMO_AGENT_CATALOG_ID,
+                components: ['ApprovalSummary', 'Text', 'Button'],
+                actions: [DEMO_AGENT_ACTION],
+                catalogContractUrl: `http://${request.headers.host}/catalog-contract`,
+                agentOnboardingUrl: `http://${request.headers.host}/onboarding`,
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
       if (request.url === '/onboarding') {
         response.setHeader('Content-Type', 'application/json');
         response.end(
@@ -174,5 +199,57 @@ describe('verifyExternalAgentIntegration', () => {
     assert.equal(onboardingReport.catalogId, DEMO_AGENT_CATALOG_ID);
     assert.equal(onboardingReport.actionName, DEMO_AGENT_ACTION);
     assert.equal(onboardingReport.policyRejection.boundaryCode, 'POLICY_REJECTED');
+
+    const discovery = await resolveAgentOnboardingContract({
+      discoveryUrl: `http://127.0.0.1:${address.port}/discovery`,
+      discoveryTimeoutMs: 1000,
+    });
+    assert.equal(discovery.catalogId, DEMO_AGENT_CATALOG_ID);
+    assert.equal(discovery.agentOnboardingUrl, `http://127.0.0.1:${address.port}/onboarding`);
+
+    const discoveryReport = await verifyExternalAgentOnboardingByDiscovery({
+      discoveryUrl: `http://127.0.0.1:${address.port}/discovery`,
+      message: '创建验收审批任务',
+      timeoutMs: 1000,
+      discoveryTimeoutMs: 1000,
+    });
+    assert.equal(
+      discoveryReport.discovery.discoveryUrl,
+      `http://127.0.0.1:${address.port}/discovery`,
+    );
+    assert.equal(discoveryReport.catalogId, DEMO_AGENT_CATALOG_ID);
+    assert.equal(discoveryReport.contractUrl, `http://127.0.0.1:${address.port}/onboarding`);
+    assert.equal(discoveryReport.actionName, DEMO_AGENT_ACTION);
+    assert.equal(discoveryReport.policyRejection.boundaryCode, 'POLICY_REJECTED');
+    assert.equal(
+      discoveryReport.checks.every((check) => check.status === 'passed'),
+      true,
+    );
+  });
+
+  it('rejects discovery when the requested catalog is not published', async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({
+          serverApiVersion: 1,
+          kind: 'published-catalog-list',
+          catalogs: [],
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    await assert.rejects(
+      resolveAgentOnboardingContract({
+        discoveryUrl: `http://127.0.0.1:${address.port}/discovery`,
+        catalogId: 'https://example.com/catalogs/other/v1',
+        discoveryTimeoutMs: 1000,
+      }),
+      /不包含 catalog/,
+    );
   });
 });

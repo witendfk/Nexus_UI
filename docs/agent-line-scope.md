@@ -153,6 +153,8 @@ P18-a 已完成。server 新增 `GET /api/a2ui/published-catalogs` 只读发现�
 
 P18-b 已完成。standalone demo 浏览器启动时读取 published catalog discovery，找到 demo catalog 后才启用两个契约面板；Catalog Contract 和 Agent Onboarding Contract 都使用 discovery 返回的绝对 URL 加载，不再由浏览器拼接 `catalogId`。React DOM 测试锁定 discovery -> catalog contract -> onboarding contract -> action 回流的完整链路。
 
+P19-a 已完成。standalone verify 命令新增 discovery 模式，支持 `NEXUS_DISCOVERY_URL` / `--discovery-url`。命令会校验 discovery payload、按 catalogId 选择 catalog、使用返回的 `agentOnboardingUrl` 继续执行 contract-driven verifier，并在 report 中记录 discovery 结果；`--contract-url` 与 `--discovery-url` 互斥。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

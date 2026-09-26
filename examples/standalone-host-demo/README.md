@@ -24,6 +24,15 @@ NEXUS_VERIFY_AGENT_ENDPOINT=https://your-agent.example/a2ui \
   pnpm --filter @nexus-ui/standalone-host-demo verify
 ```
 
+优先使用 discovery 验收，避免手工复制 catalog ID 和 onboarding URL：
+
+```bash
+NEXUS_DISCOVERY_URL='http://127.0.0.1:3101/api/a2ui/published-catalogs' \
+  pnpm --filter @nexus-ui/standalone-host-demo verify
+```
+
+可用 `NEXUS_VERIFY_CATALOG_ID` / `--catalog-id` 选择目标 catalog；demo catalog 是默认值。也可传 `--endpoint` 覆盖一个未披露的 Agent endpoint。`NEXUS_DISCOVERY_URL` 和 `NEXUS_VERIFY_ONBOARDING_URL` 互斥。
+
 如果宿主已经发布 Agent Onboarding Contract，优先使用 contract URL 验收：
 
 ```bash
@@ -114,6 +123,8 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 1. Fetch `GET /api/a2ui/published-catalogs`.
 2. Confirm the response has kind `published-catalog-list` and contains exactly the demo approval catalog.
 3. The browser already uses the returned absolute `catalogContractUrl` and `agentOnboardingUrl`; external Agent code should do the same instead of hand-copying the catalog ID.
+
+The verify command also supports discovery through `NEXUS_DISCOVERY_URL` / `--discovery-url`; it records the selected catalog in `report.discovery` and runs the same six-check acceptance.
 
 The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled. The same DOM test first requires discovery to finish, then uses the exact returned contract URLs to load Catalog Contract and Agent Onboarding panels and checks their protocol, catalog, endpoint, boundary-code, check, and command rendering.
 

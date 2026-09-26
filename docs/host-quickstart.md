@@ -235,6 +235,15 @@ const adapter = createStandaloneHostAdapter({
 
 实现外部 Agent 后，用一条命令验收完整宿主契约：
 
+优先通过 discovery 选择 catalog 和 onboarding contract：
+
+```bash
+NEXUS_DISCOVERY_URL=https://your-host.example/api/a2ui/published-catalogs \
+  pnpm --filter @nexus-ui/standalone-host-demo verify
+```
+
+也可以直接指定外部 Agent endpoint：
+
 ```bash
 NEXUS_VERIFY_AGENT_ENDPOINT=https://agent.your-domain.example/a2ui \
   pnpm --filter @nexus-ui/standalone-host-demo verify
