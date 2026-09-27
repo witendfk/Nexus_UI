@@ -6,6 +6,8 @@ export type {
   AgentActionContext,
   AgentActionHandler,
   AgentAdapterOptions,
+  AgentActionContextResolution,
+  AgentActionContextResolver,
   AgentGenerateRequest,
   AgentGenerationSource,
   AgentGenerationSourceRequest,
@@ -20,6 +22,13 @@ export {
 export type { ExternalAgentRpcConfig } from './agent/external-agent';
 export { InMemorySurfaceHistoryStore } from './agent/history';
 export type { InMemorySurfaceHistoryStoreOptions, SurfaceHistoryStore } from './agent/history';
+export type {
+  ResolvedSurfaceAction,
+  SurfaceActionLedger,
+  SurfaceActionLedgerRecord,
+  SurfaceActionSnapshot,
+  SurfaceActionStateStore,
+} from './agent/surface-action-state';
 export type { AgentTurn } from './agent/llm-agent';
 export { verifyExternalAgentIntegration } from './agent/verification';
 export type {

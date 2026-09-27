@@ -5,6 +5,7 @@ import type Koa from 'koa';
 import { CatalogRegistry } from '@nexus-ui/core';
 import { AgentAdapter } from '../src/agent/adapter';
 import type {
+  AgentAction,
   AgentActionContext,
   AgentGenerationSourceRequest,
   AgentRun,
@@ -96,7 +97,7 @@ function createActionRun(commit: AgentRun['commit']): AgentRun {
 describe('AgentAdapter', () => {
   it('宿主可注入生成源，action handler 可读取成功生成上下文', async () => {
     const generationRequests: AgentGenerationSourceRequest[] = [];
-    const actionContexts: AgentActionContext[] = [];
+    const actionContexts: Array<{ action: AgentAction; context: AgentActionContext }> = [];
     const surfaceId = 'surface-host-generation';
     const adapter = new AgentAdapter({
       actionHandlers: new Map(),
@@ -113,15 +114,27 @@ describe('AgentAdapter', () => {
             updateComponents: {
               surfaceId: request.surfaceId,
               components: [
-                { id: 'root', component: 'Text', text: 'Host agent surface', variant: 'body' },
+                {
+                  id: 'root',
+                  component: 'Column',
+                  children: ['hostText', 'contextButton', 'contextLabel'],
+                },
+                { id: 'hostText', component: 'Text', text: 'Host agent surface', variant: 'body' },
+                {
+                  id: 'contextButton',
+                  component: 'Button',
+                  child: 'contextLabel',
+                  action: { event: { name: 'call', context: {} } },
+                },
+                { id: 'contextLabel', component: 'Text', text: 'Run' },
               ],
             },
           },
         ];
       },
     });
-    adapter.registerActionHandler(BASIC_CATALOG, 'context-check', (action, context) => {
-      actionContexts.push(context);
+    adapter.registerActionHandler(BASIC_CATALOG, 'call', (action, context) => {
+      actionContexts.push({ action, context });
       return [
         {
           version: 'v0.9',
@@ -143,9 +156,13 @@ describe('AgentAdapter', () => {
       generation.run,
       'host-source',
     );
-    assert.equal(generationResult.ok, true);
+    assert.equal(generationResult.ok, true, generationTransport.getOutput());
 
-    const action = await adapter.prepareAction(createAction('context-check', surfaceId));
+    const action = await adapter.prepareAction({
+      ...createAction('call', surfaceId),
+      sourceComponentId: 'contextButton',
+      context: { amount: 999, approvalId: 'forged' },
+    });
     assert.ok(action.ok);
     await collect(action.run.source);
 
@@ -154,10 +171,15 @@ describe('AgentAdapter', () => {
     assert.ok(generationRequests[0]?.supportedComponents.includes('Text'));
     assert.deepEqual(generationRequests[0]?.history, []);
     assert.equal(actionContexts.length, 1);
-    assert.equal(actionContexts[0]?.catalogId, BASIC_CATALOG);
-    assert.ok(actionContexts[0]?.catalog.components.includes('Text'));
-    assert.equal(actionContexts[0]?.history[0]?.content, '创建宿主任务面');
-    assert.match(actionContexts[0]?.history[1]?.content ?? '', /Host agent surface/);
+    assert.deepEqual(actionContexts[0]?.action.context, {});
+    assert.deepEqual(actionContexts[0]?.context.clientContext, {
+      amount: 999,
+      approvalId: 'forged',
+    });
+    assert.equal(actionContexts[0]?.context.catalogId, BASIC_CATALOG);
+    assert.ok(actionContexts[0]?.context.catalog.components.includes('Text'));
+    assert.equal(actionContexts[0]?.context.history[0]?.content, '创建宿主任务面');
+    assert.match(actionContexts[0]?.context.history[1]?.content ?? '', /Host agent surface/);
   });
 
   it('自定义生成源的非法输出仍被 SSE guard 拒绝且不提交 history', async () => {
@@ -296,7 +318,19 @@ describe('AgentAdapter', () => {
           updateComponents: {
             surfaceId,
             components: [
-              { id: 'root', component: 'Text', text: 'Injected history', variant: 'body' },
+              {
+                id: 'root',
+                component: 'Column',
+                children: ['historyText', 'submitButton', 'submitLabel'],
+              },
+              { id: 'historyText', component: 'Text', text: 'Injected history', variant: 'body' },
+              {
+                id: 'submitButton',
+                component: 'Button',
+                child: 'submitLabel',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'submitLabel', component: 'Text', text: 'Submit' },
             ],
           },
         },
@@ -320,7 +354,10 @@ describe('AgentAdapter', () => {
     assert.equal(await historyStore.getCatalogId(surfaceId), BASIC_CATALOG);
     assert.equal((await historyStore.getHistory(surfaceId)).length, 2);
 
-    const action = await adapter.prepareAction(createAction('submit', surfaceId));
+    const action = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'submitButton',
+    });
     assert.ok(action.ok);
     await collect(action.run.source);
 
@@ -383,20 +420,24 @@ describe('AgentAdapter', () => {
     const startResponse = await collect(start.run.source);
     assert.match(JSON.stringify(startResponse), /进行中/);
     assert.match(JSON.stringify(startResponse), /"name":"complete"/);
+    await start.run.commit(startResponse);
 
-    const complete = await adapter.prepareAction(
-      createAction('complete', generation.run.sequence.surfaceId),
-    );
+    const complete = await adapter.prepareAction({
+      ...createAction('complete', generation.run.sequence.surfaceId),
+      timestamp: '2026-09-21T00:00:01.000Z',
+    });
     assert.ok(complete.ok);
     const completeResponse = await collect(complete.run.source);
     assert.match(JSON.stringify(completeResponse), /已完成/);
     assert.match(JSON.stringify(completeResponse), /"disabled":true/);
+    await complete.run.commit(completeResponse);
 
-    const duplicate = await adapter.prepareAction(
-      createAction('complete', generation.run.sequence.surfaceId),
-    );
+    const duplicate = await adapter.prepareAction({
+      ...createAction('complete', generation.run.sequence.surfaceId),
+      timestamp: '2026-09-21T00:00:01.000Z',
+    });
     assert.ok(!duplicate.ok);
-    assert.match(duplicate.message, /任务不能从 completed 状态完成/);
+    assert.match(duplicate.message, /Action 重放或重复提交已被拒绝/);
   });
 
   it('Workbench 生成后 submit action 创建任务并原地关闭提交入口', async () => {
@@ -404,6 +445,7 @@ describe('AgentAdapter', () => {
     const adapter = new AgentAdapter({
       createSurfaceId: () => 'surface-workbench',
       workbenchTaskStore: workbenchStore,
+      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
     });
     const generation = await adapter.prepareGeneration({ catalogId: WORKBENCH_CATALOG });
     assert.ok(generation.ok);
@@ -509,8 +551,35 @@ describe('AgentAdapter', () => {
   });
 
   it('支持异步业务 action handler 并拒绝未注册 action', async () => {
-    const adapter = new AgentAdapter({ useLlm: () => false });
-    adapter.registerActionHandler(BASIC_CATALOG, 'custom-submit', async (action) => [
+    const surfaceId = 'surface-custom';
+    const adapter = new AgentAdapter({
+      actionHandlers: new Map(),
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['submitButton', 'submitLabel'] },
+              {
+                id: 'submitButton',
+                component: 'Button',
+                child: 'submitLabel',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'submitLabel', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+    });
+    adapter.registerActionHandler(BASIC_CATALOG, 'submit', async (action) => [
       {
         version: 'v0.9',
         updateDataModel: {
@@ -520,8 +589,17 @@ describe('AgentAdapter', () => {
       },
     ]);
 
-    const action = await adapter.prepareAction(createAction('custom-submit', 'surface-custom'));
-    assert.ok(action.ok);
+    const generation = await adapter.prepareGeneration({ message: 'create action surface' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
+
+    const action = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      timestamp: '2026-09-21T00:00:01.000Z',
+      sourceComponentId: 'submitButton',
+    });
+    assert.ok(action.ok, action.ok ? undefined : action.message);
     const response = await collect(action.run.source);
     assert.deepEqual(response, [
       {
@@ -530,19 +608,63 @@ describe('AgentAdapter', () => {
       },
     ]);
 
-    const unknown = await adapter.prepareAction(createAction('missing', 'surface-custom'));
+    const unknown = await adapter.prepareAction(createAction('missing', surfaceId));
     assert.ok(!unknown.ok);
-    assert.match(unknown.message, /Action handler 未注册/);
+    assert.match(unknown.message, /与服务端 surface 状态不匹配/);
   });
 
   it('Basic search action 返回包含用户输入值的原地更新', async () => {
-    const adapter = new AgentAdapter({ useLlm: () => false });
+    const surfaceId = 'surface-search';
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              {
+                id: 'root',
+                component: 'Column',
+                children: ['keyword', 'searchButton', 'searchLabel'],
+              },
+              {
+                id: 'keyword',
+                component: 'TextField',
+                label: 'Keyword',
+                value: { path: '/keyword' },
+              },
+              {
+                id: 'searchButton',
+                component: 'Button',
+                child: 'searchLabel',
+                action: {
+                  event: { name: 'search', context: { keyword: { path: '/keyword' } } },
+                },
+              },
+              { id: 'searchLabel', component: 'Text', text: 'Search' },
+            ],
+          },
+        },
+      ],
+      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
+    });
+    const generation = await adapter.prepareGeneration({ message: '创建查询界面' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
     const action = await adapter.prepareAction({
-      ...createAction('search', 'surface-search'),
+      ...createAction('search', surfaceId),
+      sourceComponentId: 'searchButton',
       context: { keyword: 'A2UI Runtime' },
     });
 
-    assert.ok(action.ok);
+    assert.ok(action.ok, action.ok ? undefined : action.message);
     const response = await collect(action.run.source);
     assert.deepEqual(response, [
       {
@@ -563,13 +685,45 @@ describe('AgentAdapter', () => {
   });
 
   it('Basic submit action 返回文本与布尔输入的原地更新', async () => {
-    const adapter = new AgentAdapter({ useLlm: () => false });
+    const surfaceId = 'surface-form';
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['submitButton', 'submitLabel'] },
+              {
+                id: 'submitButton',
+                component: 'Button',
+                child: 'submitLabel',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'submitLabel', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
+    });
+    const generation = await adapter.prepareGeneration({ message: '创建操作界面' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
     const action = await adapter.prepareAction({
-      ...createAction('submit', 'surface-form'),
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'submitButton',
       context: { name: 'A2UI Runtime', subscribed: true },
     });
 
-    assert.ok(action.ok);
+    assert.ok(action.ok, action.ok ? undefined : action.message);
     const response = await collect(action.run.source);
     assert.deepEqual(response, [
       {
@@ -630,16 +784,14 @@ describe('AgentAdapter', () => {
     assert.match(plan.message, /Nexus 不注册官方 Basic Catalog/);
   });
 
-  it('dispatches actions stored under the legacy Basic Task catalog ID', async () => {
+  it('rejects actions when only the legacy history record exists', async () => {
     const historyStore = new InMemorySurfaceHistoryStore();
     await historyStore.commitGeneration('surface-legacy-action', LEGACY_BASIC_TASK_CATALOG, []);
     const adapter = new AgentAdapter({ historyStore, useLlm: () => false });
 
     const action = await adapter.prepareAction(createAction('search', 'surface-legacy-action'));
-    assert.ok(action.ok);
-    assert.equal(action.run.sequence.catalogId, BASIC_CATALOG);
-    const response = await collect(action.run.source);
-    assert.match(JSON.stringify(response), /搜索：/);
+    assert.ok(!action.ok);
+    assert.match(action.message, /Action surface 不存在或已过期/);
   });
 });
 

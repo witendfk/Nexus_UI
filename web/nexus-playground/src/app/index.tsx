@@ -203,8 +203,9 @@ export function App() {
     <A2UIProvider
       catalogRenderMaps={catalogRenderMaps}
       onAction={(event) => {
-        setLastAction(event);
-        setPendingAction(event);
+        const actionWithId = { ...event, actionId: crypto.randomUUID() };
+        setLastAction(actionWithId);
+        setPendingAction(actionWithId);
       }}
     >
       <div style={{ fontFamily: 'system-ui, sans-serif', padding: 24, color: '#222' }}>

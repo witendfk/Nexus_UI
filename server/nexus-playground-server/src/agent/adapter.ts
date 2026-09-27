@@ -16,6 +16,17 @@ import { defaultSurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
 import { isLlmAgentEnabled, streamLlmMessages } from './llm-agent';
 import {
+  InMemorySurfaceActionLedger,
+  InMemorySurfaceActionStateStore,
+  findSurfaceAction,
+  resolveDeclaredActionContext,
+} from './surface-action-state';
+import type {
+  ResolvedSurfaceAction,
+  SurfaceActionLedger,
+  SurfaceActionStateStore,
+} from './surface-action-state';
+import {
   createActionResponse,
   createContactFixture,
   createSearchActionResponse,
@@ -33,6 +44,7 @@ export interface AgentAction {
   surfaceId: string;
   sourceComponentId: string;
   timestamp: string;
+  actionId?: string;
   context: Record<string, unknown>;
 }
 
@@ -74,7 +86,19 @@ export interface AgentActionContext {
   catalog: CatalogDefinition;
   supportedActions: readonly string[];
   history: readonly AgentTurn[];
+  surfaceAction: ResolvedSurfaceAction;
+  clientContext: Record<string, unknown>;
 }
+
+export interface AgentActionContextResolution {
+  action: AgentAction;
+  surfaceAction: ResolvedSurfaceAction;
+  clientContext: Record<string, unknown>;
+}
+
+export type AgentActionContextResolver = (
+  resolution: AgentActionContextResolution,
+) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
 export interface AgentAdapterOptions {
   registry?: CatalogRegistry;
@@ -87,6 +111,9 @@ export interface AgentAdapterOptions {
   taskStateStore?: TaskStateStore;
   workbenchTaskStore?: WorkbenchTaskStore;
   policy?: AgentPolicy;
+  actionStateStore?: SurfaceActionStateStore;
+  actionLedger?: SurfaceActionLedger;
+  resolveActionContext?: AgentActionContextResolver;
 }
 
 function createActionHandlerKey(catalogId: string, actionName: string): string {
@@ -143,6 +170,9 @@ export class AgentAdapter {
   private readonly taskStateStore: TaskStateStore;
   private readonly workbenchTaskStore: WorkbenchTaskStore;
   private readonly policy = resolveAgentPolicy();
+  private readonly actionStateStore: SurfaceActionStateStore;
+  private readonly actionLedger: SurfaceActionLedger;
+  private readonly resolveActionContext?: AgentActionContextResolver;
 
   constructor(options: AgentAdapterOptions = {}) {
     this.registry = options.registry ?? agentCatalogRegistry;
@@ -153,6 +183,9 @@ export class AgentAdapter {
       options.actionHandlers ??
       createDefaultActionHandlers(this.taskStateStore, this.workbenchTaskStore);
     this.historyStore = options.historyStore ?? defaultSurfaceHistoryStore;
+    this.actionStateStore = options.actionStateStore ?? new InMemorySurfaceActionStateStore();
+    this.actionLedger = options.actionLedger ?? new InMemorySurfaceActionLedger();
+    this.resolveActionContext = options.resolveActionContext;
     this.useLlm = options.useLlm ?? isLlmAgentEnabled;
     this.streamLlm = options.streamLlm ?? streamLlmMessages;
     this.createGenerationSource = options.createGenerationSource;
@@ -238,6 +271,11 @@ export class AgentAdapter {
         commit: async (messages) => {
           const surfaceCatalog = findSurfaceCatalog(messages);
           if (!surfaceCatalog) throw new Error('生成流缺少 createSurface，不能提交 history');
+          await this.actionStateStore.commitGeneration(
+            surfaceCatalog.surfaceId,
+            surfaceCatalog.catalogId,
+            messages,
+          );
           if (catalogId === TASK_CATALOG) this.taskStateStore.initialize(surfaceId);
           if (catalogId === WORKBENCH_CATALOG) this.workbenchTaskStore.initialize(surfaceId);
           await this.historyStore.commitGeneration(
@@ -256,12 +294,23 @@ export class AgentAdapter {
   }
 
   async prepareAction(action: AgentAction): Promise<AgentPlan> {
-    const historyCatalogId =
-      (await this.historyStore.getCatalogId(action.surfaceId)) ?? NEXUS_BASIC_TASK_CATALOG;
+    const snapshot = await this.actionStateStore.get(action.surfaceId);
+    if (!snapshot) {
+      return { ok: false, message: `Action surface 不存在或已过期: ${action.surfaceId}` };
+    }
+    const historyCatalogId = snapshot.catalogId;
     const catalogId = normalizeLegacyBasicCatalog(historyCatalogId);
     const catalog = this.registry.get(catalogId);
     if (!catalog) {
       return { ok: false, message: `Agent catalog 未注册: ${catalogId}` };
+    }
+
+    const surfaceAction = findSurfaceAction(snapshot, action.name, action.sourceComponentId);
+    if (!surfaceAction) {
+      return {
+        ok: false,
+        message: `Action 与服务端 surface 状态不匹配: ${action.surfaceId}/${action.sourceComponentId}/${action.name}`,
+      };
     }
 
     const handler = this.actionHandlers.get(createActionHandlerKey(catalogId, action.name));
@@ -272,18 +321,56 @@ export class AgentAdapter {
       };
     }
 
+    const ledgerKey = createActionLedgerKey(action);
+    if (
+      !this.actionLedger.begin({
+        key: ledgerKey,
+        surfaceId: action.surfaceId,
+        actionName: action.name,
+        sourceComponentId: action.sourceComponentId,
+      })
+    ) {
+      return { ok: false, message: 'Action 重放或重复提交已被拒绝' };
+    }
+
+    const clientContext = { ...action.context };
+    let context: Record<string, unknown>;
+    try {
+      context = this.resolveActionContext
+        ? await this.resolveActionContext({
+            action,
+            surfaceAction,
+            clientContext,
+          })
+        : resolveDeclaredActionContext(surfaceAction.declaration, snapshot.dataModel);
+      if (typeof context !== 'object' || context === null || Array.isArray(context)) {
+        throw new Error('Action context resolver 必须返回 JSON 对象');
+      }
+    } catch (error) {
+      this.actionLedger.complete(ledgerKey, 'failed');
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Action context 解析失败',
+      };
+    }
+
+    const authoritativeAction: AgentAction = { ...action, context };
+
     const history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
       ...turn,
     }));
     let source: AgentMessageSource;
     try {
-      source = await handler(action, {
+      source = await handler(authoritativeAction, {
         catalogId,
         catalog,
         supportedActions: getCatalogActions(catalogId, catalog),
         history,
+        surfaceAction,
+        clientContext,
       });
     } catch (error) {
+      this.actionLedger.complete(ledgerKey, 'failed');
       return {
         ok: false,
         message: error instanceof Error ? error.message : '业务 action 处理失败',
@@ -302,8 +389,37 @@ export class AgentAdapter {
           supportedActions: getCatalogActions(catalogId, catalog),
           policy: this.policy,
         },
-        commit: () => undefined,
+        commit: async (messages) => {
+          await this.actionStateStore.commitAction(messages);
+          this.actionLedger.complete(ledgerKey, 'succeeded');
+        },
       },
     };
   }
+}
+
+function createActionLedgerKey(action: AgentAction): string {
+  if (action.actionId) {
+    return [`id:${action.actionId}`, action.surfaceId, action.sourceComponentId, action.name].join(
+      '\u0000',
+    );
+  }
+  return [
+    action.surfaceId,
+    action.sourceComponentId,
+    action.name,
+    action.timestamp,
+    stableStringify(action.context),
+  ].join('\u0000');
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (typeof value !== 'object' || value === null) return JSON.stringify(value) ?? 'null';
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map(
+      (key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`,
+    )
+    .join(',')}}`;
 }

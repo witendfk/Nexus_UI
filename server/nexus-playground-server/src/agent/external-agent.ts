@@ -68,7 +68,7 @@ function parseJsonlLine(line: string): unknown {
   try {
     return JSON.parse(line);
   } catch {
-    throw new Error('外部 Agent 返回的 JSONL 中包含非法 JSON');
+    throw new Error(`外部 Agent 返回的 JSONL 中包含非法 JSON: ${line.slice(0, 200)}`);
   }
 }
 

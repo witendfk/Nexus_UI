@@ -166,7 +166,7 @@ describe('Agent line routes', () => {
     assert.match(await duplicateResponse.text(), /任务不能从 completed 状态完成/);
   });
 
-  it('拒绝未注册的业务 action handler', async () => {
+  it('拒绝未知或过期的 action surface', async () => {
     const response = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -183,6 +183,6 @@ describe('Agent line routes', () => {
     });
 
     assert.equal(response.status, 400);
-    assert.match(await response.text(), /Action handler 未注册/);
+    assert.match(await response.text(), /Action surface 不存在或已过期/);
   });
 });

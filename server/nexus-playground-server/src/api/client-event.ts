@@ -18,7 +18,14 @@ export function parseClientActionMessage(value: unknown): ClientActionMessage | 
   const action = value.action;
   if (
     !isRecord(action) ||
-    !hasOnlyKeys(action, ['name', 'surfaceId', 'sourceComponentId', 'timestamp', 'context'])
+    !hasOnlyKeys(action, [
+      'name',
+      'surfaceId',
+      'sourceComponentId',
+      'timestamp',
+      'actionId',
+      'context',
+    ])
   ) {
     return null;
   }
@@ -28,6 +35,8 @@ export function parseClientActionMessage(value: unknown): ClientActionMessage | 
     typeof action.sourceComponentId !== 'string' ||
     typeof action.timestamp !== 'string' ||
     Number.isNaN(Date.parse(action.timestamp)) ||
+    (action.actionId !== undefined &&
+      (typeof action.actionId !== 'string' || action.actionId.trim() === '')) ||
     !isRecord(action.context)
   ) {
     return null;
@@ -40,6 +49,7 @@ export function parseClientActionMessage(value: unknown): ClientActionMessage | 
       surfaceId: action.surfaceId,
       sourceComponentId: action.sourceComponentId,
       timestamp: action.timestamp,
+      ...(action.actionId === undefined ? {} : { actionId: action.actionId }),
       context: action.context,
     },
   };

@@ -6,7 +6,6 @@ import { describe, it } from 'node:test';
 import { AgentAdapter } from '../src/agent/adapter';
 import { BASIC_CATALOG } from '../src/agent/catalog';
 import { FileSurfaceHistoryStore } from '../src/agent/file-history';
-import type { AgentActionContext } from '../src/agent/adapter';
 
 async function collectMessages(
   messages: AsyncIterable<unknown> | Iterable<unknown>,
@@ -33,13 +32,11 @@ function createGeneration(surfaceId: string): unknown[] {
 }
 
 describe('FileSurfaceHistoryStore', () => {
-  it('persists catalog and history, then restores them in a new store instance', async () => {
+  it('persists catalog and history but does not resurrect action authority', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nexus-file-history-'));
     const historyFile = join(directory, 'surface-history.json');
     const surfaceId = 'surface-file-history';
     const firstStore = new FileSurfaceHistoryStore(historyFile);
-    const actionContexts: AgentActionContext[] = [];
-
     const firstAdapter = new AgentAdapter({
       actionHandlers: new Map(),
       historyStore: firstStore,
@@ -56,20 +53,6 @@ describe('FileSurfaceHistoryStore', () => {
       historyStore: secondStore,
       createSurfaceId: () => `unused-${surfaceId}`,
     });
-    secondAdapter.registerActionHandler(BASIC_CATALOG, 'submit', (_action, context) => {
-      actionContexts.push(context);
-      return [
-        {
-          version: 'v0.9',
-          updateComponents: {
-            surfaceId,
-            components: [
-              { id: 'root', component: 'Text', text: 'Action after restart', variant: 'body' },
-            ],
-          },
-        },
-      ];
-    });
     const action = await secondAdapter.prepareAction({
       name: 'submit',
       surfaceId,
@@ -77,13 +60,10 @@ describe('FileSurfaceHistoryStore', () => {
       timestamp: '2026-09-21T00:00:00.000Z',
       context: {},
     });
-    assert.ok(action.ok);
-    await collectMessages(action.run.source);
-
-    assert.equal(actionContexts.length, 1);
-    assert.equal(actionContexts[0]?.catalogId, BASIC_CATALOG);
-    assert.equal(actionContexts[0]?.history[0]?.content, '重启前生成');
-    assert.equal(actionContexts[0]?.history.length, 2);
+    assert.ok(!action.ok);
+    assert.match(action.message, /Action surface 不存在或已过期/);
+    assert.equal(await secondStore.getCatalogId(surfaceId), BASIC_CATALOG);
+    assert.equal((await secondStore.getHistory(surfaceId)).length, 2);
   });
 
   it('keeps surface and turn capacity after a restart', async () => {

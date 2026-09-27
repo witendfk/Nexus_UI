@@ -24,4 +24,19 @@ describe('toClientActionMessage', () => {
       },
     });
   });
+
+  it('propagates an explicit actionId for replay protection', () => {
+    const message = toClientActionMessage(
+      {
+        name: 'call',
+        surfaceId: 'contact',
+        sourceComponentId: 'callBtn',
+        context: {},
+      },
+      '2026-09-14T00:00:00.000Z',
+      { actionId: 'action-001' },
+    );
+
+    expect(message.action).to.include({ actionId: 'action-001' });
+  });
 });

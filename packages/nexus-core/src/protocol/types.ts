@@ -245,5 +245,7 @@ export interface ActionEvent {
   name: string;
   surfaceId: string;
   sourceComponentId: ComponentId;
+  /** Host-supplied idempotency key; core intentionally does not generate one. */
+  actionId?: string;
   context: Record<string, unknown>;
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, it } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type Koa from 'koa';
@@ -28,9 +29,10 @@ type RouteHandler = (
 const servers: Server[] = [];
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-function createSseContext(): Koa.Context {
+function createSseContext(): Koa.Context & { getOutput(): string } {
   let body: unknown;
-  return {
+  let output = '';
+  const context = {
     status: 200,
     set: () => undefined,
     res: { flushHeaders: () => undefined },
@@ -40,7 +42,22 @@ function createSseContext(): Koa.Context {
     get body() {
       return body;
     },
-  } as unknown as Koa.Context;
+    getOutput: () => output,
+  };
+  Object.defineProperty(context, 'body', {
+    set(value: unknown) {
+      body = value;
+      if (value instanceof PassThrough) {
+        value.on('data', (chunk: Buffer) => {
+          output += chunk.toString('utf8');
+        });
+      }
+    },
+    get(): unknown {
+      return body;
+    },
+  });
+  return context as unknown as Koa.Context & { getOutput(): string };
 }
 
 async function collect(source: AgentMessageSource): Promise<unknown[]> {
@@ -105,11 +122,39 @@ describe('external agent RPC', () => {
       response.setHeader('Connection', 'close');
       const rpcRequest = body as { kind?: string };
       if (rpcRequest.kind === 'generate') {
-        const first = `{"version":"v0.9","createSurface":{"surfaceId":"${surfaceId}","catalogId":"${BASIC_CATALOG}"`;
-        response.write(first);
-        response.end(
-          `}}\n{"version":"v0.9","updateComponents":{"surfaceId":"${surfaceId}","components":[{"id":"root","component":"Text","text":"External generation","variant":"body"}]}}\n`,
-        );
+        const messages = [
+          {
+            version: 'v0.9',
+            createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          },
+          {
+            version: 'v0.9',
+            updateComponents: {
+              surfaceId,
+              components: [
+                {
+                  id: 'root',
+                  component: 'Column',
+                  children: ['externalText', 'submitButton', 'submitLabel'],
+                },
+                {
+                  id: 'externalText',
+                  component: 'Text',
+                  text: 'External generation',
+                  variant: 'body',
+                },
+                {
+                  id: 'submitButton',
+                  component: 'Button',
+                  child: 'submitLabel',
+                  action: { event: { name: 'submit', context: {} } },
+                },
+                { id: 'submitLabel', component: 'Text', text: 'Submit' },
+              ],
+            },
+          },
+        ];
+        response.end(messages.map((message) => `${JSON.stringify(message)}\n`).join(''));
         return;
       }
       response.end(
@@ -125,6 +170,7 @@ describe('external agent RPC', () => {
         headers: { Authorization: 'Bearer test-token' },
         timeoutMs: 1000,
       }),
+      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
     });
     adapter.registerActionHandler(
       BASIC_CATALOG,
@@ -134,8 +180,9 @@ describe('external agent RPC', () => {
 
     const generation = await adapter.prepareGeneration({ message: '创建外部任务面' });
     assert.ok(generation.ok);
-    const generationResult = await sendAgentRun(createSseContext(), generation.run, 'external');
-    assert.equal(generationResult.ok, true);
+    const generationTransport = createSseContext();
+    const generationResult = await sendAgentRun(generationTransport, generation.run, 'external');
+    assert.equal(generationResult.ok, true, generationTransport.getOutput());
     assert.deepEqual(
       generationResult.messages.map((message) => message),
       [
@@ -148,7 +195,24 @@ describe('external agent RPC', () => {
           updateComponents: {
             surfaceId,
             components: [
-              { id: 'root', component: 'Text', text: 'External generation', variant: 'body' },
+              {
+                id: 'root',
+                component: 'Column',
+                children: ['externalText', 'submitButton', 'submitLabel'],
+              },
+              {
+                id: 'externalText',
+                component: 'Text',
+                text: 'External generation',
+                variant: 'body',
+              },
+              {
+                id: 'submitButton',
+                component: 'Button',
+                child: 'submitLabel',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'submitLabel', component: 'Text', text: 'Submit' },
             ],
           },
         },

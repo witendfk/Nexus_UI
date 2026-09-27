@@ -17,7 +17,9 @@ export interface ClientActionMessage {
 export function toClientActionMessage(
   event: ActionEvent,
   timestamp = new Date().toISOString(),
+  options?: { actionId?: string },
 ): ClientActionMessage {
+  const actionId = options?.actionId ?? event.actionId;
   return {
     version: 'v0.9',
     action: {
@@ -25,6 +27,7 @@ export function toClientActionMessage(
       surfaceId: event.surfaceId,
       sourceComponentId: event.sourceComponentId,
       timestamp,
+      ...(actionId === undefined ? {} : { actionId }),
       context: event.context,
     },
   };
