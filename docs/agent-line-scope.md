@@ -155,6 +155,8 @@ P18-b 已完成。standalone demo 浏览器启动时读取 published catalog dis
 
 P19-a 已完成。standalone verify 命令新增 discovery 模式，支持 `NEXUS_DISCOVERY_URL` / `--discovery-url`。命令会校验 discovery payload、按 catalogId 选择 catalog、使用返回的 `agentOnboardingUrl` 继续执行 contract-driven verifier，并在 report 中记录 discovery 结果；`--contract-url` 与 `--discovery-url` 互斥。
 
+P19-b 已完成。server 公共 API 新增 `fetchPublishedCatalogs` / `PublishedCatalogsClientOptions`，统一校验 discovery URL、JSON content type、响应大小、API 版本、payload kind 和 catalog summary。standalone demo 的 discovery resolver 改为复用该 API，后续完整 Agent 工程可直接从 `@nexus-ui/server` 根入口消费 published catalogs。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。

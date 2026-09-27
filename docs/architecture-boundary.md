@@ -180,6 +180,10 @@ The standalone browser app discovers published catalogs before enabling either c
 
 The standalone verify command now accepts `NEXUS_DISCOVERY_URL` or `--discovery-url`. It validates the published-catalog payload, selects the requested catalog (the demo catalog by default), uses the returned onboarding URL, and delegates to the contract-driven verifier. The report records the discovery result, and an unpublished catalog selection fails before invoking the Agent.
 
+### P19-b — Published Catalog Client API — Completed
+
+`@nexus-ui/server` now exports `fetchPublishedCatalogs` and `PublishedCatalogsClientOptions`. The client validates HTTP(S), JSON content, response size, server API version, payload kind, and catalog summaries without starting a listener or reading credentials. The standalone demo resolver now reuses this public client.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

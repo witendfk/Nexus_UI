@@ -179,6 +179,18 @@ const report = await verifyExternalAgentOnboarding({
 
 The Agent endpoint comes from `rpc.endpoint.url` when the host discloses it. If disclosure is disabled, pass `endpoint` explicitly; this keeps private deployments verifiable without publishing their internal address.
 
+To discover a contract before verification, use the public client instead of hand-parsing JSON:
+
+```ts
+import { fetchPublishedCatalogs } from '@nexus-ui/server';
+
+const discovery = await fetchPublishedCatalogs({
+  url: 'https://host.example/api/a2ui/published-catalogs',
+  timeoutMs: 15_000,
+});
+const catalog = discovery.catalogs.find((item) => item.catalogId === expectedCatalogId);
+```
+
 Business action handlers now receive a second read-only context:
 
 ```ts

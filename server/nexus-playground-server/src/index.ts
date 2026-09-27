@@ -48,6 +48,8 @@ export type {
   PublishedCatalogsPayload,
   PublishedCatalogSummary,
 } from './api/routes';
+export { fetchPublishedCatalogs } from './api/catalog-discovery-client';
+export type { PublishedCatalogsClientOptions } from './api/catalog-discovery-client';
 export {
   AGENT_ONBOARDING_BOUNDARY_CODES,
   AGENT_ONBOARDING_CHECKS,

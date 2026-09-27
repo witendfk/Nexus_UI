@@ -238,6 +238,7 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P18-a | Published Catalog Discovery | 完成 |
 | P18-b | Discovery 驱动浏览器契约面板 | 完成 |
 | P19-a | Discovery 驱动验证命令 | 完成 |
+| P19-b | Published Catalog 公共客户端 API | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 
