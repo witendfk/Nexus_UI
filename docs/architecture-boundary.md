@@ -184,6 +184,10 @@ The standalone verify command now accepts `NEXUS_DISCOVERY_URL` or `--discovery-
 
 `@nexus-ui/server` now exports `fetchPublishedCatalogs` and `PublishedCatalogsClientOptions`. The client validates HTTP(S), JSON content, response size, server API version, payload kind, and catalog summaries without starting a listener or reading credentials. The standalone demo resolver now reuses this public client.
 
+### P20-a — External Agent Onboarding Path — Completed
+
+The external-agent onboarding guide now provides the shortest discovery → contract → JSONL RPC → verifier path. It separates host-owned catalog policy and verification from Agent-owned JSONL generation, and explicitly keeps authentication, rate limiting, tenant isolation, and audit outside the onboarding contract.
+
 ### P15-a — Minimal Host Template Policy — Completed
 
 The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.

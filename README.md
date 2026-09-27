@@ -46,6 +46,7 @@ Nexus UI 是面向 Agent 开发者的 A2UI Agent UI Runtime：Agent 只输出受
 | [docs/architecture-boundary.md](docs/architecture-boundary.md) | 协议层 / 能力层 / 策略层边界与命名口径 |
 | [docs/host-integration.md](docs/host-integration.md) | 宿主接入契约、HTTP/SSE 参考协议、catalog 与支持矩阵 |
 | [docs/host-quickstart.md](docs/host-quickstart.md) | 外部宿主最小接入路径、endpoint 替换与坏输出验收 |
+| [docs/external-agent-onboarding.md](docs/external-agent-onboarding.md) | 外部 Agent discovery、契约、JSONL RPC 与验收最短路径 |
 | [docs/public-api.md](docs/public-api.md) | core / React / server 有限装配 API、禁止内部路径与版本兼容策略 |
 | [docs/interview-narrative.md](docs/interview-narrative.md) | 面试与开源项目讲解叙事 |
 | [docs/agent-line-scope.md](docs/agent-line-scope.md) | MVP 协议边界与逐里程碑验收记录 |
@@ -239,6 +240,7 @@ action 响应只允许 `updateComponents` / `updateDataModel`，且 `surfaceId` 
 | P18-b | Discovery 驱动浏览器契约面板 | 完成 |
 | P19-a | Discovery 驱动验证命令 | 完成 |
 | P19-b | Published Catalog 公共客户端 API | 完成 |
+| P20-a | 外部 Agent 最短接入文档 | 完成 |
 
 2026-09-15 验收记录：真实 LLM 生成与 action 原地更新已通过；测试环境已与项目 `.env` 隔离；全仓 `test / typecheck / lint / build` 全部通过。
 

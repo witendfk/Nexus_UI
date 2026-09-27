@@ -157,6 +157,8 @@ P19-a 已完成。standalone verify 命令新增 discovery 模式，支持 `NEXU
 
 P19-b 已完成。server 公共 API 新增 `fetchPublishedCatalogs` / `PublishedCatalogsClientOptions`，统一校验 discovery URL、JSON content type、响应大小、API 版本、payload kind 和 catalog summary。standalone demo 的 discovery resolver 改为复用该 API，后续完整 Agent 工程可直接从 `@nexus-ui/server` 根入口消费 published catalogs。
 
+P20-a 已完成。新增 `docs/external-agent-onboarding.md`，把外部 Agent 接入收口为 discovery -> onboarding contract -> JSONL RPC -> verifier 四步；文档明确 generate/action 请求职责、same-surface patch 约束、六个稳定 checks、未披露 endpoint 的处理方式，以及认证和部署边界不在 contract 中解决。
+
 ## 明确不支持
 
 - 官方 Basic Catalog `Modal` 和完整官方字段 / 渲染语义一致性。
