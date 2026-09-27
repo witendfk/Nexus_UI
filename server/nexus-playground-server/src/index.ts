@@ -14,6 +14,7 @@ export type {
   AgentMessageSource,
   AgentPlan,
   AgentRun,
+  AgentPrepareOptions,
 } from './agent/adapter';
 export {
   createExternalAgentActionHandler,
@@ -22,6 +23,8 @@ export {
 export type { ExternalAgentRpcConfig } from './agent/external-agent';
 export { InMemorySurfaceHistoryStore } from './agent/history';
 export type { InMemorySurfaceHistoryStoreOptions, SurfaceHistoryStore } from './agent/history';
+export { InMemoryAgentRunManager } from './agent/run-manager';
+export type { AgentRunManager, AgentRunRecord, AgentRunState } from './agent/run-manager';
 export type {
   ResolvedSurfaceAction,
   SurfaceActionLedger,
@@ -51,6 +54,7 @@ export type {
 export { nexusAgentPolicy, resolveAgentPolicy } from './agent/policy';
 export { createAgentRouter } from './api/routes';
 export type {
+  AgentRunListPayload,
   AgentOnboardingContractPayload,
   AgentRouterOptions,
   CatalogContractPayload,

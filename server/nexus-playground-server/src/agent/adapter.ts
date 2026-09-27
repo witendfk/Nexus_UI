@@ -53,6 +53,10 @@ export interface AgentGenerateRequest {
   catalogId?: string;
 }
 
+export interface AgentPrepareOptions {
+  signal?: AbortSignal;
+}
+
 export type AgentMessageSource = AsyncIterable<unknown> | Iterable<unknown>;
 
 export type AgentActionHandler = (
@@ -77,6 +81,7 @@ export interface AgentGenerationSourceRequest {
   supportedComponents: readonly string[];
   supportedActions: readonly string[];
   history: readonly AgentTurn[];
+  signal?: AbortSignal;
 }
 
 export type AgentGenerationSource = (request: AgentGenerationSourceRequest) => AgentMessageSource;
@@ -88,6 +93,7 @@ export interface AgentActionContext {
   history: readonly AgentTurn[];
   surfaceAction: ResolvedSurfaceAction;
   clientContext: Record<string, unknown>;
+  signal?: AbortSignal;
 }
 
 export interface AgentActionContextResolution {
@@ -200,7 +206,10 @@ export class AgentAdapter {
     this.actionHandlers.set(key, handler);
   }
 
-  async prepareGeneration(request: AgentGenerateRequest): Promise<AgentPlan> {
+  async prepareGeneration(
+    request: AgentGenerateRequest,
+    options: AgentPrepareOptions = {},
+  ): Promise<AgentPlan> {
     const requestedCatalogId = request.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
     const catalogId = normalizeLegacyBasicCatalog(requestedCatalogId);
     if (isOfficialBasicCatalog(requestedCatalogId)) {
@@ -235,6 +244,7 @@ export class AgentAdapter {
             supportedComponents: catalog.components,
             supportedActions,
             history,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
           })
         : useLlm
           ? this.streamLlm({
@@ -245,6 +255,7 @@ export class AgentAdapter {
               supportedComponents: catalog.components,
               supportedActions,
               history,
+              ...(options.signal === undefined ? {} : { signal: options.signal }),
             })
           : createFallbackGeneration(surfaceId, catalog);
     } catch (error) {
@@ -293,7 +304,7 @@ export class AgentAdapter {
     };
   }
 
-  async prepareAction(action: AgentAction): Promise<AgentPlan> {
+  async prepareAction(action: AgentAction, options: AgentPrepareOptions = {}): Promise<AgentPlan> {
     const snapshot = await this.actionStateStore.get(action.surfaceId);
     if (!snapshot) {
       return { ok: false, message: `Action surface 不存在或已过期: ${action.surfaceId}` };
@@ -368,6 +379,7 @@ export class AgentAdapter {
         history,
         surfaceAction,
         clientContext,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
     } catch (error) {
       this.actionLedger.complete(ledgerKey, 'failed');

@@ -185,4 +185,30 @@ describe('Agent line routes', () => {
     assert.equal(response.status, 400);
     assert.match(await response.text(), /Action surface 不存在或已过期/);
   });
+
+  it('exposes run status for a completed surface run', async () => {
+    const generated = await (
+      await fetch(`${baseUrl}/api/a2ui/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '生成一张联系人卡片' }),
+      })
+    ).text();
+    const surfaceId = /"surfaceId":"(surface-[^"]+)"/.exec(generated)?.[1];
+    assert.ok(surfaceId);
+
+    const response = await fetch(
+      `${baseUrl}/api/a2ui/runs?surfaceId=${encodeURIComponent(surfaceId)}`,
+    );
+    const payload = (await response.json()) as {
+      kind?: string;
+      runs?: Array<{ state?: string; kind?: string }>;
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.kind, 'agent-run-list');
+    assert.equal(payload.runs?.length, 1);
+    assert.equal(payload.runs?.[0]?.kind, 'generate');
+    assert.equal(payload.runs?.[0]?.state, 'succeeded');
+  });
 });

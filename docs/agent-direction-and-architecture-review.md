@@ -28,7 +28,14 @@ Nexus 侧不能解释 `productId`、`offerId`、`price`、`cartItemId` 等业务
 - 增加进程内 action ledger 与可选 `actionId`，精确重放会被拒绝。
 - 历史 transcript 不再能复活 action 权威；重启后必须由宿主业务 session / action state 恢复。
 
-仍未纳入本阶段：跨进程持久化 action ledger、SQLite ShoppingSession、客户端断开取消传播、per-session run manager、外部 Agent RPC 的完整 catalog contract hash。这些继续按 Nexus 通用能力推进，不引入导购领域模型。
+已完成通用 P0 第二阶段：
+
+- 同一 surface 的生成/action run 串行执行。
+- 客户端断开信号传播到 SSE、内部 LLM、外部 JSONL RPC 和 Adapter context。
+- 新增进程内 `AgentRunManager`，记录 `queued / running / succeeded / failed / canceled`。
+- 新增 `GET /api/a2ui/runs?surfaceId=...` 查询某 surface 的最近运行状态。
+
+仍未纳入本阶段：跨进程持久化 action ledger、SQLite ShoppingSession、外部 Agent RPC 的完整 catalog contract hash。这些继续按 Nexus 通用能力推进，不引入导购领域模型。
 
 ## 1. 方向决策
 

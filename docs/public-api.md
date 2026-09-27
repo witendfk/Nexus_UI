@@ -70,7 +70,7 @@ This root entry is import-only and must not load environment files, register bui
 
 Stable host-assembly exports in `0.1.x`:
 
-- Adapter: `AgentAdapter`, `AgentAdapterOptions`, `AgentGenerateRequest`, `AgentPlan`, `AgentRun`, and `AgentMessageSource`.
+- Adapter: `AgentAdapter`, `AgentAdapterOptions`, `AgentGenerateRequest`, `AgentPrepareOptions`, `AgentPlan`, `AgentRun`, and `AgentMessageSource`.
 - Generation source seam: `AgentGenerationSource`, `AgentGenerationSourceRequest`.
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
 - Host policy seam: `AgentPolicy`, `AgentPolicyContext`, `ResolvedAgentPolicy`, `MediaComponent`, `RequiredMediaPolicy`, `nexusAgentPolicy`, and `resolveAgentPolicy`.
@@ -79,7 +79,9 @@ Stable host-assembly exports in `0.1.x`:
 - Agent onboarding: `createAgentOnboardingContract`, `AgentOnboardingContractPayload`, `AgentRouterOptions.agentOnboarding`, `AGENT_ONBOARDING_CONTRACT_VERSION`, `AGENT_ONBOARDING_BOUNDARY_CODES`, `AGENT_ONBOARDING_CHECKS`, `AgentOnboardingBoundaryCode`, and `AgentOnboardingCheckId`.
 - Catalog discovery: `fetchPublishedCatalogs`, `PublishedCatalogsClientOptions`, `PublishedCatalogsPayload`, and `PublishedCatalogSummary`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
-- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides and explicit `catalogContracts` publication; the guarded router can expose the read-only catalog-contract and published-catalog discovery routes.
+- Surface action authority: `ResolvedSurfaceAction`, `SurfaceActionSnapshot`, `SurfaceActionStateStore`, `SurfaceActionLedger`, and `SurfaceActionLedgerRecord`.
+- Run observability: `InMemoryAgentRunManager`, `AgentRunManager`, `AgentRunRecord`, and `AgentRunState`.
+- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides, explicit `catalogContracts` publication, demo-only `streamDelayMs`, and replaceable `runManager`; the guarded router can expose the read-only catalog-contract, published-catalog discovery, and per-surface run-status routes.
 - Custom Koa transport seam: `sendAgentRun`, `SendMessagesResult`.
 - Compatibility metadata: `VERSION`, `SERVER_API_VERSION`.
 

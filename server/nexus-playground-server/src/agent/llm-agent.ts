@@ -23,6 +23,7 @@ export interface LlmAgentRequest {
   supportedComponents?: readonly string[];
   supportedActions?: readonly string[];
   history?: readonly AgentTurn[];
+  signal?: AbortSignal;
 }
 
 function createSystemPrompt(
@@ -255,6 +256,7 @@ async function* streamCompletionDeltas(request: LlmAgentRequest): AsyncGenerator
     messages: createLlmMessages(request),
     temperature: 0,
     stream: true,
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
   });
 
   for await (const chunk of completion) {

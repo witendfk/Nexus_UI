@@ -109,6 +109,7 @@ function createRequestHeaders(config: ExternalAgentRpcConfig): Record<string, st
 async function* streamExternalAgentMessages(
   config: ExternalAgentRpcConfig,
   request: ExternalAgentRpcRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<unknown> {
   validateEndpoint(config.endpoint);
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -119,6 +120,11 @@ async function* streamExternalAgentMessages(
   const fetchImpl = config.fetch ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromHost = (): void => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', abortFromHost, { once: true });
+  }
   let messageCount = 0;
 
   try {
@@ -169,11 +175,13 @@ async function* streamExternalAgentMessages(
     if (messageCount === 0) throw new Error('外部 Agent 未返回 A2UI 消息');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
+      if (signal?.aborted) throw new Error('客户端断开，外部 Agent RPC 已取消');
       throw new Error(`外部 Agent RPC 超过 ${timeoutMs}ms 未完成`);
     }
     throw error;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abortFromHost);
     controller.abort();
   }
 }
@@ -182,30 +190,38 @@ export function createExternalAgentGenerationSource(
   config: ExternalAgentRpcConfig,
 ): AgentGenerationSource {
   return (request) =>
-    streamExternalAgentMessages(config, {
-      version: 1,
-      kind: 'generate',
-      surfaceId: request.surfaceId,
-      message: request.message,
-      history: request.history,
-      catalogId: request.catalogId,
-      supportedComponents: request.supportedComponents,
-      supportedActions: request.supportedActions,
-    });
+    streamExternalAgentMessages(
+      config,
+      {
+        version: 1,
+        kind: 'generate',
+        surfaceId: request.surfaceId,
+        message: request.message,
+        history: request.history,
+        catalogId: request.catalogId,
+        supportedComponents: request.supportedComponents,
+        supportedActions: request.supportedActions,
+      },
+      request.signal,
+    );
 }
 
 export function createExternalAgentActionHandler(
   config: ExternalAgentRpcConfig,
 ): AgentActionHandler {
   return async (action: AgentAction, context: AgentActionContext): Promise<AgentMessageSource> =>
-    streamExternalAgentMessages(config, {
-      version: 1,
-      kind: 'action',
-      surfaceId: action.surfaceId,
-      action,
-      history: context.history,
-      catalogId: context.catalogId,
-      supportedComponents: context.catalog.components,
-      supportedActions: context.supportedActions,
-    });
+    streamExternalAgentMessages(
+      config,
+      {
+        version: 1,
+        kind: 'action',
+        surfaceId: action.surfaceId,
+        action,
+        history: context.history,
+        catalogId: context.catalogId,
+        supportedComponents: context.catalog.components,
+        supportedActions: context.supportedActions,
+      },
+      context.signal,
+    );
 }

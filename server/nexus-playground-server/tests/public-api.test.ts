@@ -9,6 +9,7 @@ describe('server host-assembly public API surface', () => {
       'AGENT_ONBOARDING_CHECKS',
       'AGENT_ONBOARDING_CONTRACT_VERSION',
       'AgentAdapter',
+      'InMemoryAgentRunManager',
       'InMemorySurfaceHistoryStore',
       'SERVER_API_VERSION',
       'VERSION',
