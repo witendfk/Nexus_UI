@@ -1,0 +1,26 @@
+{
+  "name": "@orderops/agent-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderOps LLM Agent — 消费宿主 Catalog Contract，通过只读工具查询业务事实，输出 A2UI JSONL。",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/router": "^12.0.1",
+    "koa": "^2.15.3"
+  },
+  "devDependencies": {
+    "@types/koa": "^2.15.0",
+    "@types/koa__cors": "^5.0.0",
+    "@types/koa__router": "^12.0.4",
+    "@types/node": "^18.19.50",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}

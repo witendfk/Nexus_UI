@@ -1,0 +1,24 @@
+{
+  "name": "orderops-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderOps Copilot — 电商内部订单异常运营 Agent。Agent 生成 A2UI surface，Host 校验业务 action，Nexus UI 负责受控渲染。",
+  "type": "module",
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "pnpm -r --workspace-concurrency=1 --parallel dev",
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.50",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}
