@@ -70,18 +70,19 @@ This root entry is import-only and must not load environment files, register bui
 
 Stable host-assembly exports in `0.1.x`:
 
-- Adapter: `AgentAdapter`, `AgentAdapterOptions`, `AgentGenerateRequest`, `AgentPrepareOptions`, `AgentPlan`, `AgentRun`, and `AgentMessageSource`.
+- Adapter: `AgentAdapter`, `AgentAdapterOptions`, `AgentGenerateRequest`, `AgentPrepareOptions`, `AgentPlan`, `AgentRun`, `AgentMessageSource`, and `AgentGenerationCommitEvent`.
 - Generation source seam: `AgentGenerationSource`, `AgentGenerationSourceRequest`.
 - Action seam: `AgentAction`, `AgentActionContext`, `AgentActionHandler`.
 - Host policy seam: `AgentPolicy`, `AgentPolicyContext`, `ResolvedAgentPolicy`, `MediaComponent`, `RequiredMediaPolicy`, `nexusAgentPolicy`, and `resolveAgentPolicy`.
 - External Agent verification seam: `verifyExternalAgentIntegration`, `ExternalAgentVerificationOptions`, `ExternalAgentVerificationReport`, `ExternalAgentVerificationCheck`, `verifyExternalAgentOnboarding`, `ExternalAgentOnboardingVerificationOptions`, and `ExternalAgentOnboardingVerificationReport`.
-- External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`.
+- External JSONL RPC: `createExternalAgentGenerationSource`, `createExternalAgentActionHandler`, and `ExternalAgentRpcConfig`; requests carry `catalogContract.version`, `catalogContract.hash`, and optional `catalogContract.url`.
+- Catalog contract identity: `CATALOG_CONTRACT_VERSION`, `CatalogContractReference`, `createCatalogContractHash`, and `createCatalogContractReference`.
 - Agent onboarding: `createAgentOnboardingContract`, `AgentOnboardingContractPayload`, `AgentRouterOptions.agentOnboarding`, `AGENT_ONBOARDING_CONTRACT_VERSION`, `AGENT_ONBOARDING_BOUNDARY_CODES`, `AGENT_ONBOARDING_CHECKS`, `AgentOnboardingBoundaryCode`, and `AgentOnboardingCheckId`.
-- Catalog discovery: `fetchPublishedCatalogs`, `PublishedCatalogsClientOptions`, `PublishedCatalogsPayload`, and `PublishedCatalogSummary`.
+- Catalog discovery: `fetchPublishedCatalogs`, `PublishedCatalogsClientOptions`, `PublishedCatalogsPayload`, and `PublishedCatalogSummary`; each summary carries and validates `contractVersion` and `contractHash`.
 - Surface history: `InMemorySurfaceHistoryStore`, `InMemorySurfaceHistoryStoreOptions`, `SurfaceHistoryStore`, and `AgentTurn`.
 - Surface action authority: `ResolvedSurfaceAction`, `SurfaceActionSnapshot`, `SurfaceActionStateStore`, `SurfaceActionLedger`, and `SurfaceActionLedgerRecord`.
 - Run observability: `InMemoryAgentRunManager`, `AgentRunManager`, `AgentRunRecord`, and `AgentRunState`.
-- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides, explicit `catalogContracts` publication, demo-only `streamDelayMs`, and replaceable `runManager`; the guarded router can expose the read-only catalog-contract, published-catalog discovery, and per-surface run-status routes.
+- HTTP assembly: `createAgentRouter`, `AgentRouterOptions` with optional health mode overrides, explicit `catalogContracts` publication, demo-only `streamDelayMs`, and replaceable `runManager`; the guarded router can expose the read-only catalog-contract, published-catalog discovery, and per-surface run-status routes. Contract identity appears in both published summaries and full contracts.
 - Custom Koa transport seam: `sendAgentRun`, `SendMessagesResult`.
 - Compatibility metadata: `VERSION`, `SERVER_API_VERSION`.
 
@@ -94,7 +95,9 @@ The assembly API intentionally does not export:
 - `FileSurfaceHistoryStore`; it remains part of the reference executable rather than the limited host API.
 - The reference Koa `app`, `router`, and listener.
 
-A host still owns credentials, deployment policy, transport hardening, durable storage, tenant isolation, and business systems. The promise is narrower: an external host can assemble `AgentAdapter`, its own catalog, external Agent RPC, history, action handler, and the guarded router without importing server source internals. The guarded router's `/health` endpoint reports the selected `agentMode` and `actionMode` labels supplied by the assembling host.
+A host still owns credentials, deployment policy, transport hardening, durable storage, tenant isolation, and business systems. The promise is narrower: an external host can assemble `AgentAdapter`, its own catalog, external Agent RPC, history, action handler, and the guarded router without importing server source internals. `AgentAdapterOptions.fallbackGeneration` is a host-owned deterministic source; `onGenerationCommitted` is a host-owned success hook. The generic adapter has no Basic / Task / Workbench fixture fallback or default example handlers. The guarded router's `/health` endpoint reports the selected `agentMode` and `actionMode` labels supplied by the assembling host.
+
+This is an in-workspace API contract, not proof of an installable npm SDK. The current action queue does not yet serialize handler execution, and the in-memory ledger does not replace domain idempotency. See [engineering-priorities.md](engineering-priorities.md).
 
 `AgentAdapterOptions.policy` accepts a partial `AgentPolicy`. Omitted hooks use `nexusAgentPolicy`; provided hooks become the authoritative policy for that adapter. For example, a host can override `validateFinal` to enforce its own approval workflow without changing Catalog contracts or the runtime.
 

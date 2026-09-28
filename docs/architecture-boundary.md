@@ -1,193 +1,44 @@
-# Architecture And Naming Boundary
+# Nexus UI 架构边界
 
-状态：当前方向锚点。  
-日期：2026-09-25。  
-用途：统一协议兼容、Catalog 支持范围和产品边界的表述，避免把 “基于 A2UI v0.9” 误写成 “完整实现 Google Basic Catalog”。
+状态：当前运行时分层与命名基线。业务方向见 [OrderOps Copilot](order-ops-copilot.md)，实现缺口见 [工程现状与优先级](engineering-priorities.md)。
 
-## 1. Core Statement
+Nexus UI 基于 A2UI v0.9 消息模型实现受约束的 Agent 任务界面运行时，当前交付为 **Nexus Agent Task Profile**。它不承诺接受任意合法 v0.9 Agent 输出，也不宣称完整实现官方 Basic Catalog。
 
-Nexus UI uses the A2UI v0.9 message model as its protocol foundation. The current deliverable is a guarded Agent UI runtime for task surfaces, not a complete A2UI v0.9 renderer and not a complete Google Basic Catalog implementation.
+## 四层边界
 
-中文口径：
-
-> Nexus UI 遵循 A2UI v0.9 的消息模型、surface 生命周期、dataModel 绑定和 action 回流语义。  
-> 当前对外交付的是 Nexus Agent Task Profile：一个受 Catalog 约束的 Agent 任务界面运行时。  
-> 它不承诺接收任意合法 v0.9 Agent 输出，也不冒充官方 Basic Catalog 的完整实现。
-
-## 2. Layers
-
-| Layer | Responsibility | Must not do |
+| 层 | 负责内容 | 不负责内容 |
 | --- | --- | --- |
-| Protocol layer | Validate the A2UI v0.9 envelope, payload shape, surface lifecycle, and protocol-owned structures. | Reject a protocol-valid feature only because the current product MVP has not implemented it. |
-| Capability layer | Declare and enforce the current Nexus runtime profile: supported components, props, actions, functions, templates, theme, and data-model synchronization. | Claim unsupported official features as implemented. |
-| Policy layer | Enforce host business rules, action ownership, URL policy, workflow constraints, and rejection rules. | Become a hidden protocol dialect or bypass the catalog contract. |
-| Renderer layer | Map guarded VNodes to host components and report interaction back through core seams. | Own protocol parsing, business authorization, or state ownership. |
+| Protocol | A2UI v0.9 信封、payload 结构和 surface 生命周期 | 因当前未实现某特性而宣称协议本身非法 |
+| Capability | Nexus Profile、Catalog 的组件、字段、绑定与 action 声明 | 冒充完整官方 Catalog |
+| Policy | 宿主的工作流、媒体、action 归属与业务规则 | 绕过 Catalog 或充当新的协议方言 |
+| Renderer | 将受约束的 VNode 映射为宿主组件并上报交互 | 拥有协议解析、领域授权或业务事实 |
 
-The intended diagnostic vocabulary is:
+诊断使用 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`CATALOG_UNSUPPORTED`、`FEATURE_UNSUPPORTED` 和 `POLICY_REJECTED` 区分错误来源。server guard 是 Agent 输出进入浏览器前的边界；浏览器 runtime 校验是附加防线，不能代替服务端校验。
 
-| Code | Meaning |
+## Catalog 身份
+
+| 名称 | 含义 |
 | --- | --- |
-| `PROTOCOL_INVALID` | The message is not valid A2UI v0.9. |
-| `LIFECYCLE_INVALID` | The message shape is valid, but surface ordering or ownership is invalid. |
-| `CATALOG_UNSUPPORTED` | The component, prop, or action is not declared by the active catalog. |
-| `FEATURE_UNSUPPORTED` | The message is protocol-valid but outside the current runtime profile. |
-| `POLICY_REJECTED` | The host rejects the output for workflow, safety, or business reasons. |
+| Nexus Agent Task Profile | 整体产品能力范围 |
+| Nexus Basic Task Profile | 默认演示用的有限 Basic-like 组件子集 |
+| Official Basic Catalog | `specification/v0_9/json/basic_catalog.json` 声明的官方 Catalog；当前未注册为可用实现 |
+| Host Catalog | 业务宿主声明的自定义组件、schema 和 action 能力 |
 
-## 3. Catalog Naming
+默认演示 Catalog ID 为 `https://example.com/catalogs/nexus-basic-task/v1`。Catalog Contract 由同一份 CatalogDefinition 生成并带版本/hash；它帮助 Agent 理解能力边界，最终允许什么仍由 guard 判断。
 
-Do not use “Basic Catalog” as a vague synonym for “everything Nexus currently renders”.
-
-| Name | Meaning |
-| --- | --- |
-| Nexus Agent Task Profile | The overall product/runtime positioning: a guarded Agent task-surface profile built on A2UI v0.9 semantics. |
-| Nexus Basic Task Profile | The default catalog subset used by Nexus demos and the playground. It selects some official Basic component names but does not implement every official field or behavior. |
-| Official Basic Catalog | The catalog declared by `specification/v0_9/json/basic_catalog.json`, including its official `catalogId`, components, fields, functions, and theme schema. |
-| Host Catalog | A custom catalog owned by an application, such as task, workbench, or approval catalogs. It may define custom components and explicit host extensions. |
-
-The canonical playground ID is `https://example.com/catalogs/nexus-basic-task/v1`. The former wrong URL is accepted only as a legacy alias for existing persisted surfaces and is normalized to the canonical profile before generation or action dispatch. The official Basic Catalog ID remains declared by the specification but is intentionally not registered by Nexus: the current profile is not an official conformance implementation.
-
-## 4. Current Profile Boundary
-
-The current runtime profile supports a deliberately narrow loop:
+## 当前 Profile
 
 ```text
 createSurface
-  -> static component tree
-  -> selected Basic-like controls
-  -> { path } dataModel bindings
-  -> action.event with resolved context
-  -> updateComponents / updateDataModel for the same surface
+  -> 静态组件树
+  -> 有限的 Basic-like 控件与 Host Catalog
+  -> { path } dataModel 绑定
+  -> action.event 与 context
+  -> 同 surface updateComponents / updateDataModel
 ```
 
-Supported capabilities are documented in `docs/agent-line-scope.md` and `docs/host-integration.md`. Those documents describe implementation reality, not official protocol completeness.
+当前不支持官方 `Modal`、通用 `FunctionCall`、`ChildList` template、`sendDataModel`、完整组件字段和多 surface 并发展示。具体支持矩阵见 [宿主接入契约](host-integration.md)，协议来源见 `specification/v0_9`。
 
-Intentionally outside the current profile:
+## 决策规则
 
-- Official `Modal`.
-- Generic `FunctionCall` in dynamic values and actions.
-- `ChildList` templates and relative item scope.
-- `sendDataModel` synchronization.
-- Complete official component field coverage.
-- Complete official function catalog.
-- Multiple concurrently rendered surfaces.
-- A2A, MCP, and WebSocket transports.
-
-## 5. Direction Rule
-
-Before adding a feature, classify it:
-
-1. Is it required by a real Agent task workflow?
-2. Is it a protocol-layer fix, a capability-layer addition, or a host policy extension?
-3. Which catalog contract declares it?
-4. Which official example or conformance fixture proves it?
-5. How is an unsupported but protocol-valid message diagnosed?
-
-A change may proceed only when it strengthens the guarded Agent Task Surface loop. Component count is not a success metric.
-
-## 6. Convergence Milestones
-
-### P14-a — Protocol / Profile Separation — Completed
-
-P14-a separated protocol validity from profile capability in code, tests, diagnostics, and documentation.
-
-The public core API now exposes:
-
-```text
-validateProtocolMessage()      -> official A2UI v0.9 structural validity
-validateNexusProfileMessage()  -> current Nexus runtime-profile support
-validateA2UIMessage()          -> compatibility composition of both checks
-```
-
-`A2UIRuntime`, the reference server stream guard, and compatibility tests use these boundaries. All 33 official Basic Catalog examples are classified as protocol-valid; none is claimed as fully profile-supported.
-
-Runtime diagnostics now carry `PROTOCOL_INVALID`, `LIFECYCLE_INVALID`, `CATALOG_UNSUPPORTED`, and `FEATURE_UNSUPPORTED` codes. `POLICY_REJECTED` is reserved for the host policy boundary as server guard classification is migrated.
-
-### P15-b — Policy Rejection Boundary — Completed
-
-P15-b completed the boundary vocabulary. Default policy rules and injected host policy hooks now emit `POLICY_REJECTED`, and the reference SSE error payload exposes it as `boundaryCode`. This lets hosts distinguish business-policy rejection from protocol, lifecycle, catalog, and runtime-feature failures without parsing error text.
-
-### P14-b-a — Catalog Identity — Completed
-
-P14-b-a separated the three identities, made the Nexus profile canonical, normalized the legacy URL for existing records, and explicitly refused the official Basic Catalog ID until a conformant catalog exists.
-
-### P14-b-b — Catalog Contract Migration — Completed
-
-P14-b-b added declarative component policies for allowed fields, dynamic binding, action attachment, check scope, and field origin. The Nexus Basic and Workbench catalogs now carry these contracts; the server consumes the same registry boundary instead of hand-writing Basic field and checks rules. `Button.disabled` is explicitly marked `nexus-extension`, while official Basic fields remain marked `official-basic`.
-
-Host-specific workflow rules (for example Workbench exact IDs and submit bindings), URL safety policy, and cross-field semantic checks remain in the policy layer. They are intentionally separate from component capability contracts.
-
-### P14-c-a — Host Policy Layer — Completed
-
-P14-c-a extracted the remaining host policies out of `agent-guard.ts`:
-
-| Module | Responsibility |
-| --- | --- |
-| `policy/component-policy.ts` | Cross-field component semantics such as slider range, date-time enablement, ISO bounds, and regex validity. |
-| `policy/media-policy.ts` | Media intent classification and the rule that URL-like values may not pass through `Text`. |
-| `policy/workflow-policy.ts` | Search, submit, and Workbench final-surface workflow ownership. |
-
-`agent-guard.ts` now orchestrates protocol, profile, catalog, lifecycle, and policy checks. This keeps host policy replaceable without changing catalog contracts or the A2UI runtime.
-
-### P14-c-b — Injectable Host Policy — Completed
-
-P14-c-b added `AgentPolicy` to the server host-assembly API. `AgentAdapterOptions.policy` and `AgentSequenceOptions.policy` accept a partial policy with these hooks:
-
-| Hook | Purpose |
-| --- | --- |
-| `validateComponent` | Cross-field component semantics and host component rules. |
-| `validateLiteralMedia` | Literal media-safety rules before dynamic values arrive. |
-| `validateDynamicMedia` | Media-safety rules against the current dataModel. |
-| `getRequiredMedia` | Classifies media components required by the task request. |
-| `validateFinal` | Enforces final-surface workflow ownership. |
-
-`resolveAgentPolicy` merges a host policy over `nexusAgentPolicy`. The reference AgentAdapter therefore can enforce an enterprise workflow without changing Catalog contracts, the A2UI runtime, or the guard orchestration layer.
-
-### P15-c — Real Agent Acceptance Harness — Completed
-
-The standalone template now includes a command-driven acceptance harness. Given an external Agent endpoint, it starts a temporary host, validates NDJSON generation, exercises host policy rejection, captures runtime action context, dispatches the official action flow, and verifies same-surface patching. This gives a real Agent project a concrete integration gate before browser work begins.
-
-### P16-a — Reusable Verification API — Completed
-
-The verification path moved into `@nexus-ui/server` as `verifyExternalAgentIntegration`. A host supplies its Catalog, optional `AgentPolicy`, RPC endpoint, task message, and action selector. The verifier runs the same guarded adapter path, checks generation and action streams, confirms same-surface patching, performs a `POLICY_REJECTED` probe, and returns a structured report.
-
-The standalone demo remains a template; the reusable API is the integration gate for real Agent projects.
-
-### P16-b — Agent Onboarding Contract — Completed
-
-`GET /api/a2ui/agent-onboarding` now publishes a machine-readable contract for an explicitly released catalog. It combines the Catalog Contract with external RPC request/response rules, transport constraints, SSE error boundary codes, and acceptance checks. The endpoint is included only when the host explicitly chooses to disclose it.
-
-### P16-c — Verifiable Onboarding Checks — Completed
-
-Onboarding checks now have stable ids: `generation-lifecycle`, `catalog-stability`, `generation-root`, `action-same-surface`, `action-root-stability`, and `policy-rejection`. `verifyExternalAgentIntegration` returns one check result for each id, exposes the resolved action context, and fails when the policy probe returns a boundary other than `POLICY_REJECTED`. The standalone demo delegates to this reusable verifier instead of maintaining a second acceptance implementation.
-
-### P17-a — Contract-Driven Verification — Completed
-
-`verifyExternalAgentOnboarding` accepts a host-published onboarding URL, fetches and validates the v1 contract, uses the embedded Catalog, resolves the disclosed Agent endpoint, and delegates to the reusable integration verifier. A caller can supply an explicit Agent endpoint when the host intentionally leaves the endpoint undisclosed, and `expectedCatalogId` prevents verifying the wrong published profile.
-
-### P17-b — Onboarding Browser Surface — Completed
-
-The standalone demo now exposes a dedicated onboarding panel next to the Catalog Contract panel. It renders the protocol/catalog summary, disclosed RPC endpoint, SSE boundary codes, six stable acceptance checks, and host verification command. React DOM tests lock the query, rendering, and mobile-safe contract layout.
-
-### P18-a — Published Catalog Discovery — Completed
-
-`GET /api/a2ui/published-catalogs` returns a compact list of explicitly published catalogs with absolute Catalog Contract and Agent Onboarding Contract URLs. Discovery remains separate from adapter registration: only `catalogContracts` appears, and an empty publication list is represented as an empty array.
-
-### P18-b — Discovery-Driven Browser Panels — Completed
-
-The standalone browser app discovers published catalogs before enabling either contract panel. It uses the returned absolute contract URLs directly, so the browser no longer constructs `catalogId` query strings for documentation loading. React DOM tests assert the discovery request, exact URL reuse, Catalog Contract loading, Agent Onboarding loading, and the runtime action loop.
-
-### P19-a — Discovery-Driven Verification CLI — Completed
-
-The standalone verify command now accepts `NEXUS_DISCOVERY_URL` or `--discovery-url`. It validates the published-catalog payload, selects the requested catalog (the demo catalog by default), uses the returned onboarding URL, and delegates to the contract-driven verifier. The report records the discovery result, and an unpublished catalog selection fails before invoking the Agent.
-
-### P19-b — Published Catalog Client API — Completed
-
-`@nexus-ui/server` now exports `fetchPublishedCatalogs` and `PublishedCatalogsClientOptions`. The client validates HTTP(S), JSON content, response size, server API version, payload kind, and catalog summaries without starting a listener or reading credentials. The standalone demo resolver now reuses this public client.
-
-### P20-a — External Agent Onboarding Path — Completed
-
-The external-agent onboarding guide now provides the shortest discovery → contract → JSONL RPC → verifier path. It separates host-owned catalog policy and verification from Agent-owned JSONL generation, and explicitly keeps authentication, rate limiting, tenant isolation, and audit outside the onboarding contract.
-
-### P15-a — Minimal Host Template Policy — Completed
-
-The standalone host template now exposes the policy seam and demonstrates a host-owned Catalog capability contract. `ApprovalSummary` and `Button.disabled` are explicitly marked `host-extension`; `title` and `amount` require path bindings, and `Button.child` is declared as a ComponentId. The generated prompt contract describes these boundaries to the Agent, while the injected host policy remains the authoritative final boundary.
+新增能力前确认：它服务于哪个真实 Agent 工作流，属于哪一层，由哪份 Catalog Contract 声明，非法和暂不支持的输出分别如何诊断，以及哪项测试或独立宿主验收证明它。OrderOps 是当前业务验证锚点，但其订单、物流、退款和工单领域模型属于独立 Agent/Host 工程，不进入 Nexus 通用包。

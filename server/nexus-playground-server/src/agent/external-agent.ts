@@ -1,4 +1,5 @@
 import { JSONLBuffer } from '@nexus-ui/core';
+import type { CatalogContractReference } from './catalog-contract';
 import type {
   AgentAction,
   AgentActionContext,
@@ -10,13 +11,15 @@ import type { AgentTurn } from './llm-agent';
 
 export interface ExternalAgentRpcConfig {
   endpoint: string;
+  /** Host-published read-only contract URL, when the host chooses to disclose it. */
+  catalogContractUrl?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxBytes?: number;
   fetch?: typeof fetch;
 }
 
-interface ExternalAgentCatalogContract {
+interface ExternalAgentCatalogSummary {
   catalogId: string;
   supportedComponents: readonly string[];
   supportedActions: readonly string[];
@@ -29,14 +32,16 @@ type ExternalAgentRpcRequest =
       surfaceId: string;
       message: string;
       history: readonly AgentTurn[];
-    } & ExternalAgentCatalogContract)
+      catalogContract: CatalogContractReference;
+    } & ExternalAgentCatalogSummary)
   | ({
       version: 1;
       kind: 'action';
       surfaceId: string;
       action: AgentAction;
       history: readonly AgentTurn[];
-    } & ExternalAgentCatalogContract);
+      catalogContract: CatalogContractReference;
+    } & ExternalAgentCatalogSummary);
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 2_000_000;
@@ -103,6 +108,16 @@ function createRequestHeaders(config: ExternalAgentRpcConfig): Record<string, st
     ...config.headers,
     'Content-Type': 'application/json',
     Accept: 'application/x-ndjson',
+  };
+}
+
+function createRemoteCatalogContract(
+  contract: CatalogContractReference,
+  config: ExternalAgentRpcConfig,
+): CatalogContractReference {
+  return {
+    ...contract,
+    ...(config.catalogContractUrl === undefined ? {} : { url: config.catalogContractUrl }),
   };
 }
 
@@ -201,6 +216,7 @@ export function createExternalAgentGenerationSource(
         catalogId: request.catalogId,
         supportedComponents: request.supportedComponents,
         supportedActions: request.supportedActions,
+        catalogContract: createRemoteCatalogContract(request.catalogContract, config),
       },
       request.signal,
     );
@@ -221,6 +237,7 @@ export function createExternalAgentActionHandler(
         catalogId: context.catalogId,
         supportedComponents: context.catalog.components,
         supportedActions: context.supportedActions,
+        catalogContract: createRemoteCatalogContract(context.catalogContract, config),
       },
       context.signal,
     );

@@ -9,6 +9,8 @@ const payload = {
   catalogs: [
     {
       catalogId: 'https://example.com/catalogs/client-test/v1',
+      contractVersion: 1,
+      contractHash: 'sha256:catalog-contract-hash',
       components: ['Summary', 'Button'],
       actions: ['submit'],
       catalogContractUrl: 'https://example.com/api/a2ui/catalog-contract?catalogId=test',
@@ -48,6 +50,36 @@ describe('fetchPublishedCatalogs', () => {
       timeoutMs: 1000,
     });
     assert.deepEqual(result, payload);
+  });
+
+  it('rejects discovery summaries without a catalog contract identity', async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({
+          ...payload,
+          catalogs: [
+            {
+              ...payload.catalogs[0],
+              contractVersion: 1,
+              contractHash: 'not-a-catalog-contract-hash',
+            },
+          ],
+        }),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    await assert.rejects(
+      fetchPublishedCatalogs({
+        url: `http://127.0.0.1:${address.port}/api/a2ui/published-catalogs`,
+        timeoutMs: 1000,
+      }),
+      /包含无效 catalog/,
+    );
   });
 
   it('rejects a non-JSON payload', async () => {

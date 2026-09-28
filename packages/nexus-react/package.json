@@ -4,18 +4,22 @@
   "private": true,
   "description": "Nexus UI React 渲染层 —— ReactRenderer + 标准组件 + Provider + 事件接入。",
   "type": "module",
-  "main": "./src/index.tsx",
-  "module": "./src/index.tsx",
-  "types": "./src/index.tsx",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.tsx",
-      "import": "./src/index.tsx"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "pnpm --filter @nexus-ui/core build && tsc -p tsconfig.build.json",
+    "build": "pnpm --filter @nexus-ui/core build && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts,.tsx"

@@ -62,6 +62,9 @@ function validatePublishedCatalogs(value: unknown, url: string): PublishedCatalo
       !isRecord(catalog) ||
       typeof catalog.catalogId !== 'string' ||
       catalog.catalogId === '' ||
+      catalog.contractVersion !== 1 ||
+      typeof catalog.contractHash !== 'string' ||
+      !catalog.contractHash.startsWith('sha256:') ||
       !Array.isArray(catalog.components) ||
       typeof catalog.catalogContractUrl !== 'string' ||
       catalog.catalogContractUrl === '' ||

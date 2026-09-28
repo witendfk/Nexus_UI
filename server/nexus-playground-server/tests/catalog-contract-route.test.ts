@@ -6,6 +6,7 @@ import Koa from 'koa';
 import { createCatalogPromptContract } from '@nexus-ui/core';
 import { AgentAdapter, createAgentRouter } from '../src/index';
 import type { CatalogDefinition } from '@nexus-ui/core';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
 
 process.env.NODE_ENV = 'test';
 delete process.env.OPENAI_API_KEY;
@@ -55,6 +56,8 @@ describe('catalog contract route', () => {
     const payload = (await response.json()) as {
       serverApiVersion?: number;
       kind?: string;
+      contractVersion?: number;
+      contractHash?: string;
       catalog?: CatalogDefinition;
       promptContract?: string;
     };
@@ -63,6 +66,8 @@ describe('catalog contract route', () => {
     assert.match(response.headers.get('content-type') ?? '', /application\/json/);
     assert.equal(payload.serverApiVersion, 1);
     assert.equal(payload.kind, 'catalog-contract');
+    assert.equal(payload.contractVersion, CATALOG_CONTRACT_VERSION);
+    assert.equal(payload.contractHash, createCatalogContractHash(catalog));
     assert.deepEqual(payload.catalog, catalog);
     assert.equal(payload.promptContract, createCatalogPromptContract(catalog));
   });
@@ -120,6 +125,8 @@ describe('catalog contract route', () => {
       kind?: string;
       catalogs?: {
         catalogId?: string;
+        contractVersion?: number;
+        contractHash?: string;
         components?: string[];
         actions?: string[];
         catalogContractUrl?: string;
@@ -134,6 +141,8 @@ describe('catalog contract route', () => {
     assert.deepEqual(payload.catalogs, [
       {
         catalogId: catalog.catalogId,
+        contractVersion: CATALOG_CONTRACT_VERSION,
+        contractHash: createCatalogContractHash(catalog),
         components: ['CustomerSummary', 'Text', 'Button'],
         actions: ['submit'],
         catalogContractUrl: `${baseUrl}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(

@@ -6,11 +6,13 @@ import type { AddressInfo } from 'node:net';
 import type Koa from 'koa';
 import { AgentAdapter } from '../src/agent/adapter';
 import type { AgentMessageSource } from '../src/agent/adapter';
-import { BASIC_CATALOG } from '../src/agent/catalog';
+import { BASIC_CATALOG, agentCatalogRegistry } from '../src/agent/catalog';
 import {
   createExternalAgentActionHandler,
   createExternalAgentGenerationSource,
 } from '../src/agent/external-agent';
+import { createCatalogContractReference } from '../src/agent/catalog-contract';
+import { CATALOG_CONTRACT_VERSION } from '../src/agent/catalog-contract';
 import { sendAgentRun } from '../src/api/send-messages';
 
 interface CapturedRequest {
@@ -169,13 +171,18 @@ describe('external agent RPC', () => {
         endpoint,
         headers: { Authorization: 'Bearer test-token' },
         timeoutMs: 1000,
+        catalogContractUrl: 'https://host.example/api/a2ui/catalog-contract?catalogId=host',
       }),
       resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
     });
     adapter.registerActionHandler(
       BASIC_CATALOG,
       'submit',
-      createExternalAgentActionHandler({ endpoint, timeoutMs: 1000 }),
+      createExternalAgentActionHandler({
+        endpoint,
+        timeoutMs: 1000,
+        catalogContractUrl: 'https://host.example/api/a2ui/catalog-contract?catalogId=host',
+      }),
     );
 
     const generation = await adapter.prepareGeneration({ message: '创建外部任务面' });
@@ -240,6 +247,20 @@ describe('external agent RPC', () => {
     assert.equal(generationRequest.catalogId, BASIC_CATALOG);
     assert.ok((generationRequest.supportedComponents as string[]).includes('Text'));
     assert.ok((generationRequest.supportedActions as string[]).includes('submit'));
+    const generationContract = generationRequest.catalogContract as Record<string, unknown>;
+    const actionContract = actionRequest.catalogContract as Record<string, unknown>;
+    assert.deepEqual(generationContract.version, CATALOG_CONTRACT_VERSION);
+    assert.equal(
+      generationContract.hash,
+      createCatalogContractReference(agentCatalogRegistry.get(BASIC_CATALOG)!).hash,
+    );
+    assert.equal(
+      generationContract.url,
+      'https://host.example/api/a2ui/catalog-contract?catalogId=host',
+    );
+    assert.equal(actionContract.version, generationContract.version);
+    assert.equal(actionContract.hash, generationContract.hash);
+    assert.equal(actionContract.url, generationContract.url);
     assert.equal(actionRequest.kind, 'action');
     assert.deepEqual((actionRequest.action as { context?: unknown }).context, {
       keyword: 'A2UI Runtime',
@@ -264,6 +285,10 @@ describe('external agent RPC', () => {
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
+      catalogContract: createCatalogContractReference({
+        catalogId: BASIC_CATALOG,
+        components: ['Text'],
+      }),
     });
 
     await assert.rejects(collect(source), /Agent unavailable/);
@@ -287,6 +312,10 @@ describe('external agent RPC', () => {
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
+      catalogContract: createCatalogContractReference({
+        catalogId: BASIC_CATALOG,
+        components: ['Text'],
+      }),
     });
 
     await assert.rejects(collect(source), /RPC 超过 1ms/);

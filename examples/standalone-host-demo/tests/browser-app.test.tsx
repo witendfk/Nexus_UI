@@ -121,6 +121,8 @@ const onboardingContract = {
   catalogContract: {
     serverApiVersion: 1,
     kind: 'catalog-contract',
+    contractVersion: 1,
+    contractHash: 'sha256:published-demo-catalog',
     catalog: {
       catalogId: DEMO_AGENT_CATALOG_ID,
       components: ['ApprovalSummary', 'Button', 'Text'],
@@ -168,6 +170,8 @@ const publishedCatalogs = {
   catalogs: [
     {
       catalogId: DEMO_AGENT_CATALOG_ID,
+      contractVersion: 1,
+      contractHash: 'sha256:published-demo-catalog',
       components: ['ApprovalSummary', 'Button', 'Text'],
       actions: [DEMO_AGENT_ACTION],
       catalogContractUrl,

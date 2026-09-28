@@ -6,6 +6,7 @@ import {
   type AgentOnboardingContractPayload,
 } from '../api/agent-onboarding';
 import { SERVER_API_VERSION } from '../version';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from './catalog-contract';
 import {
   verifyExternalAgentIntegration,
   type ExternalAgentVerificationOptions,
@@ -149,6 +150,9 @@ function validateContract(
   if (!isRecord(catalogContract) || catalogContract.kind !== 'catalog-contract') {
     throw new Error('Agent onboarding contract 缺少 catalog-contract');
   }
+  if (catalogContract.contractVersion !== CATALOG_CONTRACT_VERSION) {
+    throw new Error(`Catalog contract contractVersion 必须是 ${CATALOG_CONTRACT_VERSION}`);
+  }
   const catalog = catalogContract.catalog as CatalogDefinition | undefined;
   if (
     !isRecord(catalog) ||
@@ -163,6 +167,12 @@ function validateContract(
     throw new Error(
       `Agent onboarding contract catalogId 不匹配：预期 ${expectedCatalogId}，实际 ${catalog.catalogId}`,
     );
+  }
+  if (
+    typeof catalogContract.contractHash !== 'string' ||
+    catalogContract.contractHash !== createCatalogContractHash(catalog)
+  ) {
+    throw new Error('Catalog contract hash 不匹配，catalog 能力契约可能已变更');
   }
 
   const rpc = value.rpc;

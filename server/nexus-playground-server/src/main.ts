@@ -5,10 +5,10 @@
 import Koa from 'koa';
 import cors from '@koa/cors';
 import { createAgentRouter } from './api/routes';
-import { AgentAdapter } from './agent/adapter';
 import { defaultSurfaceHistoryStore } from './agent/history';
 import { FileSurfaceHistoryStore } from './agent/file-history';
 import { loadProjectEnv } from './config/env';
+import { createReferenceAgentAdapter } from './reference/reference-agent';
 
 loadProjectEnv();
 
@@ -16,7 +16,7 @@ const historyFile = process.env.NEXUS_HISTORY_FILE;
 const surfaceHistoryStore = historyFile
   ? new FileSurfaceHistoryStore(historyFile)
   : defaultSurfaceHistoryStore;
-const agentAdapter = new AgentAdapter({ historyStore: surfaceHistoryStore });
+const agentAdapter = createReferenceAgentAdapter({ historyStore: surfaceHistoryStore });
 const app = new Koa();
 
 const PORT = Number(process.env.PORT ?? 3001);

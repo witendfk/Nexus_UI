@@ -6,6 +6,7 @@ import { createCatalogPromptContract } from '@nexus-ui/core';
 import { createStandaloneHostApp } from '../src/host/app';
 import { DEMO_AGENT_CATALOG_ID } from '../src/contract';
 import { standaloneHostCatalog } from '../src/shared/catalog-contract';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '@nexus-ui/server';
 
 const servers: Server[] = [];
 
@@ -97,6 +98,8 @@ describe('standalone host catalog contract route', () => {
       kind?: string;
       catalogs?: {
         catalogId?: string;
+        contractVersion?: number;
+        contractHash?: string;
         components?: string[];
         actions?: string[];
         catalogContractUrl?: string;
@@ -109,6 +112,8 @@ describe('standalone host catalog contract route', () => {
     assert.deepEqual(payload.catalogs, [
       {
         catalogId: DEMO_AGENT_CATALOG_ID,
+        contractVersion: CATALOG_CONTRACT_VERSION,
+        contractHash: createCatalogContractHash(standaloneHostCatalog),
         components: ['ApprovalSummary', 'Text', 'Button'],
         actions: ['approve'],
         catalogContractUrl: `${baseUrl}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(

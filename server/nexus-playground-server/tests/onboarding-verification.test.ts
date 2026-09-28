@@ -4,6 +4,7 @@ import { afterEach, describe, it } from 'node:test';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { createCatalogPromptContract } from '@nexus-ui/core';
 import { createAgentOnboardingContract } from '../src/api/agent-onboarding';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
 import { verifyExternalAgentOnboarding } from '../src/agent/onboarding-verification';
 
 const catalog: CatalogDefinition = {
@@ -45,6 +46,15 @@ const catalog: CatalogDefinition = {
       action: { allowed: true },
     },
   },
+};
+
+const catalogContractPayload = {
+  serverApiVersion: 1 as const,
+  kind: 'catalog-contract' as const,
+  contractVersion: CATALOG_CONTRACT_VERSION,
+  contractHash: createCatalogContractHash(catalog),
+  catalog,
+  promptContract: createCatalogPromptContract(catalog),
 };
 
 const servers: Server[] = [];
@@ -92,12 +102,7 @@ describe('verifyExternalAgentOnboarding', () => {
         response.end(
           JSON.stringify(
             createAgentOnboardingContract({
-              catalogContract: {
-                serverApiVersion: 1,
-                kind: 'catalog-contract',
-                catalog,
-                promptContract: createCatalogPromptContract(catalog),
-              },
+              catalogContract: catalogContractPayload,
               rpcEndpoint: `http://${request.headers.host}/agent`,
               verificationCommand: 'pnpm verify-agent',
             }),
@@ -214,12 +219,7 @@ describe('verifyExternalAgentOnboarding', () => {
       response.end(
         JSON.stringify(
           createAgentOnboardingContract({
-            catalogContract: {
-              serverApiVersion: 1,
-              kind: 'catalog-contract',
-              catalog,
-              promptContract: createCatalogPromptContract(catalog),
-            },
+            catalogContract: catalogContractPayload,
           }),
         ),
       );
@@ -238,18 +238,42 @@ describe('verifyExternalAgentOnboarding', () => {
     );
   });
 
-  it('rejects a mismatched expected catalog id before running the Agent', async () => {
+  it('rejects an onboarding contract whose catalog hash is stale', async () => {
     const server = createServer((_request, response) => {
       response.setHeader('Content-Type', 'application/json');
       response.end(
         JSON.stringify(
           createAgentOnboardingContract({
             catalogContract: {
-              serverApiVersion: 1,
-              kind: 'catalog-contract',
-              catalog,
-              promptContract: createCatalogPromptContract(catalog),
+              ...catalogContractPayload,
+              contractHash: 'sha256:stale',
             },
+            rpcEndpoint: 'https://agent.invalid/a2ui',
+          }),
+        ),
+      );
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+
+    await assert.rejects(
+      verifyExternalAgentOnboarding({
+        contractUrl: `http://127.0.0.1:${address.port}/onboarding`,
+        timeoutMs: 1000,
+      }),
+      /Catalog contract hash 不匹配/,
+    );
+  });
+
+  it('rejects a mismatched expected catalog id before running the Agent', async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify(
+          createAgentOnboardingContract({
+            catalogContract: catalogContractPayload,
             rpcEndpoint: 'https://agent.invalid/a2ui',
           }),
         ),

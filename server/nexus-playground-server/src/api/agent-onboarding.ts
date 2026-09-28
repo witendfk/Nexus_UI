@@ -126,8 +126,21 @@ export function createAgentOnboardingContract({
         generate: {
           version: 1,
           kind: 'generate',
-          requiredFields: ['version', 'kind', 'surfaceId', 'message', 'catalogId'],
-          catalogBoundFields: ['catalogId', 'supportedComponents', 'supportedActions'],
+          requiredFields: [
+            'version',
+            'kind',
+            'surfaceId',
+            'message',
+            'catalogId',
+            'catalogContract',
+          ],
+          catalogBoundFields: [
+            'catalogId',
+            'supportedComponents',
+            'supportedActions',
+            'catalogContract.hash',
+            'catalogContract.url?',
+          ],
         },
         action: {
           version: 1,
@@ -142,8 +155,15 @@ export function createAgentOnboardingContract({
             'action.timestamp',
             'action.context',
             'catalogId',
+            'catalogContract',
           ],
-          catalogBoundFields: ['catalogId', 'supportedComponents', 'supportedActions'],
+          catalogBoundFields: [
+            'catalogId',
+            'supportedComponents',
+            'supportedActions',
+            'catalogContract.hash',
+            'catalogContract.url?',
+          ],
         },
       },
       response: {

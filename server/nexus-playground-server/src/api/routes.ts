@@ -15,6 +15,7 @@ import {
   createAgentOnboardingContract,
   type AgentOnboardingContractPayload,
 } from './agent-onboarding';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../agent/catalog-contract';
 
 function invalidRequest(ctx: Koa.Context, message: string): void {
   ctx.status = 400;
@@ -45,6 +46,8 @@ export interface AgentRouterOptions {
 export interface CatalogContractPayload {
   readonly serverApiVersion: 1;
   readonly kind: 'catalog-contract';
+  readonly contractVersion: typeof CATALOG_CONTRACT_VERSION;
+  readonly contractHash: string;
   readonly catalog: CatalogDefinition;
   readonly promptContract: string;
 }
@@ -53,6 +56,8 @@ export type { AgentOnboardingContractPayload };
 
 export interface PublishedCatalogSummary {
   readonly catalogId: string;
+  readonly contractVersion: typeof CATALOG_CONTRACT_VERSION;
+  readonly contractHash: string;
   readonly components: readonly string[];
   readonly actions: readonly string[];
   readonly catalogContractUrl: string;
@@ -107,6 +112,8 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
     catalogContracts.set(catalog.catalogId, {
       serverApiVersion: SERVER_API_VERSION,
       kind: 'catalog-contract',
+      contractVersion: CATALOG_CONTRACT_VERSION,
+      contractHash: createCatalogContractHash(catalog),
       catalog,
       promptContract: createCatalogPromptContract(catalog),
     });
@@ -214,6 +221,8 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
   router.get('/api/a2ui/published-catalogs', (ctx) => {
     const catalogs: PublishedCatalogSummary[] = [...catalogContracts.values()].map((contract) => ({
       catalogId: contract.catalog.catalogId,
+      contractVersion: contract.contractVersion,
+      contractHash: contract.contractHash,
       components: contract.catalog.components,
       actions: contract.catalog.actions ?? [],
       catalogContractUrl: contractUrl(

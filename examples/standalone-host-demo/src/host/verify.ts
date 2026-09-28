@@ -84,6 +84,8 @@ export interface AgentDiscoveryOptions {
 export interface AgentOnboardingDiscovery {
   discoveryUrl: string;
   catalogId: string;
+  contractVersion: number;
+  contractHash: string;
   components: readonly string[];
   actions: readonly string[];
   catalogContractUrl: string;
@@ -132,6 +134,8 @@ export async function resolveAgentOnboardingContract(
   return {
     discoveryUrl: options.discoveryUrl,
     catalogId,
+    contractVersion: catalog.contractVersion,
+    contractHash: catalog.contractHash,
     components: catalog.components,
     actions: catalog.actions ?? [],
     catalogContractUrl: catalog.catalogContractUrl,

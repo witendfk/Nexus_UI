@@ -21,6 +21,7 @@ import {
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
 import type { LlmAgentRequest } from '../src/agent/llm-agent';
 import { WorkbenchTaskStore } from '../src/agent/workbench-agent';
+import { createReferenceAgentAdapter } from '../src/reference/reference-agent';
 import { sendAgentRun } from '../src/api/send-messages';
 
 async function collect(source: AgentMessageSource): Promise<unknown[]> {
@@ -28,6 +29,8 @@ async function collect(source: AgentMessageSource): Promise<unknown[]> {
   for await (const message of source) messages.push(message);
   return messages;
 }
+
+const firstDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function createAction(name: string, surfaceId: string) {
   return {
@@ -95,6 +98,57 @@ function createActionRun(commit: AgentRun['commit']): AgentRun {
 }
 
 describe('AgentAdapter', () => {
+  it('keeps deterministic fallback and example actions out of the generic adapter', async () => {
+    const generic = new AgentAdapter({ useLlm: () => false });
+    const missingSource = await generic.prepareGeneration({ message: '创建任务面' });
+    assert.ok(!missingSource.ok);
+    assert.match(missingSource.message, /Generation source 未配置/);
+
+    const surfaceId = 'surface-no-reference-defaults';
+    const adapter = new AgentAdapter({
+      actionHandlers: new Map(),
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              {
+                id: 'root',
+                component: 'Column',
+                children: ['callButton', 'callLabel'],
+              },
+              {
+                id: 'callButton',
+                component: 'Button',
+                child: 'callLabel',
+                action: { event: { name: 'call', context: {} } },
+              },
+              { id: 'callLabel', component: 'Text', text: 'Call' },
+            ],
+          },
+        },
+      ],
+    });
+    const generation = await adapter.prepareGeneration({ message: '创建任务面' });
+    assert.ok(generation.ok);
+    const messages = await collect(generation.run.source);
+    await generation.run.commit(messages);
+
+    const action = await adapter.prepareAction({
+      ...createAction('call', surfaceId),
+      sourceComponentId: 'callButton',
+    });
+    assert.ok(!action.ok);
+    assert.match(action.message, /Action handler 未注册/);
+  });
+
   it('宿主可注入生成源，action handler 可读取成功生成上下文', async () => {
     const generationRequests: AgentGenerationSourceRequest[] = [];
     const actionContexts: Array<{ action: AgentAction; context: AgentActionContext }> = [];
@@ -161,7 +215,6 @@ describe('AgentAdapter', () => {
     const action = await adapter.prepareAction({
       ...createAction('call', surfaceId),
       sourceComponentId: 'contextButton',
-      context: { amount: 999, approvalId: 'forged' },
     });
     assert.ok(action.ok);
     await collect(action.run.source);
@@ -172,10 +225,7 @@ describe('AgentAdapter', () => {
     assert.deepEqual(generationRequests[0]?.history, []);
     assert.equal(actionContexts.length, 1);
     assert.deepEqual(actionContexts[0]?.action.context, {});
-    assert.deepEqual(actionContexts[0]?.context.clientContext, {
-      amount: 999,
-      approvalId: 'forged',
-    });
+    assert.deepEqual(actionContexts[0]?.context.clientContext, {});
     assert.equal(actionContexts[0]?.context.catalogId, BASIC_CATALOG);
     assert.ok(actionContexts[0]?.context.catalog.components.includes('Text'));
     assert.equal(actionContexts[0]?.context.history[0]?.content, '创建宿主任务面');
@@ -367,7 +417,7 @@ describe('AgentAdapter', () => {
   });
 
   it('按 catalog 选择 fallback 生成源并生成 surfaceId', async () => {
-    const adapter = new AgentAdapter({
+    const adapter = createReferenceAgentAdapter({
       createSurfaceId: () => 'surface-task-adapter',
     });
     const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
@@ -404,7 +454,7 @@ describe('AgentAdapter', () => {
   });
 
   it('action 按 surface 记录的 catalog 分发 handler', async () => {
-    const adapter = new AgentAdapter({
+    const adapter = createReferenceAgentAdapter({
       createSurfaceId: () => 'surface-action-adapter',
     });
     const generation = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
@@ -442,7 +492,7 @@ describe('AgentAdapter', () => {
 
   it('Workbench 生成后 submit action 创建任务并原地关闭提交入口', async () => {
     const workbenchStore = new WorkbenchTaskStore();
-    const adapter = new AgentAdapter({
+    const adapter = createReferenceAgentAdapter({
       createSurfaceId: () => 'surface-workbench',
       workbenchTaskStore: workbenchStore,
       resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
@@ -615,7 +665,7 @@ describe('AgentAdapter', () => {
 
   it('Basic search action 返回包含用户输入值的原地更新', async () => {
     const surfaceId = 'surface-search';
-    const adapter = new AgentAdapter({
+    const adapter = createReferenceAgentAdapter({
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
@@ -686,7 +736,7 @@ describe('AgentAdapter', () => {
 
   it('Basic submit action 返回文本与布尔输入的原地更新', async () => {
     const surfaceId = 'surface-form';
-    const adapter = new AgentAdapter({
+    const adapter = createReferenceAgentAdapter({
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
@@ -792,6 +842,257 @@ describe('AgentAdapter', () => {
     const action = await adapter.prepareAction(createAction('search', 'surface-legacy-action'));
     assert.ok(!action.ok);
     assert.match(action.message, /Action surface 不存在或已过期/);
+  });
+
+  it('serializes concurrent handler execution for the same surface', async () => {
+    const surfaceId = 'surface-serial-action';
+    const executionOrder: string[] = [];
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${BASIC_CATALOG}:submit`,
+          async function* () {
+            executionOrder.push('handler-start');
+            await firstDelay(30);
+            executionOrder.push('handler-end');
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+          },
+        ],
+      ]),
+    });
+    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
+
+    const firstPromise = adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+    });
+    const firstPlan = await firstPromise;
+    assert.ok(firstPlan.ok);
+
+    // Start the second while the first still holds the lock.
+    const secondPromise = adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:01.000Z',
+    });
+
+    // Consume the first source; the handler runs and the lock is released.
+    const firstMessages = await collect(firstPlan.run.source);
+    await firstPlan.run.commit(firstMessages);
+    assert.ok(executionOrder.includes('handler-start'));
+    assert.ok(executionOrder.includes('handler-end'));
+
+    // The second prepareAction should have waited for the first to complete.
+    const secondPlan = await secondPromise;
+    assert.ok(secondPlan.ok);
+    const secondMessages = await collect(secondPlan.run.source);
+    await secondPlan.run.commit(secondMessages);
+    assert.equal(
+      executionOrder.filter((entry) => entry === 'handler-start').length,
+      2,
+      'both handlers should run sequentially, not concurrently',
+    );
+  });
+
+  it('rolls back the action snapshot when the generation commit hook fails', async () => {
+    const surfaceId = 'surface-rollback-generation';
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [{ id: 'root', component: 'Column', children: [] }],
+          },
+        },
+      ],
+      onGenerationCommitted: () => {
+        throw new Error('host success hook failed');
+      },
+    });
+    const generation = await adapter.prepareGeneration({ message: 'rollback test' });
+    assert.ok(generation.ok);
+    const messages = await collect(generation.run.source);
+    await assert.rejects(
+      () => Promise.resolve().then(() => generation.run.commit(messages)),
+      /host success hook failed/,
+    );
+
+    const snapshot = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'root',
+    });
+    assert.ok(!snapshot.ok);
+    assert.match(snapshot.message, /Action surface 不存在或已过期/);
+  });
+
+  it('marks the action ledger as failed when the stream fails before commit', async () => {
+    const surfaceId = 'surface-ledger-fail';
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${BASIC_CATALOG}:submit`,
+          async function* () {
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+          },
+        ],
+      ]),
+    });
+    const generation = await adapter.prepareGeneration({ message: 'ledger test' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
+
+    const action = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+      actionId: 'test-action-id-1',
+    });
+    assert.ok(action.ok);
+
+    await collect(action.run.source);
+    // Simulate stream failure without calling commit.
+    action.run.onError?.(new Error('stream failed'));
+
+    const retry = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+      actionId: 'test-action-id-1',
+    });
+    // The ledger entry was closed as failed, so the same actionId can be retried.
+    assert.ok(retry.ok);
+  });
+
+  it('rejects action context fields not declared on the surface', async () => {
+    const surfaceId = 'surface-undeclared-fields';
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateDataModel: {
+            surfaceId,
+            value: { orderId: 'SO-001', adminOverride: true },
+          },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: {
+                  event: {
+                    name: 'submit',
+                    context: { orderId: { path: '/orderId' } },
+                  },
+                },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${BASIC_CATALOG}:submit`,
+          async function* () {
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+          },
+        ],
+      ]),
+    });
+    const generation = await adapter.prepareGeneration({ message: 'field test' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
+
+    const injected = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+      context: { orderId: 'SO-001', adminOverride: true },
+    });
+    assert.ok(!injected.ok);
+    assert.match(injected.message, /Action context 包含未声明的客户端字段: adminOverride/);
   });
 });
 

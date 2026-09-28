@@ -6,8 +6,6 @@ import {
   getCatalogActions,
   isOfficialBasicCatalog,
   normalizeLegacyBasicCatalog,
-  TASK_CATALOG,
-  WORKBENCH_CATALOG,
 } from './catalog';
 import type { AgentSequenceOptions } from './agent-guard';
 import { resolveAgentPolicy, type AgentPolicy } from './policy';
@@ -15,6 +13,8 @@ import type { AgentTurn } from './llm-agent';
 import { defaultSurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
 import { isLlmAgentEnabled, streamLlmMessages } from './llm-agent';
+import { createCatalogContractReference } from './catalog-contract';
+import type { CatalogContractReference } from './catalog-contract';
 import {
   InMemorySurfaceActionLedger,
   InMemorySurfaceActionStateStore,
@@ -26,19 +26,6 @@ import type {
   SurfaceActionLedger,
   SurfaceActionStateStore,
 } from './surface-action-state';
-import {
-  createActionResponse,
-  createContactFixture,
-  createSearchActionResponse,
-  createSubmitActionResponse,
-  createTaskFixture,
-  createWorkbenchFixture,
-} from './mock-agent';
-import type { TaskStateStore } from './task-agent';
-import { createTaskActionHandler, taskStateStore } from './task-agent';
-import type { WorkbenchTaskStore } from './workbench-agent';
-import { createWorkbenchActionHandler, workbenchTaskStore } from './workbench-agent';
-
 export interface AgentAction {
   name: string;
   surfaceId: string;
@@ -68,6 +55,10 @@ export interface AgentRun {
   source: AgentMessageSource;
   sequence: AgentSequenceOptions;
   commit(messages: unknown[]): void | Promise<void>;
+  /** Called when the SSE stream fails after the run was dispatched; use to close side-effect state. */
+  onError?(error?: unknown): void;
+  /** Called by sendAgentRun in finally; use to release per-surface locks. */
+  dispose?: () => void;
 }
 
 export type AgentPlan = { ok: true; run: AgentRun } | { ok: false; message: string };
@@ -81,15 +72,23 @@ export interface AgentGenerationSourceRequest {
   supportedComponents: readonly string[];
   supportedActions: readonly string[];
   history: readonly AgentTurn[];
+  catalogContract: CatalogContractReference;
   signal?: AbortSignal;
 }
 
 export type AgentGenerationSource = (request: AgentGenerationSourceRequest) => AgentMessageSource;
 
+export interface AgentGenerationCommitEvent {
+  surfaceId: string;
+  catalogId: string;
+  messages: readonly unknown[];
+}
+
 export interface AgentActionContext {
   catalogId: string;
   catalog: CatalogDefinition;
   supportedActions: readonly string[];
+  catalogContract: CatalogContractReference;
   history: readonly AgentTurn[];
   surfaceAction: ResolvedSurfaceAction;
   clientContext: Record<string, unknown>;
@@ -113,52 +112,18 @@ export interface AgentAdapterOptions {
   useLlm?: () => boolean;
   streamLlm?: typeof streamLlmMessages;
   createGenerationSource?: AgentGenerationSource;
+  fallbackGeneration?: AgentGenerationSource;
   createSurfaceId?: () => string;
-  taskStateStore?: TaskStateStore;
-  workbenchTaskStore?: WorkbenchTaskStore;
   policy?: AgentPolicy;
   actionStateStore?: SurfaceActionStateStore;
   actionLedger?: SurfaceActionLedger;
   resolveActionContext?: AgentActionContextResolver;
+  defaultGenerationMessage?: string;
+  onGenerationCommitted?: (event: AgentGenerationCommitEvent) => void | Promise<void>;
 }
 
 function createActionHandlerKey(catalogId: string, actionName: string): string {
   return `${catalogId}:${actionName}`;
-}
-
-function createDefaultActionHandlers(
-  store: TaskStateStore,
-  workbenchStore: WorkbenchTaskStore,
-): Map<string, AgentActionHandler> {
-  const handlers = new Map<string, AgentActionHandler>();
-  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'call'), (action) =>
-    createActionResponse(action.surfaceId),
-  );
-  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'search'), (action) =>
-    createSearchActionResponse(action.surfaceId, action.context),
-  );
-  handlers.set(createActionHandlerKey(NEXUS_BASIC_TASK_CATALOG, 'submit'), (action) =>
-    createSubmitActionResponse(action.surfaceId, action.context),
-  );
-  handlers.set(createActionHandlerKey(TASK_CATALOG, 'start'), createTaskActionHandler(store));
-  handlers.set(createActionHandlerKey(TASK_CATALOG, 'complete'), createTaskActionHandler(store));
-  handlers.set(
-    createActionHandlerKey(WORKBENCH_CATALOG, 'submit'),
-    createWorkbenchActionHandler(workbenchStore),
-  );
-  return handlers;
-}
-
-function createFallbackGeneration(
-  surfaceId: string,
-  catalog: CatalogDefinition,
-): AgentMessageSource {
-  if (catalog.catalogId === NEXUS_BASIC_TASK_CATALOG) {
-    return createContactFixture(surfaceId);
-  }
-  if (catalog.catalogId === TASK_CATALOG) return createTaskFixture(surfaceId);
-  if (catalog.catalogId === WORKBENCH_CATALOG) return createWorkbenchFixture(surfaceId);
-  throw new Error(`Fallback Agent 未支持 catalog: ${catalog.catalogId}`);
 }
 
 /**
@@ -172,22 +137,22 @@ export class AgentAdapter {
   private readonly useLlm: () => boolean;
   private readonly streamLlm: typeof streamLlmMessages;
   private readonly createGenerationSource?: AgentGenerationSource;
+  private readonly fallbackGeneration?: AgentGenerationSource;
   private readonly createSurfaceId: () => string;
-  private readonly taskStateStore: TaskStateStore;
-  private readonly workbenchTaskStore: WorkbenchTaskStore;
   private readonly policy = resolveAgentPolicy();
   private readonly actionStateStore: SurfaceActionStateStore;
   private readonly actionLedger: SurfaceActionLedger;
   private readonly resolveActionContext?: AgentActionContextResolver;
+  private readonly defaultGenerationMessage: string;
+  private readonly onGenerationCommitted?: (
+    event: AgentGenerationCommitEvent,
+  ) => void | Promise<void>;
+  private readonly surfaceActionLocks = new Map<string, Promise<void>>();
 
   constructor(options: AgentAdapterOptions = {}) {
     this.registry = options.registry ?? agentCatalogRegistry;
-    this.taskStateStore = options.taskStateStore ?? taskStateStore;
-    this.workbenchTaskStore = options.workbenchTaskStore ?? workbenchTaskStore;
     this.policy = resolveAgentPolicy(options.policy);
-    this.actionHandlers =
-      options.actionHandlers ??
-      createDefaultActionHandlers(this.taskStateStore, this.workbenchTaskStore);
+    this.actionHandlers = options.actionHandlers ?? new Map();
     this.historyStore = options.historyStore ?? defaultSurfaceHistoryStore;
     this.actionStateStore = options.actionStateStore ?? new InMemorySurfaceActionStateStore();
     this.actionLedger = options.actionLedger ?? new InMemorySurfaceActionLedger();
@@ -195,7 +160,10 @@ export class AgentAdapter {
     this.useLlm = options.useLlm ?? isLlmAgentEnabled;
     this.streamLlm = options.streamLlm ?? streamLlmMessages;
     this.createGenerationSource = options.createGenerationSource;
+    this.fallbackGeneration = options.fallbackGeneration;
     this.createSurfaceId = options.createSurfaceId ?? (() => `surface-${randomUUID()}`);
+    this.defaultGenerationMessage = options.defaultGenerationMessage ?? '';
+    this.onGenerationCommitted = options.onGenerationCommitted;
   }
 
   registerActionHandler(catalogId: string, actionName: string, handler: AgentActionHandler): void {
@@ -228,36 +196,47 @@ export class AgentAdapter {
     const message =
       typeof request.message === 'string' && request.message.trim()
         ? request.message
-        : '生成一张联系人卡片';
+        : this.defaultGenerationMessage;
     const useLlm = this.useLlm();
     const supportedActions = getCatalogActions(catalogId, catalog);
+    const catalogContract = createCatalogContractReference(catalog);
     const history = (await this.historyStore.getHistory(surfaceId)).map((turn) => ({ ...turn }));
+    const sourceRequest: AgentGenerationSourceRequest = {
+      kind: 'generate',
+      surfaceId,
+      message,
+      catalogId,
+      catalog,
+      supportedComponents: catalog.components,
+      supportedActions,
+      catalogContract,
+      history,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    };
     let source: AgentMessageSource;
     try {
-      source = this.createGenerationSource
-        ? this.createGenerationSource({
-            kind: 'generate',
-            surfaceId,
-            message,
-            catalogId,
-            catalog,
-            supportedComponents: catalog.components,
-            supportedActions,
-            history,
-            ...(options.signal === undefined ? {} : { signal: options.signal }),
-          })
-        : useLlm
-          ? this.streamLlm({
-              kind: 'generate',
-              surfaceId,
-              message,
-              catalogId,
-              supportedComponents: catalog.components,
-              supportedActions,
-              history,
-              ...(options.signal === undefined ? {} : { signal: options.signal }),
-            })
-          : createFallbackGeneration(surfaceId, catalog);
+      if (this.createGenerationSource) {
+        source = this.createGenerationSource(sourceRequest);
+      } else if (useLlm) {
+        source = this.streamLlm({
+          kind: 'generate',
+          surfaceId,
+          message,
+          catalogId,
+          supportedComponents: catalog.components,
+          supportedActions,
+          history,
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+        });
+      } else if (this.fallbackGeneration) {
+        source = this.fallbackGeneration(sourceRequest);
+      } else {
+        return {
+          ok: false,
+          message:
+            'Generation source 未配置；宿主需注入 createGenerationSource、fallbackGeneration 或启用 LLM',
+        };
+      }
     } catch (error) {
       return {
         ok: false,
@@ -265,7 +244,6 @@ export class AgentAdapter {
       };
     }
     const shouldRecordHistory = Boolean(this.createGenerationSource) || useLlm;
-
     return {
       ok: true,
       run: {
@@ -287,37 +265,49 @@ export class AgentAdapter {
             surfaceCatalog.catalogId,
             messages,
           );
-          if (catalogId === TASK_CATALOG) this.taskStateStore.initialize(surfaceId);
-          if (catalogId === WORKBENCH_CATALOG) this.workbenchTaskStore.initialize(surfaceId);
-          await this.historyStore.commitGeneration(
-            surfaceCatalog.surfaceId,
-            surfaceCatalog.catalogId,
-            shouldRecordHistory
-              ? [
-                  { role: 'user', content: message },
-                  { role: 'assistant', content: JSON.stringify(messages) },
-                ]
-              : [],
-          );
+          try {
+            await this.onGenerationCommitted?.({
+              surfaceId: surfaceCatalog.surfaceId,
+              catalogId: surfaceCatalog.catalogId,
+              messages,
+            });
+            await this.historyStore.commitGeneration(
+              surfaceCatalog.surfaceId,
+              surfaceCatalog.catalogId,
+              shouldRecordHistory
+                ? [
+                    { role: 'user', content: message },
+                    { role: 'assistant', content: JSON.stringify(messages) },
+                  ]
+                : [],
+            );
+          } catch (error) {
+            await this.actionStateStore.removeSnapshot(surfaceCatalog.surfaceId);
+            throw error;
+          }
         },
       },
     };
   }
 
   async prepareAction(action: AgentAction, options: AgentPrepareOptions = {}): Promise<AgentPlan> {
+    const releaseLock = await this.acquireSurfaceLock(action.surfaceId);
     const snapshot = await this.actionStateStore.get(action.surfaceId);
     if (!snapshot) {
+      releaseLock();
       return { ok: false, message: `Action surface 不存在或已过期: ${action.surfaceId}` };
     }
     const historyCatalogId = snapshot.catalogId;
     const catalogId = normalizeLegacyBasicCatalog(historyCatalogId);
     const catalog = this.registry.get(catalogId);
     if (!catalog) {
+      releaseLock();
       return { ok: false, message: `Agent catalog 未注册: ${catalogId}` };
     }
 
     const surfaceAction = findSurfaceAction(snapshot, action.name, action.sourceComponentId);
     if (!surfaceAction) {
+      releaseLock();
       return {
         ok: false,
         message: `Action 与服务端 surface 状态不匹配: ${action.surfaceId}/${action.sourceComponentId}/${action.name}`,
@@ -326,6 +316,7 @@ export class AgentAdapter {
 
     const handler = this.actionHandlers.get(createActionHandlerKey(catalogId, action.name));
     if (!handler) {
+      releaseLock();
       return {
         ok: false,
         message: `Action handler 未注册: ${catalogId}/${action.name}`,
@@ -341,41 +332,58 @@ export class AgentAdapter {
         sourceComponentId: action.sourceComponentId,
       })
     ) {
+      releaseLock();
       return { ok: false, message: 'Action 重放或重复提交已被拒绝' };
     }
 
     const clientContext = { ...action.context };
     let context: Record<string, unknown>;
+    let contextFromDeclaredBindings = false;
     try {
-      context = this.resolveActionContext
-        ? await this.resolveActionContext({
-            action,
-            surfaceAction,
-            clientContext,
-          })
-        : resolveDeclaredActionContext(surfaceAction.declaration, snapshot.dataModel);
+      if (this.resolveActionContext) {
+        context = await this.resolveActionContext({
+          action,
+          surfaceAction,
+          clientContext,
+        });
+      } else {
+        // Without a custom resolver the server dataModel is authoritative; reject
+        // any client-supplied field that is not declared in the action binding.
+        contextFromDeclaredBindings = true;
+        context = resolveDeclaredActionContext(surfaceAction.declaration, snapshot.dataModel);
+      }
       if (typeof context !== 'object' || context === null || Array.isArray(context)) {
         throw new Error('Action context resolver 必须返回 JSON 对象');
       }
+      if (contextFromDeclaredBindings) {
+        const declaredFields = new Set(Object.keys(surfaceAction.declaration.context ?? {}));
+        const extraFields = Object.keys(clientContext).filter((key) => !declaredFields.has(key));
+        if (Object.keys(clientContext).length > 0 && extraFields.length > 0) {
+          throw new Error(`Action context 包含未声明的客户端字段: ${extraFields.join(', ')}`);
+        }
+      }
     } catch (error) {
       this.actionLedger.complete(ledgerKey, 'failed');
+      releaseLock();
       return {
         ok: false,
         message: error instanceof Error ? error.message : 'Action context 解析失败',
       };
     }
 
-    const authoritativeAction: AgentAction = { ...action, context };
-
     const history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
       ...turn,
     }));
+
+    const authoritativeAction: AgentAction = { ...action, context };
+
     let source: AgentMessageSource;
     try {
       source = await handler(authoritativeAction, {
         catalogId,
         catalog,
         supportedActions: getCatalogActions(catalogId, catalog),
+        catalogContract: createCatalogContractReference(catalog),
         history,
         surfaceAction,
         clientContext,
@@ -383,16 +391,21 @@ export class AgentAdapter {
       });
     } catch (error) {
       this.actionLedger.complete(ledgerKey, 'failed');
+      releaseLock();
       return {
         ok: false,
         message: error instanceof Error ? error.message : '业务 action 处理失败',
       };
     }
+    // The generator's finally releases the lock when the source is fully
+    // consumed (by sendAgentRun or tests); dispose is a safety net for early
+    // termination without consuming the source.
+    const guardedSource = createLockGuardedSource(source, releaseLock);
 
     return {
       ok: true,
       run: {
-        source,
+        source: guardedSource,
         sequence: {
           kind: 'action',
           surfaceId: action.surfaceId,
@@ -405,8 +418,39 @@ export class AgentAdapter {
           await this.actionStateStore.commitAction(messages);
           this.actionLedger.complete(ledgerKey, 'succeeded');
         },
+        onError: () => {
+          this.actionLedger.complete(ledgerKey, 'failed');
+        },
+        dispose: releaseLock,
       },
     };
+  }
+
+  private async acquireSurfaceLock(surfaceId: string): Promise<() => void> {
+    const previous = this.surfaceActionLocks.get(surfaceId) ?? Promise.resolve();
+    let releaseLock!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    this.surfaceActionLocks.set(surfaceId, current);
+    await previous;
+    return () => {
+      releaseLock();
+      if (this.surfaceActionLocks.get(surfaceId) === current) {
+        this.surfaceActionLocks.delete(surfaceId);
+      }
+    };
+  }
+}
+
+async function* createLockGuardedSource(
+  source: AgentMessageSource,
+  release: () => void,
+): AsyncGenerator<unknown> {
+  try {
+    yield* source;
+  } finally {
+    release();
   }
 }
 

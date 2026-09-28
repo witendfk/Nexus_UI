@@ -4,6 +4,8 @@
 适用版本：A2UI `v0.9` / Nexus Agent Task Profile。  
 目标：回答外部 Agent 开发者最短路径的四个问题——发现哪个 catalog、读取哪份契约、实现什么 RPC、怎样验收。
 
+下文的 Workbench catalog 是已实现示例。当前垂直业务方向是 [OrderOps Copilot](order-ops-copilot.md)；真实 OrderOps Agent 必须消费宿主发布的 OrderOps catalog contract，而不是复用 Workbench 的组件或 action 边界。
+
 这不是完整 A2UI v0.9 conformance 指南。当前接入目标是 Nexus Agent Task Profile：一个任务 surface、受 catalog 约束的组件、dataModel 绑定和 action 回流。
 
 ## 0. Prepare Three Values
@@ -37,12 +39,15 @@ console.log(selected.agentOnboardingUrl);
 
 `selected.agentOnboardingUrl` 是后续验收入口；`selected.catalogContractUrl` 只用于查看组件、schema 和 policy 边界。
 
+Discovery summary 也包含 `selected.contractVersion` 和 `selected.contractHash`。外部 Agent 应在本地缓存契约时记录这对值；hash 不同说明 catalog 能力契约已变更，必须重新读取完整 contract。
+
 ## 2. Read The Onboarding Contract
 
 `agentOnboardingUrl` 返回机器可读契约，包含：
 
 - A2UI `v0.9` + JSONL 传输约束；
 - 原始 catalog contract 和可注入 system prompt 的 `promptContract`；
+- `contractVersion` 和 `contractHash`，用于判断 catalog 能力契约是否变更；
 - generate / action 请求字段；
 - NDJSON 响应约束；
 - SSE 错误边界码；
@@ -66,6 +71,11 @@ Agent 暴露一个 `POST` endpoint，接收 `application/json`，返回 `applica
   "catalogId": "https://host.example/catalogs/workbench/v1",
   "supportedComponents": ["CustomerSummary", "Text", "Button"],
   "supportedActions": ["submit"],
+  "catalogContract": {
+    "version": 1,
+    "hash": "sha256:...",
+    "url": "https://host.example/api/a2ui/catalog-contract?catalogId=..."
+  },
   "history": []
 }
 ```
@@ -85,6 +95,7 @@ action 请求中的 `action` 由宿主根据用户操作构造。Agent 必须返
 - 第一条生成消息必须是 `createSurface`。
 - 必须渲染 `id: "root"`。
 - 组件名、action 名、props 和 dynamic binding 必须符合 catalog contract。
+- Agent 应使用 `catalogContract.url` 获取当前契约；如果本地缓存 hash 与请求 hash 不同，必须刷新能力契约后再生成。
 - 稳定组件 id 必须保持不变。
 - action 后 `root` 必须仍存在。
 - 不要返回 Markdown、HTML、React 源码、JSON 数组或 prose。

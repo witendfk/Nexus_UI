@@ -186,6 +186,9 @@ export function sendAgentRun(
           ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
         },
       );
+      if (!result.ok) {
+        run.onError?.(controller.signal.aborted ? new Error('客户端断开') : undefined);
+      }
       manager.transition(
         idPrefix,
         controller.signal.aborted ? 'canceled' : result.ok ? 'succeeded' : 'failed',
@@ -203,6 +206,7 @@ export function sendAgentRun(
 
   surfaceRunQueues.set(run.sequence.surfaceId, queued);
   void queued.finally(() => {
+    run.dispose?.();
     if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
     if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
     if (surfaceRunQueues.get(run.sequence.surfaceId) === queued) {

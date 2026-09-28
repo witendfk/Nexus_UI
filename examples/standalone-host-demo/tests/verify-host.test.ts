@@ -3,6 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
 import { createCatalogPromptContract } from '@nexus-ui/core';
 import { createAgentOnboardingContract } from '@nexus-ui/server';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '@nexus-ui/server';
 import { DEMO_AGENT_ACTION, DEMO_AGENT_CATALOG_ID } from '../src/contract';
 import { standaloneHostCatalog } from '../src/shared/catalog-contract';
 import {
@@ -40,6 +41,8 @@ describe('verifyExternalAgentIntegration', () => {
             catalogs: [
               {
                 catalogId: DEMO_AGENT_CATALOG_ID,
+                contractVersion: CATALOG_CONTRACT_VERSION,
+                contractHash: createCatalogContractHash(standaloneHostCatalog),
                 components: ['ApprovalSummary', 'Text', 'Button'],
                 actions: [DEMO_AGENT_ACTION],
                 catalogContractUrl: `http://${request.headers.host}/catalog-contract`,
@@ -59,6 +62,8 @@ describe('verifyExternalAgentIntegration', () => {
               catalogContract: {
                 serverApiVersion: 1,
                 kind: 'catalog-contract',
+                contractVersion: CATALOG_CONTRACT_VERSION,
+                contractHash: createCatalogContractHash(standaloneHostCatalog),
                 catalog: standaloneHostCatalog,
                 promptContract: createCatalogPromptContract(standaloneHostCatalog),
               },
@@ -205,6 +210,8 @@ describe('verifyExternalAgentIntegration', () => {
       discoveryTimeoutMs: 1000,
     });
     assert.equal(discovery.catalogId, DEMO_AGENT_CATALOG_ID);
+    assert.equal(discovery.contractVersion, CATALOG_CONTRACT_VERSION);
+    assert.equal(discovery.contractHash, createCatalogContractHash(standaloneHostCatalog));
     assert.equal(discovery.agentOnboardingUrl, `http://127.0.0.1:${address.port}/onboarding`);
 
     const discoveryReport = await verifyExternalAgentOnboardingByDiscovery({

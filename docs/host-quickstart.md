@@ -4,6 +4,8 @@
 适用版本：Nexus UI MVP `0.1.0`。  
 目标：让宿主开发者以 `examples/standalone-host-demo` 为模板，接入自己的 catalog、renderMap、action handler 和外部 Agent endpoint。
 
+本文使用 Workbench / approval 作为已实现示例。当前垂直业务方向是 [OrderOps Copilot](order-ops-copilot.md)；复用模板时必须替换为宿主自己的 OrderOps catalog、action 白名单和业务 handler。
+
 完整契约见 [host-integration.md](host-integration.md)。本页只解决第一步：“我该复制什么、改什么、怎么验收。”
 
 ## 1. Copy The Minimum Template
@@ -142,7 +144,7 @@ createAgentRouter({
 GET /api/a2ui/catalog-contract?catalogId=https%3A%2F%2Fyour-host.example.com%2Fcatalogs%2Fworkbench%2Fv1
 ```
 
-成功响应包含 `serverApiVersion: 1`、`kind: "catalog-contract"`、原始 `catalog` 和可注入 system prompt 的 `promptContract`。缺失或空 `catalogId` 返回 400；未显式传入 `catalogContracts` 的 catalog 返回 404；重复 `catalogId` 会在宿主装配期失败。
+成功响应包含 `serverApiVersion: 1`、`kind: "catalog-contract"`、`contractVersion`、`contractHash`、原始 `catalog` 和可注入 system prompt 的 `promptContract`。缺失或空 `catalogId` 返回 400；未显式传入 `catalogContracts` 的 catalog 返回 404；重复 `catalogId` 会在宿主装配期失败。
 
 同一个已发布 catalog 也会生成 Agent Onboarding Contract：
 
@@ -287,6 +289,11 @@ Accept: application/x-ndjson
   "catalogId": "https://your-host.example.com/catalogs/workbench/v1",
   "supportedComponents": ["CustomerSummary", "Text", "Button"],
   "supportedActions": ["submit"],
+  "catalogContract": {
+    "version": 1,
+    "hash": "sha256:...",
+    "url": "https://your-host.example.com/api/a2ui/catalog-contract?catalogId=..."
+  },
   "history": []
 }
 ```

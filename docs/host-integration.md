@@ -4,6 +4,8 @@
 适用版本：Nexus UI MVP `0.1.0`。  
 目的：说明宿主应用如何接入 Agent Task Surface，以及当前实现公开承诺的范围。
 
+当前具象业务方向锚点是 [OrderOps Copilot](order-ops-copilot.md)。本文中的 Workbench / approval 示例描述已实现的接入机制，不代表 OrderOps catalog 已经实现。
+
 如果你要从一个可复制模板开始接入，先读 [host-quickstart.md](host-quickstart.md)；本文件保留完整契约和边界。
 
 ## 1. Integration Model
@@ -330,7 +332,7 @@ The reference API accepts only:
 }
 ```
 
-Unknown envelope fields and unknown action fields are rejected. The context values are resolved by core from `{ path }` bindings at interaction time.
+Unknown envelope fields and unknown action fields are rejected. Core resolves client context from `{ path }` bindings at interaction time. The server verifies the action against its committed surface snapshot; its default context resolution reads the server snapshot, which does not automatically include subsequent browser input edits. A host handling editable values must validate only declared inputs and re-read domain facts from its own service. See [engineering-priorities.md](engineering-priorities.md).
 
 ## 4. Reference HTTP API
 
@@ -432,6 +434,8 @@ Successful response:
 {
   "serverApiVersion": 1,
   "kind": "catalog-contract",
+  "contractVersion": 1,
+  "contractHash": "sha256:...",
   "catalog": {},
   "promptContract": "# A2UI Catalog Contract\n..."
 }
@@ -444,6 +448,7 @@ Semantics:
 - Missing or empty `catalogId`: HTTP 400.
 - Registered internally but not explicitly published: HTTP 404.
 - Duplicate `catalogId` publication: host assembly throws.
+- `contractHash` is a stable SHA-256 fingerprint of the normalized `catalog` capability definition. `contractVersion` changes when the on-the-wire contract shape itself changes.
 - The route returns the catalog definition and prompt only; it does not expose React render maps, action handlers, credentials, or business systems.
 - Authentication, tenant authorization, and public rate limiting remain host deployment responsibilities.
 
@@ -462,6 +467,8 @@ The discovery route lists only the catalogs explicitly passed through `catalogCo
   "catalogs": [
     {
       "catalogId": "https://host.example/catalogs/workbench/v1",
+      "contractVersion": 1,
+      "contractHash": "sha256:...",
       "components": ["CustomerSummary"],
       "actions": ["submit"],
       "catalogContractUrl": "https://host.example/api/a2ui/catalog-contract?catalogId=...",
@@ -471,7 +478,9 @@ The discovery route lists only the catalogs explicitly passed through `catalogCo
 }
 ```
 
-URLs are absolute for the current request origin; reverse proxies must preserve or set the public `Host`/protocol correctly. The route does not list adapter-registered catalogs, render maps, action handlers, credentials, policies, or business systems. If the host publishes nothing, `catalogs` is empty.
+`contractVersion` and `contractHash` let callers detect a stale cached capability contract before fetching the full contract. URLs are absolute for the current request origin; reverse proxies must preserve or set the public `Host`/protocol correctly. The route does not list adapter-registered catalogs, render maps, action handlers, credentials, policies, or business systems. If the host publishes nothing, `catalogs` is empty.
+
+External Agent RPC references use the same hash and version, so an Agent can detect that it cached an older catalog capability contract before generating UI.
 
 ### Read a published Agent Onboarding Contract
 
@@ -631,6 +640,8 @@ The reference guard rejects:
 
 The reference HTTP adapter also rejects non-JSON request media types, oversized request bodies, and request bodies that exceed the configured read timeout. Authentication, tenant policy, and public-network rate limiting remain host responsibilities.
 
+The committed server surface snapshot verifies `surfaceId`, source component, and declared action name. Its in-memory action ledger rejects an exact replay while retained, but it does not provide durable domain idempotency. The current surface queue begins after `prepareAction()` calls the handler, so it does not yet serialize the business side effect. Domain actions must not rely on the queue or client `actionId` alone for at-most-once execution. Current corrective work is tracked in [engineering-priorities.md](engineering-priorities.md).
+
 Known gaps that an enterprise deployment must add:
 
 - Domain allowlist for remote images and other media.
@@ -655,4 +666,4 @@ A new integration should be accepted only when all eight items pass:
 7. The handler response patches the same surface.
 8. Real LLM and adversarial-output tests both pass.
 
-For the current playground, this checklist is covered by package tests plus the M5-M10, P2-P4, and P5-a acceptance records in [agent-line-scope.md](agent-line-scope.md).
+For the current playground, package tests and the standalone host demo cover the implemented runtime path. The action execution and recovery limits are tracked in [engineering-priorities.md](engineering-priorities.md).

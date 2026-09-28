@@ -30,6 +30,7 @@ export interface SurfaceActionStateStore {
     messages: readonly unknown[],
   ): Promise<void>;
   commitAction(messages: readonly unknown[]): Promise<void>;
+  removeSnapshot(surfaceId: string): Promise<void>;
 }
 
 export interface SurfaceActionLedgerRecord {
@@ -109,6 +110,10 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     for (const message of messages) applyMessage(next, message);
     this.snapshots.set(surfaceId, next);
   }
+
+  async removeSnapshot(surfaceId: string): Promise<void> {
+    this.snapshots.delete(surfaceId);
+  }
 }
 
 export class InMemorySurfaceActionLedger implements SurfaceActionLedger {
@@ -120,7 +125,8 @@ export class InMemorySurfaceActionLedger implements SurfaceActionLedger {
   }
 
   begin(record: Omit<SurfaceActionLedgerRecord, 'startedAt' | 'status'>): boolean {
-    if (this.records.has(record.key)) return false;
+    const existing = this.records.get(record.key);
+    if (existing && existing.status !== 'failed') return false;
     this.records.set(record.key, {
       ...record,
       startedAt: new Date().toISOString(),

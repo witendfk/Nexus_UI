@@ -11,6 +11,7 @@ export type {
   AgentGenerateRequest,
   AgentGenerationSource,
   AgentGenerationSourceRequest,
+  AgentGenerationCommitEvent,
   AgentMessageSource,
   AgentPlan,
   AgentRun,
@@ -21,6 +22,12 @@ export {
   createExternalAgentGenerationSource,
 } from './agent/external-agent';
 export type { ExternalAgentRpcConfig } from './agent/external-agent';
+export {
+  CATALOG_CONTRACT_VERSION,
+  createCatalogContractHash,
+  createCatalogContractReference,
+} from './agent/catalog-contract';
+export type { CatalogContractReference } from './agent/catalog-contract';
 export { InMemorySurfaceHistoryStore } from './agent/history';
 export type { InMemorySurfaceHistoryStoreOptions, SurfaceHistoryStore } from './agent/history';
 export { InMemoryAgentRunManager } from './agent/run-manager';
