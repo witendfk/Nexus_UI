@@ -1,6 +1,6 @@
 import type { ActionEvent } from '@nexus-ui/core';
 import { A2UIProvider, useA2UI } from '@nexus-ui/react';
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { analyzeCase, dispatchAction } from './nexus/transport';
 
 type SurfaceStatus = 'idle' | 'streaming' | 'ready' | 'error';
@@ -8,7 +8,7 @@ type SurfaceStatus = 'idle' | 'streaming' | 'ready' | 'error';
 interface CaseSurfaceProps {
   caseId: string;
   /** Provider 层 onAction 在 context 之外，经此 ref 桥接到持 runtime 的本组件。 */
-  actionHandlerRef: RefObject<(event: ActionEvent) => void>;
+  actionHandlerRef: MutableRefObject<(event: ActionEvent) => void>;
 }
 
 function CaseSurface({ caseId, actionHandlerRef }: CaseSurfaceProps) {
