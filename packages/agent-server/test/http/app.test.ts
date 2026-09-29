@@ -2,7 +2,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, expect, it } from 'vitest';
 import type Koa from 'koa';
-import { createApp } from './app';
+import { createApp } from '../../src/http/app';
 
 const servers: http.Server[] = [];
 

@@ -2,8 +2,8 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, expect, it } from 'vitest';
 import type Koa from 'koa';
-import { createApp } from './app';
-import { ORDEROPS_CATALOG_ID } from '../nexus/catalog';
+import { createApp } from '../../src/http/app';
+import { ORDEROPS_CATALOG_ID } from '../../src/nexus/catalog';
 
 const servers: http.Server[] = [];
 

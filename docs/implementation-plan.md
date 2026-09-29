@@ -2,7 +2,13 @@
 
 日期：2026-09-28。任务按编号顺序执行，前一项判据未过不进下一项。阶段门禁与业务验收标准见 [architecture.md §8](architecture.md)；接线依据见 [design.md](design.md) 与 [architecture.md §10](architecture.md)。
 
-> **进度（2026-09-28）**：阶段 0（T0.1–T0.4）与 M0（T1.1–T1.4）已完成并全链验证（服务端 SSE 穿刺 + Web jsdom 全链测试，7/7 绿）。基线为 Node 24 LTS。下一步：M1 的 T2.1（contracts 包）。
+> **进度（2026-09-28）**：阶段 0（T0.1–T0.4）与 M0（T1.1–T1.4）已完成并全链验证（服务端 SSE 穿刺 + Web jsdom 全链测试，8/8 绿）；M0 完成标准已按硬门禁兑现：CI 绿（GitHub Actions c406c8f）+ GitHub fresh clone 全链绿 + 真浏览器全流程走通。基线为 Node 24 LTS。**后续开发在 `feature` 分支进行**（main 保留里程碑锚点）。下一步：M1 的 T2.1（contracts 包）。
+
+## 工程纪律（每个迭代 part 适用）
+
+- **单测目录**：每个任务的单测放所在包的 `test/` 目录，路径镜像 `src/` 结构（如 `src/nexus/catalog.ts` 的测试在 `test/nexus/catalog.test.ts`）；`src/` 内不放测试文件，构建产物（`tsconfig.build.json` 只含 `src`）因此不含测试代码。
+- **测试先行判据**：任务完成 = 实现通过 + 对应单测存在且绿；涉及跨包契约的（contracts、Catalog、RPC），测试必须同时锁 schema 边界（非法输入被拒）与合法行为。
+- **里程碑完成硬标准**（M1 起每阶段适用）：typecheck/lint/test/build 全绿 + push 后 CI 绿 + fresh clone 演练通过 + 真浏览器操作一遍。四条缺一不叫完成。
 
 ## 从哪里开始
 

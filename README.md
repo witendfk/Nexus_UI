@@ -11,8 +11,8 @@
 ```bash
 pnpm install
 pnpm pack:nexus   # 首次或 Nexus 更新后：打包 @nexus-ui/* tarball 到 tarballs/
-pnpm dev          # web :3200 / host :3201 / agent :3202
-pnpm test         # 含 Nexus 接入穿刺测试
+pnpm dev          # web localhost:3200（Vite 绑 localhost，用 127.0.0.1 访问不到）/ host :3201 / agent :3202
+pnpm test         # 单测位于各包 test/ 目录（镜像 src 结构），含 Nexus 接入穿刺测试
 ```
 
 ## 代码评审
