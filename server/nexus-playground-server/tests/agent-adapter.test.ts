@@ -20,6 +20,8 @@ import {
 } from '../src/agent/catalog';
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
 import type { LlmAgentRequest } from '../src/agent/llm-agent';
+import { InMemorySurfaceActionStateStore } from '../src/agent/surface-action-state';
+import type { SurfaceActionStateStore } from '../src/agent/surface-action-state';
 import { WorkbenchTaskStore } from '../src/agent/workbench-agent';
 import { createReferenceAgentAdapter } from '../src/reference/reference-agent';
 import { sendAgentRun } from '../src/api/send-messages';
@@ -1093,6 +1095,204 @@ describe('AgentAdapter', () => {
     });
     assert.ok(!injected.ok);
     assert.match(injected.message, /Action context 包含未声明的客户端字段: adminOverride/);
+  });
+
+  it('runs the next same-surface action only after the previous action commits', async () => {
+    const surfaceId = 'surface-commit-visibility';
+    const observed: number[] = [];
+    let releaseCommit!: () => void;
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+
+    // Gate the first commitAction so the test controls the exact moment the
+    // first action's result becomes authoritative.
+    const inner = new InMemorySurfaceActionStateStore();
+    let gated = false;
+    let commitEntered = false;
+    const actionStore: SurfaceActionStateStore = {
+      get: (id) => inner.get(id),
+      commitGeneration: (id, catalogId, messages) =>
+        inner.commitGeneration(id, catalogId, messages),
+      removeSnapshot: (id) => inner.removeSnapshot(id),
+      commitAction: async (messages) => {
+        if (!gated) {
+          gated = true;
+          commitEntered = true;
+          await commitGate;
+        }
+        await inner.commitAction(messages);
+      },
+    };
+
+    const adapter = new AgentAdapter({
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      actionStateStore: actionStore,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: {
+                  event: { name: 'submit', context: { counter: { path: '/counter' } } },
+                },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+        {
+          version: 'v0.9',
+          updateDataModel: { surfaceId, value: { counter: 1 } },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${BASIC_CATALOG}:submit`,
+          async function* (action: AgentAction) {
+            const counter = Number((action.context as { counter?: number }).counter ?? -1);
+            observed.push(counter);
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { counter: counter + 1 } },
+            } as unknown;
+          },
+        ],
+      ]),
+    });
+    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    assert.ok(generation.ok);
+    const generationMessages = await collect(generation.run.source);
+    await generation.run.commit(generationMessages);
+
+    const firstPlan = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+    });
+    assert.ok(firstPlan.ok);
+
+    // The handler body is lazy: it runs at the first pull inside the queue.
+    const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, 'commit-visibility-a', {
+      streamDelayMs: 0,
+    });
+    await firstDelay(20);
+    assert.ok(commitEntered, 'first commit is now gated inside sendAgentRun');
+
+    // Fire the second action while the first commit is still in flight.
+    const secondPlanPromise = adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:01.000Z',
+    });
+    await firstDelay(5);
+    assert.equal(
+      observed.length,
+      1,
+      'the second handler must not run before the first commit settles',
+    );
+
+    releaseCommit();
+
+    const firstResult = await firstSent;
+    assert.ok(firstResult.ok, 'first action stream should finish with done');
+
+    const secondPlan = await secondPlanPromise;
+    assert.ok(secondPlan.ok);
+    const secondMessages = await collect(secondPlan.run.source);
+    await secondPlan.run.commit(secondMessages);
+
+    assert.deepEqual(
+      observed,
+      [1, 2],
+      'the second handler must read the snapshot committed by the first action',
+    );
+  });
+
+  it('closes the action ledger and releases the surface lock when history reads fail', async () => {
+    const surfaceId = 'surface-history-failure';
+
+    class FlakyHistoryStore extends InMemorySurfaceHistoryStore {
+      failing = false;
+      override async getHistory(id: string) {
+        if (this.failing) throw new Error('history store unavailable');
+        return super.getHistory(id);
+      }
+    }
+
+    const historyStore = new FlakyHistoryStore();
+    const adapter = new AgentAdapter({
+      historyStore,
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${BASIC_CATALOG}:submit`,
+          async function* () {
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+          },
+        ],
+      ]),
+    });
+    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    assert.ok(generation.ok);
+    await generation.run.commit(await collect(generation.run.source));
+
+    historyStore.failing = true;
+    const failedPlan = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+    });
+    assert.ok(!failedPlan.ok);
+    assert.match(failedPlan.message, /Action 历史读取失败: history store unavailable/);
+
+    historyStore.failing = false;
+    // Same timestamp + context => same ledger key: the retry only passes when
+    // the failed record was closed and the surface lock was released.
+    const retryPlan = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+      timestamp: '2026-09-28T00:00:00.000Z',
+    });
+    assert.ok(retryPlan.ok, 'retry after a failed history read must be accepted');
+    await collect(retryPlan.run.source);
   });
 });
 

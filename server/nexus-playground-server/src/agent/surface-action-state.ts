@@ -133,11 +133,20 @@ export class InMemorySurfaceActionLedger implements SurfaceActionLedger {
       status: 'running',
     });
     while (this.records.size > this.maxRecords) {
-      const oldest = this.records.keys().next().value;
-      if (oldest === undefined) break;
-      this.records.delete(oldest);
+      // Only terminal records are evictable: dropping a running record would
+      // silently end replay protection for an in-flight action.
+      const evictable = this.findOldestTerminalKey();
+      if (evictable === undefined) break;
+      this.records.delete(evictable);
     }
     return true;
+  }
+
+  private findOldestTerminalKey(): string | undefined {
+    for (const [key, record] of this.records) {
+      if (record.status !== 'running') return key;
+    }
+    return undefined;
   }
 
   complete(

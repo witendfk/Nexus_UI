@@ -153,6 +153,9 @@ export function sendAgentRun(
   } = {},
 ): Promise<SendMessagesResult> {
   const manager = options.manager ?? defaultAgentRunManager;
+  // Claim the run before anything consumes it: the per-surface lock from
+  // prepareAction must only release after this queue settles commit/onError.
+  run.streamClaimed = true;
   manager.create({
     id: idPrefix,
     surfaceId: run.sequence.surfaceId,

@@ -59,6 +59,12 @@ export interface AgentRun {
   onError?(error?: unknown): void;
   /** Called by sendAgentRun in finally; use to release per-surface locks. */
   dispose?: () => void;
+  /**
+   * Set by sendAgentRun before consuming the source: per-surface lock release
+   * moves to commit/onError/dispose, so source exhaustion must not release the
+   * lock while the action result is not yet committed.
+   */
+  streamClaimed?: boolean;
 }
 
 export type AgentPlan = { ok: true; run: AgentRun } | { ok: false; message: string };
@@ -371,9 +377,21 @@ export class AgentAdapter {
       };
     }
 
-    const history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
-      ...turn,
-    }));
+    let history: AgentTurn[];
+    try {
+      history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
+        ...turn,
+      }));
+    } catch (error) {
+      this.actionLedger.complete(ledgerKey, 'failed');
+      releaseLock();
+      return {
+        ok: false,
+        message: `Action 历史读取失败: ${
+          error instanceof Error ? error.message : 'history store unavailable'
+        }`,
+      };
+    }
 
     const authoritativeAction: AgentAction = { ...action, context };
 
@@ -397,33 +415,43 @@ export class AgentAdapter {
         message: error instanceof Error ? error.message : '业务 action 处理失败',
       };
     }
-    // The generator's finally releases the lock when the source is fully
-    // consumed (by sendAgentRun or tests); dispose is a safety net for early
-    // termination without consuming the source.
-    const guardedSource = createLockGuardedSource(source, releaseLock);
-
-    return {
-      ok: true,
-      run: {
-        source: guardedSource,
-        sequence: {
-          kind: 'action',
-          surfaceId: action.surfaceId,
-          catalogId,
-          registry: this.registry,
-          supportedActions: getCatalogActions(catalogId, catalog),
-          policy: this.policy,
-        },
-        commit: async (messages) => {
-          await this.actionStateStore.commitAction(messages);
-          this.actionLedger.complete(ledgerKey, 'succeeded');
-        },
-        onError: () => {
-          this.actionLedger.complete(ledgerKey, 'failed');
-        },
-        dispose: releaseLock,
-      },
+    let released = false;
+    const releaseOnce = (): void => {
+      if (released) return;
+      released = true;
+      releaseLock();
     };
+
+    // The lock must outlive source exhaustion: the next same-surface action may
+    // only read its snapshot after this run's commit (or failure) has settled.
+    // sendAgentRun claims the run before streaming, so release happens in the
+    // commit/onError wrappers below; direct source consumers (tests, in-process
+    // assemblies) keep the exhaustion fallback.
+    const run: AgentRun = {
+      source: createLockGuardedSource(source, () => {
+        if (!run.streamClaimed) releaseOnce();
+      }),
+      sequence: {
+        kind: 'action',
+        surfaceId: action.surfaceId,
+        catalogId,
+        registry: this.registry,
+        supportedActions: getCatalogActions(catalogId, catalog),
+        policy: this.policy,
+      },
+      commit: async (messages) => {
+        await this.actionStateStore.commitAction(messages);
+        this.actionLedger.complete(ledgerKey, 'succeeded');
+        releaseOnce();
+      },
+      onError: () => {
+        this.actionLedger.complete(ledgerKey, 'failed');
+        releaseOnce();
+      },
+      dispose: releaseOnce,
+    };
+
+    return { ok: true, run };
   }
 
   private async acquireSurfaceLock(surfaceId: string): Promise<() => void> {
