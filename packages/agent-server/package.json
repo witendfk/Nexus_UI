@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@koa/router": "^12.0.1",
+    "@orderops/contracts": "workspace:*",
     "koa": "^2.15.3"
   },
   "devDependencies": {

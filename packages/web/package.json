@@ -12,6 +12,7 @@
   "dependencies": {
     "@nexus-ui/core": "file:../../tarballs/nexus-ui-core-0.1.0.tgz",
     "@nexus-ui/react": "file:../../tarballs/nexus-ui-react-0.1.0.tgz",
+    "@orderops/contracts": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

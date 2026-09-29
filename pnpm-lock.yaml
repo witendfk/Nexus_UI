@@ -49,6 +49,9 @@ importers:
       '@koa/router':
         specifier: ^12.0.1
         version: 12.0.2
+      '@orderops/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       koa:
         specifier: ^2.15.3
         version: 2.16.4
@@ -69,6 +72,19 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.0
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
   packages/host-server:
     dependencies:
       '@koa/router':
@@ -79,7 +95,10 @@ importers:
         version: file:tarballs/nexus-ui-core-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)
       '@nexus-ui/server':
         specifier: file:../../tarballs/nexus-ui-server-0.1.0.tgz
-        version: file:tarballs/nexus-ui-server-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)(ws@8.22.0)
+        version: file:tarballs/nexus-ui-server-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)(ws@8.22.0)(zod@3.25.76)
+      '@orderops/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       better-sqlite3:
         specifier: ^12.2.0
         version: 12.11.1
@@ -114,6 +133,9 @@ importers:
       '@nexus-ui/react':
         specifier: file:../../tarballs/nexus-ui-react-0.1.0.tgz
         version: file:tarballs/nexus-ui-react-0.1.0.tgz(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@orderops/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -2209,6 +2231,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
   zustand@4.5.7:
     resolution: {integrity: sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==}
     engines: {node: '>=12.7.0'}
@@ -2630,13 +2655,13 @@ snapshots:
       - '@types/react'
       - immer
 
-  '@nexus-ui/server@file:tarballs/nexus-ui-server-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)(ws@8.22.0)':
+  '@nexus-ui/server@file:tarballs/nexus-ui-server-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)(ws@8.22.0)(zod@3.25.76)':
     dependencies:
       '@koa/cors': 5.0.0
       '@koa/router': 12.0.2
       '@nexus-ui/core': file:tarballs/nexus-ui-core-0.1.0.tgz(@types/react@18.3.31)(react@18.3.1)
       koa: 2.16.4
-      openai: 4.104.0(ws@8.22.0)
+      openai: 4.104.0(ws@8.22.0)(zod@3.25.76)
     transitivePeerDependencies:
       - '@types/react'
       - encoding
@@ -3769,7 +3794,7 @@ snapshots:
 
   only@0.0.2: {}
 
-  openai@4.104.0(ws@8.22.0):
+  openai@4.104.0(ws@8.22.0)(zod@3.25.76):
     dependencies:
       '@types/node': 18.19.130
       '@types/node-fetch': 2.6.13
@@ -3780,6 +3805,7 @@ snapshots:
       node-fetch: 2.7.0
     optionalDependencies:
       ws: 8.22.0
+      zod: 3.25.76
     transitivePeerDependencies:
       - encoding
 
@@ -4219,6 +4245,8 @@ snapshots:
   ylru@1.4.0: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@3.25.76: {}
 
   zustand@4.5.7(@types/react@18.3.31)(react@18.3.1):
     dependencies:

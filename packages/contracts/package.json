@@ -1,0 +1,22 @@
+{
+  "name": "@orderops/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderOps 跨包版本化契约：只读工具响应、Agent 分析结果、业务 action 输入的 zod schema 与类型。",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.5.4"
+  }
+}

@@ -2,7 +2,7 @@
 
 日期：2026-09-28。任务按编号顺序执行，前一项判据未过不进下一项。阶段门禁与业务验收标准见 [architecture.md §8](architecture.md)；接线依据见 [design.md](design.md) 与 [architecture.md §10](architecture.md)。
 
-> **进度（2026-09-28）**：阶段 0（T0.1–T0.4）与 M0（T1.1–T1.4）已完成并全链验证（服务端 SSE 穿刺 + Web jsdom 全链测试，8/8 绿）；M0 完成标准已按硬门禁兑现：CI 绿（GitHub Actions c406c8f）+ GitHub fresh clone 全链绿 + 真浏览器全流程走通。基线为 Node 24 LTS。**后续开发在 `feature` 分支进行**（main 保留里程碑锚点）。下一步：M1 的 T2.1（contracts 包）。
+> **进度（2026-09-29）**：M0 完全闭环（CI 绿 + fresh clone 绿 + 真浏览器走通）。M1 进行中：T2.1 contracts 包完成（21/21 测试绿，三包已声明 workspace 依赖，实际 import 随 T2.5/T3.x 落地）。开发在 `feature` 分支。下一步：T2.2（SQLite migration + 7 表）。
 
 ## 工程纪律（每个迭代 part 适用）
 
