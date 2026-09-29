@@ -24,6 +24,8 @@
 | 2026-09-28 | Phase 1.1.2 `commitGeneration` 原子性（hook / history 失败时回滚 action snapshot） | `agent-adapter.test.ts` rolls back the action snapshot |
 | 2026-09-28 | Phase 1.1.3 流失败时 ledger 关闭为 `failed`；允许同 key 重试 | `agent-adapter.test.ts` marks the action ledger as failed |
 | 2026-09-28 | Phase 1.2.1 默认 resolver 路径拒绝未声明的客户端 context 字段 | `agent-adapter.test.ts` rejects action context fields not declared |
+| 2026-09-29 | Phase 1.1.1 补强：action 锁释放点从 source 耗尽移到 commit/onError 之后（`AgentRun.streamClaimed`），并补证伪测试——同一 surface 的第二个 handler 必须读到第一个 action 提交后的 dataModel | `agent-adapter.test.ts` runs the next same-surface action only after the previous action commits |
+| 2026-09-29 | Phase 1.3.1 部分闭合：`historyStore.getHistory` 失败时 ledger 关闭为 `failed` 并释放 surface 锁；ledger 容量淘汰跳过 running 记录（重放保护不再被容量逐出打断） | `agent-adapter.test.ts` closes the action ledger ... when history reads fail；`surface-action-state.test.ts` never evicts running records |
 | 2026-09-28 | Phase 2.2–2.3 core / React / server `dist` 入口 + `files` + ESM import 修复 + `pnpm pack` 三 tarball | `/tmp/nexus-tarballs/*.tgz`；tarball 仅含 dist + README + metadata |
 | 2026-09-28 | Phase 2.4–2.5 干净宿主安装三 tarball 并通过公开 API 冒烟 | `/tmp/nexus-clean-host/smoke.mjs` 全部通过（17 standard components, compatible, protocol validation ok） |
 

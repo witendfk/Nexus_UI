@@ -29,6 +29,8 @@ Nexus UI 提供受约束的 Agent Task Surface Runtime；[OrderOps Copilot](orde
 
 ### P0：业务 action 必须进入真正的串行与提交边界
 
+2026-09-29 更新：串行窗口已闭合——action 锁的释放点从 source 耗尽移到 commit/onError 之后（`AgentRun.streamClaimed`，由 `sendAgentRun` 在消费前置位），并有证伪测试锁定"同一 surface 的第二个 handler 必须读到第一个 action 提交后的 dataModel"；ledger 在 `getHistory` 失败、容量淘汰两个路径上的 running 孤儿/重放保护缺口也已闭合。剩余验收：连接取消时 AbortSignal 传播到业务 handler 的 HTTP 路径测试（1.1.3 前半）仍未补。
+
 目前路由先调用 `AgentAdapter.prepareAction()`，其中已开始 ledger、解析 context 并调用业务 handler；随后 `sendAgentRun()` 才按 surface 排队。因此队列只串行化输出流，不能保证业务 handler 串行。若 handler 已产生副作用，而后续流校验、提交或连接失败，业务状态与 surface 可能不一致。
 
 验收目标：同一 surface 的读取权威快照、校验输入、执行 handler 和提交结果遵循一致的顺序；并发提交不能基于旧状态执行两次。为副作用定义明确的 commit/reconcile 语义，测试 handler 成功但输出失败、连接取消和重复提交。
