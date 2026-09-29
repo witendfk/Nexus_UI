@@ -13,8 +13,8 @@
 | typecheck / lint / build / format | 通过 |
 | 独立宿主 demo | 可运行，外部 Agent RPC + local action 双模式验证通过 |
 | Catalog Contract | 已发布带 `contractVersion` / `contractHash` 的 discovery 和 onboarding 路由 |
-| 可安装 SDK | 未完成；core / React / server 仍为私有包，入口指向源码 |
-| OrderOps 业务闭环 | 未开始；仅方向文档 |
+| 可安装 SDK | 未完成；core / React / server 仍为私有包，入口指向源码。OrderOps 独立仓 `orderops-agent` 已通过 tarball + pnpm overrides 完成 M0 接入穿刺（2026-09-28，7/7 绿），是当前唯一的外部安装证明 |
+| OrderOps 业务闭环 | M0 完成、M1（案件事实）进行中，工程在同级独立仓 `../orderops-agent`；M3 完成才算首条业务切片交付 |
 
 ## 已完成
 
