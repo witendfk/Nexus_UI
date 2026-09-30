@@ -2,7 +2,9 @@
 
 日期：2026-09-28。任务按编号顺序执行，前一项判据未过不进下一项。阶段门禁与业务验收标准见 [architecture.md §8](architecture.md)；接线依据见 [design.md](design.md) 与 [architecture.md §10](architecture.md)。
 
-> **进度（2026-09-29）**：M0 完全闭环（CI 绿 + fresh clone 绿 + 真浏览器走通）。M1 进行中：T2.1 contracts 包完成（21/21 测试绿，三包已声明 workspace 依赖，实际 import 随 T2.5/T3.x 落地）。开发在 `feature` 分支。下一步：T2.2（SQLite migration + 7 表）。
+> **进度（2026-09-29）**：M0 完全闭环（CI 绿 + fresh clone 绿 + 真浏览器走通）。M1 进行中：T2.1 contracts 包完成（三包已声明 workspace 依赖，实际 import 随 T2.5/T3.x 落地）；T2.2 SQLite migration + 7 表完成（重复启动不重复建表、幂等/外键约束有单测锁定）；web transport 流中断误报成功的 P1 已随 T2.2 修复（settled 语义 + 4 条单测）。开发在 `feature` 分支。下一步：T2.3（fixtures：停滞案例 + 正常对照）。
+>
+> **跨仓同步（2026-09-29，来自 Nexus_UI 会话）**：Nexus_UI 已合并 action 锁/ledger 修复并带证伪测试（其 `44a7fee`/`1264ce7`，Phase 1 的 1.1.1 串行窗口与 1.3.1 两个缺口闭合）；本仓服务端 tarball 已刷新含该修复，锁语义已同步进 architecture.md §10.2。T2.2/T2.3 不依赖 Nexus；**进 M2 前按 AGENTS.md 新门禁走版本号刷新**（升 patch 版本，禁止同版本覆盖，pnpm 不重读同版本 file: tarball）。~~遗留待修：web transport 流中断误报成功~~（已修，settled 语义见 `web/src/nexus/transport.ts`）。
 
 ## 工程纪律（每个迭代 part 适用）
 
