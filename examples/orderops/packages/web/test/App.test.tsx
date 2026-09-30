@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { App } from '../src/App';
+import type { CaseDetailPayload } from '../src/api/cases';
 
 const ORDEROPS_CATALOG_ID = 'https://example.com/catalogs/orderops/v1';
 
@@ -89,6 +91,34 @@ const actionEvents = [
   { event: 'done', data: {} },
 ];
 
+const DETAIL_PAYLOAD: CaseDetailPayload = {
+  case: {
+    id: 'case-1',
+    orderId: 'order-1',
+    type: 'logistics_stalled',
+    severity: 'high',
+    status: 'open',
+    detectedAt: '2026-09-30T12:00:00.000Z',
+    lastEventId: 'evt-2',
+  },
+  order: {
+    id: 'order-1',
+    customerId: 'cust-1',
+    currency: 'CNY',
+    amountMinor: 129_900,
+    promisedAt: '2026-09-29T12:00:00.000Z',
+    status: 'shipping',
+  },
+  events: [
+    { id: 'evt-1', orderId: 'order-1', status: 'picked_up', occurredAt: '2026-09-26T12:00:00.000Z', source: 'carrier-api' },
+    { id: 'evt-2', orderId: 'order-1', status: 'in_transit', occurredAt: '2026-09-27T12:00:00.000Z', source: 'carrier-api' },
+  ],
+};
+
+function jsonResponse(payload: unknown): Response {
+  return { ok: true, status: 200, json: async () => payload } as unknown as Response;
+}
+
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
 beforeEach(() => {
@@ -97,6 +127,8 @@ beforeEach(() => {
     const url = String(input);
     if (url.includes('/analyze')) return Promise.resolve(sseResponse(generateEvents));
     if (url.endsWith('/api/a2ui/event')) return Promise.resolve(sseResponse(actionEvents));
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    if (url.includes('/api/cases')) return Promise.resolve(jsonResponse({ cases: [] }));
     return Promise.reject(new Error(`意外的请求：${url}`));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -107,8 +139,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('穿刺全链：生成 → 渲染 → 编辑备注 → action 回流 → patch 禁用按钮', async () => {
-  render(<App />);
+it('穿刺全链：详情页生成 → 渲染 → 编辑备注 → action 回流 → patch 禁用按钮', async () => {
+  render(
+    <MemoryRouter initialEntries={['/cases/case-1']}>
+      <App />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('订单摘要')).toBeDefined();
 
   fireEvent.click(screen.getByRole('button', { name: '生成审核 surface' }));
 
@@ -136,8 +173,18 @@ it('穿刺全链：生成 → 渲染 → 编辑备注 → action 回流 → patc
 });
 
 it('生成请求网络失败时进入 error 态且按钮恢复可点', async () => {
-  fetchMock.mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')));
-  render(<App />);
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes('/analyze')) return Promise.reject(new TypeError('Failed to fetch'));
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    return Promise.reject(new TypeError('Failed to fetch'));
+  });
+  render(
+    <MemoryRouter initialEntries={['/cases/case-1']}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText('订单摘要');
 
   fireEvent.click(screen.getByRole('button', { name: '生成审核 surface' }));
 

@@ -1,63 +1,39 @@
 import type { ActionEvent } from '@nexus-ui/core';
-import { A2UIProvider, useA2UI } from '@nexus-ui/react';
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { analyzeCase, dispatchAction } from './nexus/transport';
+import { A2UIProvider } from '@nexus-ui/react';
+import { createContext, useContext, useRef, type MutableRefObject } from 'react';
+import { Route, Routes } from 'react-router-dom';
+import { CaseDetailPage } from './pages/CaseDetailPage';
+import { QueuePage } from './pages/QueuePage';
 
-type SurfaceStatus = 'idle' | 'streaming' | 'ready' | 'error';
+/**
+ * action 桥：Provider.onAction 在 context 之外，持 runtime 的页面组件经此
+ * 注册处理器（原 ref 透传模式在路由组合下的等价物）。
+ */
+const ActionBridgeContext = createContext<MutableRefObject<(event: ActionEvent) => void>>({
+  current: () => {},
+});
 
-interface CaseSurfaceProps {
-  caseId: string;
-  /** Provider 层 onAction 在 context 之外，经此 ref 桥接到持 runtime 的本组件。 */
-  actionHandlerRef: MutableRefObject<(event: ActionEvent) => void>;
+export function useActionBridge(): MutableRefObject<(event: ActionEvent) => void> {
+  return useContext(ActionBridgeContext);
 }
 
-function CaseSurface({ caseId, actionHandlerRef }: CaseSurfaceProps) {
-  const runtime = useA2UI();
-  const [status, setStatus] = useState<SurfaceStatus>('idle');
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    actionHandlerRef.current = (event: ActionEvent) => {
-      void dispatchAction(runtime, event).then((outcome) => {
-        if (!outcome.ok) {
-          setStatus('error');
-          setError(outcome.error);
-        }
-      });
-    };
-  }, [runtime, actionHandlerRef]);
-
-  const analyze = useCallback(async () => {
-    setStatus('streaming');
-    setError(undefined);
-    const outcome = await analyzeCase(runtime, caseId);
-    if (outcome.ok) {
-      setStatus('ready');
-    } else {
-      setStatus('error');
-      setError(outcome.error);
-    }
-  }, [runtime, caseId]);
-
-  return (
-    <section>
-      <p>当前案件：{caseId}</p>
-      <button type="button" onClick={() => void analyze()} disabled={status === 'streaming'}>
-        {status === 'streaming' ? '生成中…' : '生成审核 surface'}
-      </button>
-      {status === 'error' && <p role="alert">生成失败：{error}</p>}
-    </section>
-  );
-}
-
+/**
+ * App 只负责路由组合 + action 桥；BrowserRouter 由 main.tsx 提供（测试用
+ * MemoryRouter 注入）。路由参数驱动数据获取——刷新后状态一致，见 T2.6 判据。
+ */
 export function App() {
   const actionHandler = useRef<(event: ActionEvent) => void>(() => {});
   return (
     <A2UIProvider onAction={(event) => actionHandler.current(event)}>
-      <main>
-        <h1>OrderOps Copilot</h1>
-        <CaseSurface caseId="case-1" actionHandlerRef={actionHandler} />
-      </main>
+      <ActionBridgeContext.Provider value={actionHandler}>
+        <main>
+          <h1>OrderOps Copilot</h1>
+          <Routes>
+            <Route path="/" element={<QueuePage />} />
+            <Route path="/cases/:caseId" element={<CaseDetailPage />} />
+          </Routes>
+        </main>
+      </ActionBridgeContext.Provider>
     </A2UIProvider>
   );
 }
