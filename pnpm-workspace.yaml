@@ -1,5 +1,6 @@
 packages:
   - 'examples/*'
+  - 'examples/orderops/packages/*'
   - 'packages/*'
   - 'web/*'
   - 'server/*'

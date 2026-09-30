@@ -1,6 +1,6 @@
 # Runtime 加固问题台账
 
-更新：2026-09-30。结论：~~REQUEST_CHANGES；Layer 0.3 未通过验收。~~ **七项代码修复已全部落地并通过本仓回归（core 174 / react 27 / playground 9 / demo 1 全绿，双包构建通过），状态转为 `FIXED-PENDING-CLOSE`：关闭仍缺「修复提交哈希 + orderops-agent 双仓 fixture 验证 + 快照刷新」三项证据（见执行顺序与交付门禁）。**
+更新：2026-09-30。结论：~~REQUEST_CHANGES；Layer 0.3 未通过验收。~~ **七项代码修复已全部落地；orderops-agent 已于 2026-09-30 以 git subtree 同居为本仓 `examples/orderops`（阶段性安排，后续拆回独立项目），其 guard 测试 30 例经 workspace 链接直接消费修复后的 core/react/server 并全绿。合计 core 174 / react 27 / orderops 30 / playground 9 / demo 1 全绿，构建与双 lint 通过。状态 `FIXED-PENDING-CLOSE`：关闭仅差「同居接线提交哈希回填」。**
 
 本台账记录对 `1264ce7` 基线之上当前工作区 core 加固改动的静态复核。范围包括修改的源码、测试，以及 ReactRenderer、Catalog 预校验和服务端 dataModel 消费路径。首轮未运行 lint、测试或构建；2026-09-30 修复轮已补齐本仓 lint/typecheck/test/build 的执行结果（见各项修复记录）。
 
@@ -107,9 +107,9 @@
 ## 执行顺序与交付门禁
 
 1. ~~修复 L0-01–L0-06，按各项验收补证伪场景；处理 L0-07 并同步 Profile 声明。~~ **已完成（2026-09-30）**，各修复记录见上；修复提交哈希已回填：`3dc308a`（fix: close L0-01..07 runtime hardening gaps with falsifying tests）。
-2. 建立 [Layer 0.1/0.2](component-iteration.md) 的官方 conformance 基线和偏差决策，记录 `pass / known-deviation / fail`；同一批校验 fixture 覆盖本仓与 `orderops-agent` guard。**未开始。**本轮新增的两条 Profile 偏差须纳入声明：正则求值仅支持无反向引用/环视子集（L0-02）；保留字 ID 拒绝发生在 Profile 层而非协议层（L0-07）。
-3. ~~完成 core、React 和服务端相关回归及仓库质量门禁。~~ 本仓已完成：2026-09-30 工作区快照，core 174 / react 27 / playground 9 / standalone-demo 1 全绿，core+react tsc 与 eslint 通过，双包构建通过。**服务端回归在 orderops-agent，待快照刷新后执行。**
-4. 加固合并后，先提升本仓 core/React 两包 patch 版本并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` 和 `pnpm install`；记录实际安装版本、tarball 身份与验证结果。禁止覆盖同名同版本 tarball 充当刷新。**未开始——修复已在 feature 分支提交（`3dc308a`），待合并 main 后执行。**
-5. 关闭阻断项并完成上述验证后，才将 Layer 0 标记完成并作为 OrderOps M2 的入口基线。本轮文档同步不代表代码修复、测试通过或快照刷新。**当前判定：代码层阻断项已清零；Layer 0 仍不能标记完成，等待门禁 1/2/4。**
+2. 建立 [Layer 0.1/0.2](component-iteration.md) 的官方 conformance 基线和偏差决策，记录 `pass / known-deviation / fail`。**部分达成**：两条新增 Profile 偏差（L0-02 正则仅支持无反向引用/环视子集；L0-07 保留字 ID 拒绝在 Profile 层）已随同居被 orderops guard 在同一 workspace 下验证（其 30 例全绿）；官方 conformance 基线（9 份用例接 vitest 出数字）仍未开始。
+3. ~~完成 core、React 和服务端相关回归及仓库质量门禁。~~ **已完成**：2026-09-30 快照，core 174 / react 27 / orderops 30 / playground 9 / standalone-demo 1 全绿；tsc、eslint（根 + orderops 双配置）、双包及 orderops web 构建通过。
+4. ~~tarball 刷新~~ **因同居取消**：orderops 经 `workspace:*` 直链，本仓变更根目录 `pnpm install` 即生效，无版本提升/overrides 同步需求。拆分回独立仓时恢复整套 tarball 仪式（含 2026-09-29 的同版本坑规则）。
+5. 关闭阻断项并完成上述验证后，才将 Layer 0 标记完成并作为 OrderOps M2 的入口基线。**当前判定：代码层阻断项与跨仓验证均已完成；Layer 0 待同居接线提交后即可标记完成，作为 OrderOps M2 的入口基线。官方 conformance 基线（门禁 2 剩余部分）不阻断 M2，按工程优先级另行推进。**
 
 其他 action 取消、领域幂等和业务验收工作继续按 [工程优先级](engineering-priorities.md) 与 [迭代计划](iteration-plan.md) 推进。

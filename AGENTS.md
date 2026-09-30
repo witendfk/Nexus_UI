@@ -1,12 +1,16 @@
 # Nexus UI — 工作区指令
 
-## 双仓关系（每次会话必读）
+## 宿主仓与 orderops 同居阶段（每次会话必读）
 
-本仓与同级仓 `../orderops-agent` 是固定双子仓：本仓是受约束 A2UI v0.9 运行时（协议/Catalog/Policy 校验、surface 状态、渲染、SDK 打包），`orderops-agent` 是独立的 OrderOps Copilot 业务工程（agent-server / host-server / web 三包）。依赖方向单一：对方通过 `tarballs/*.tgz` + pnpm overrides 只消费本仓公开入口。硬规则：
+本仓（Nexus_UI）是受约束 A2UI v0.9 运行时（协议/Catalog/Policy 校验、surface 状态、渲染、SDK 打包）。OrderOps Copilot 业务工程自 2026-09-30 起以 `git subtree` 方式同居于 `examples/orderops/`（agent-server / host-server / contracts / web 四包，历史完整保留，源自独立仓 `../orderops-agent`）。**同居是阶段性安排：后续要拆回两个独立项目**，拆分出口用 `git subtree split --prefix=examples/orderops`。
 
-1. 本仓合并加固或能力变更后，提醒并配合对方仓执行 `pnpm pack:nexus` + `pnpm install` 刷新快照；对方进 M2 前必须消费含 Layer 0 加固的产物。**每次刷新必须先升本仓三包的 patch 版本并让对方同步 overrides/deps**——pnpm 不重读同名同版本的 file: tarball（`--force` 也不行），同版本覆盖不可审计（2026-09-29 已实际踩坑）。
-2. Catalog/校验行为变更用同一批 fixture 双仓验证（本仓 conformance 用例 + 对方 guard 测试）。
-3. 本仓组件层迭代计划见 `docs/component-iteration.md`（Layer 2 批次由 orderops 业务需求拉动）；OrderOps 的业务模型绝不进入本仓通用包。
+硬规则：
+
+1. **依赖方向单一**：`examples/orderops` 只消费本仓公开入口（`@nexus-ui/core` / `@nexus-ui/react` / `@nexus-ui/server`），经 pnpm `workspace:*` 链接；绝不 import 源码/深路径——由 `examples/orderops/eslint.config.js` 的 no-restricted-imports 边界墙强制。本仓 packages/server 代码绝不反向依赖 orderops 业务模型。
+2. **同居期不刷 tarball**：core/react/server 变更后只需根目录 `pnpm install` 即对 orderops 生效；`pnpm pack:nexus` + 版本提升 + overrides 同步的整套仪式**暂停使用**，拆分时恢复——届时必须先升三包 patch 版本并让对方同步 overrides/deps（pnpm 不重读同名同版本的 file: tarball，`--force` 也不行；2026-09-29 已实际踩坑）。
+3. **校验行为变更**（Catalog/协议/Profile）用同一批 fixture 在仓内双端验证：本仓 conformance 用例 + `examples/orderops` guard 测试，一次 `pnpm test` 全覆盖。
+4. **测试入口**：根 `pnpm test` 已覆盖 orderops（其 root 包被 workspace 通配纳入）；orderops 专属命令用 `pnpm -C examples/orderops <script>`（test / dev / build / typecheck / lint）。orderops 需要 Node 24（better-sqlite3 原生模块 ABI 敏感，见其 AGENTS.md 规则 4）。
+5. orderops 组件层迭代计划见 `docs/component-iteration.md`；其业务模型绝不进入本仓通用包。
 
 ## Code Review 标准（强制）
 

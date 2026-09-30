@@ -55,6 +55,8 @@ module.exports = {
     },
   ],
   ignorePatterns: [
+    // examples/orderops 是独立业务的消费方工程，有自己的 flat eslint 配置（含架构边界墙规则）
+    'examples/orderops/',
     'specification/',
     'dist/',
     'build/',
