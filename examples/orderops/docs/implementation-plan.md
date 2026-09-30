@@ -4,6 +4,8 @@
 
 > **进度（2026-09-30）**：M0 完全闭环。M1 进行中：T2.1 contracts ✓；T2.2 SQLite migration + 7 表 ✓；T2.3 fixtures ✓；transport 流中断 P1 已修；T2.4 停滞检测 ✓（`cases/detect.ts`：仅扫 shipping 订单、乱序按 occurred_at 取最新、终态/缺失/损坏事件跳过、occurrence_key=触发事件 ID 幂等、承诺送达定 severity、建案写审计；11 项单测含三项判据）。45/45 测试绿（同居住 workspace，Nexus core 179 同步全绿）。开发在 `feature` 分支。下一步：T2.5（案件 repository + 查询 API）。
 >
+> **Review 遗留（2026-09-30，cdb7504 评审，APPROVE 无 P0/P1）**：P2 — `cases/detect.ts:80` 确定性 case id 理论碰撞（carrier 事件 ID 含连字符时可与既有 id 同串，INSERT OR IGNORE 会静默吞掉合法新案件；修复方向：`changes===0` 时回查既有行 `(order_id, occurrence_key)` 是否匹配，不匹配换 uuid 重试）。P3 — detect 阈值边界校验、config 非法值静默回退改显式、测试 `dirs` 死变量、`TERMINAL_EVENT_STATUSES` M4 时上移 contracts。**M1 收口前决策处理**（评审报告全文见 2026-09-30 会话记录）。
+>
 > **跨仓同步（2026-09-30 更新）**：Nexus_UI Layer 0 加固七项已全部关闭、官方 conformance 基线建成（33 pass / 47 已决策偏差 / 0 fail）；本工程已以 git subtree 同居为 Nexus_UI `examples/orderops/`，经 pnpm `workspace:*` 直链消费其公开入口——**「进 M2 前版本号刷新 tarball」门禁随同居失效**，M2 入口基线已达成（guard 34 例在同居 workspace 全绿）。action 锁/ledger 修复（`44a7fee`/`1264ce7`）与 transport 流中断修复（settled 语义见 `web/src/nexus/transport.ts`）均已在本工程消费的产物中。
 
 ## 工程纪律（每个迭代 part 适用）
