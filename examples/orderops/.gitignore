@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.tgz
+!tarballs/*.tgz
+coverage/
+.tsbuildinfo
+var/

@@ -1,0 +1,26 @@
+{
+  "name": "@orderops/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderOps Web — React 前端宿主，通过 Nexus UI tarball 渲染受控 surface。",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nexus-ui/core": "file:../../tarballs/nexus-ui-core-0.1.0.tgz",
+    "@nexus-ui/react": "file:../../tarballs/nexus-ui-react-0.1.0.tgz",
+    "@orderops/contracts": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  }
+}

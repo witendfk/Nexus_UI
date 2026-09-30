@@ -1,0 +1,41 @@
+{
+  "name": "orderops-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderOps Copilot — 电商内部订单异常运营 Agent。Agent 生成 A2UI surface，Host 校验业务 action，Nexus UI 负责受控渲染。",
+  "type": "module",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "overrides": {
+      "@nexus-ui/core": "file:./tarballs/nexus-ui-core-0.1.0.tgz",
+      "@nexus-ui/react": "file:./tarballs/nexus-ui-react-0.1.0.tgz",
+      "@nexus-ui/server": "file:./tarballs/nexus-ui-server-0.1.0.tgz"
+    }
+  },
+  "scripts": {
+    "dev": "pnpm -r --workspace-concurrency=1 --parallel dev",
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "test": "vitest run",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pack:nexus": "bash scripts/pack-nexus.sh"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.19.0",
+    "eslint": "^9.39.5",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^3.2.7"
+  }
+}
