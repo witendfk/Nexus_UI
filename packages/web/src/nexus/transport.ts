@@ -18,7 +18,7 @@ function parseBlock(block: string): SseBlock | undefined {
   return { event: event ?? 'message', data: JSON.parse(dataLine) };
 }
 
-/** 把 Host 的 SSE 流逐条喂给 runtime；done 前的 error 事件视为流失败。 */
+/** 把 Host 的 SSE 流逐条喂给 runtime；`done` 前禁用业务 action 由消费方保证。 */
 export async function streamIntoRuntime(
   response: Response,
   runtime: A2UIRuntime,
@@ -30,6 +30,8 @@ export async function streamIntoRuntime(
   const decoder = new TextDecoder();
   let buffer = '';
   let outcome: StreamOutcome = { ok: true };
+  // 收到 done/error 事件才算流正常收尾；连接提前断开不得误报成功。
+  let settled = false;
 
   const handleBlock = (block: string): void => {
     const parsed = parseBlock(block);
@@ -37,22 +39,37 @@ export async function streamIntoRuntime(
     if (parsed.event === 'message') {
       runtime.push(`${JSON.stringify(parsed.data)}\n`);
     } else if (parsed.event === 'done') {
-      runtime.end();
+      settled = true;
     } else if (parsed.event === 'error') {
       const message = (parsed.data as { message?: string } | undefined)?.message;
       outcome = { ok: false, error: message ?? 'Agent 流式输出失败' };
+      settled = true;
     }
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      handleBlock(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf('\n\n');
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        handleBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  } catch (error) {
+    outcome = {
+      ok: false,
+      error: `连接中断：${error instanceof Error ? error.message : String(error)}`,
+    };
+  } finally {
+    // 无论哪种收尾都冲刷 runtime 缓冲（end 幂等且无终结态）。
+    runtime.end();
+    // 读完但没收到 done/error 事件 = 连接提前断开，不得误报成功。
+    if (!settled && outcome.ok) {
+      outcome = { ok: false, error: '连接中断：生成流未正常结束' };
     }
   }
   return outcome;
