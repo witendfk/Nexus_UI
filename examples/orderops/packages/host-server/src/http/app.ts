@@ -4,8 +4,15 @@ import { createAgentRouter, sendAgentRun } from '@nexus-ui/server';
 import { HOST_SERVER_VERSION } from '../index';
 import { createAgentAdapter } from '../nexus/adapter';
 import { ORDEROPS_CATALOG } from '../nexus/catalog';
+import { createCasesRouter } from './cases';
+import type { SqliteDb } from '../db/client';
 
-export function createApp(): Koa {
+export interface CreateAppOptions {
+  /** 案件存储；未提供时 /api/cases* 返回 503（存储未接线）。 */
+  db?: SqliteDb;
+}
+
+export function createApp(options: CreateAppOptions = {}): Koa {
   const app = new Koa();
   const adapter = createAgentAdapter();
 
@@ -18,6 +25,10 @@ export function createApp(): Koa {
       apiVersion: HOST_SERVER_VERSION,
     };
   });
+
+  const casesRouter = createCasesRouter(options.db);
+  own.use(casesRouter.routes());
+  own.use(casesRouter.allowedMethods());
 
   // 案件生成走自有路由：prepareGeneration 的 message 只允许是案件 ID，
   // 浏览器无法用通用 generate 路由注入任意 prompt（见 architecture.md §5）。

@@ -2,7 +2,7 @@
 
 日期：2026-09-28。任务按编号顺序执行，前一项判据未过不进下一项。阶段门禁与业务验收标准见 [architecture.md §8](architecture.md)；接线依据见 [design.md](design.md) 与 [architecture.md §10](architecture.md)。
 
-> **进度（2026-09-30）**：M0 完全闭环。M1 进行中：T2.1 contracts ✓；T2.2 SQLite migration + 7 表 ✓；T2.3 fixtures ✓；transport 流中断 P1 已修；T2.4 停滞检测 ✓（`cases/detect.ts`：仅扫 shipping 订单、乱序按 occurred_at 取最新、终态/缺失/损坏事件跳过、occurrence_key=触发事件 ID 幂等、承诺送达定 severity、建案写审计；11 项单测含三项判据）。45/45 测试绿（同居住 workspace，Nexus core 179 同步全绿）。开发在 `feature` 分支。下一步：T2.5（案件 repository + 查询 API）。
+> **进度（2026-09-30）**：M0 完全闭环。M1 进行中：T2.1 contracts ✓；T2.2 SQLite migration + 7 表 ✓；T2.3 fixtures ✓；transport 流中断 P1 已修；T2.4 停滞检测 ✓（11 项单测）；T2.5 案件查询 ✓（`cases/repository.ts` + `http/cases.ts`：`GET /api/cases?status=&severity=&q=` 过滤/搜索（LIKE 通配符按字面量、非法枚举 400）、`GET /api/cases/:id` 详情回查案件+订单+事件时间线（ID/时间/来源），db 未接线显式 503；main.ts 启动即迁移并挂库）。55/55 测试绿（同居住 workspace，Nexus core 179 同步全绿）。开发在 `feature` 分支。下一步：T2.6（react-router 队列页 + 案件详情页）。
 >
 > **Review 遗留（2026-09-30，cdb7504 评审，APPROVE 无 P0/P1）**：P2 — `cases/detect.ts:80` 确定性 case id 理论碰撞（carrier 事件 ID 含连字符时可与既有 id 同串，INSERT OR IGNORE 会静默吞掉合法新案件；修复方向：`changes===0` 时回查既有行 `(order_id, occurrence_key)` 是否匹配，不匹配换 uuid 重试）。P3 — detect 阈值边界校验、config 非法值静默回退改显式、测试 `dirs` 死变量、`TERMINAL_EVENT_STATUSES` M4 时上移 contracts。**M1 收口前决策处理**（评审报告全文见 2026-09-30 会话记录）。
 >
