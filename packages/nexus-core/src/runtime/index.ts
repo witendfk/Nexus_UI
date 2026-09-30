@@ -10,7 +10,7 @@
  * → rerender（buildTree）→ onRender。组件 action 经 triggerAction → buildActionEvent
  * （core 解析 context）→ onAction。畸形 JSON → addError + onError，不中断后续流。
  */
-import { JSONLBuffer } from '../buffer';
+import { JSONLBuffer, MAX_JSONL_LINE_LENGTH } from '../buffer';
 import type { CoreStore } from '../state';
 import { createCoreStore } from '../state';
 import { buildTree } from '../render';
@@ -25,7 +25,7 @@ import type {
   ParseResult,
   VNode,
 } from '../protocol/types';
-import { applyDataModelUpdate } from '../dataModel/index';
+import { applyDataModelUpdate, isUnsafeDataPath } from '../dataModel/index';
 import type { CatalogRegistry, ComponentSchemaDiagnostic } from '../catalog/index';
 import { getFirstFailedCheck } from '../checks';
 
@@ -46,13 +46,25 @@ export interface RuntimeOptions {
    * and component name is checked; registered props schemas are also enforced.
    */
   catalogRegistry?: CatalogRegistry;
+  /**
+   * 单次渲染的 VNode 数量上限（防 Agent 构造超大树/共享子树爆炸）。默认 10000；
+   * 占位节点一并计入。触发时以 FEATURE_UNSUPPORTED 诊断上报，超出部分按占位节点渲染。
+   */
+  maxNodes?: number;
+  /** 链式深度上限（默认 1000）：保护宿主 React 递归消费路径，超深层以占位呈现。 */
+  maxDepth?: number;
 }
 
 /** 协议运行时：把 A2UI 流式协议渐进渲染成框架无关 VNode，并经 onAction 吐出交互。 */
 export class A2UIRuntime {
   /** 内核 store（公开，供宿主按需订阅/读取 surface 状态）。 */
   readonly store: CoreStore = createCoreStore();
-  private readonly buffer = new JSONLBuffer();
+  private readonly buffer = new JSONLBuffer(({ length }) =>
+    this.reportError({
+      code: 'PROTOCOL_INVALID',
+      message: `JSONL 行长度 ${length} 超过上限 ${MAX_JSONL_LINE_LENGTH}，已整行丢弃，后续行继续处理`,
+    }),
+  );
   private readonly options: RuntimeOptions;
 
   constructor(options: RuntimeOptions = {}) {
@@ -174,7 +186,8 @@ export class A2UIRuntime {
       (component.component === 'Slider' &&
         (typeof value !== 'number' || !Number.isFinite(value))) ||
       Object.keys(binding ?? {}).length !== 1 ||
-      typeof bindingPath !== 'string'
+      typeof bindingPath !== 'string' ||
+      isUnsafeDataPath(bindingPath)
     ) {
       return false;
     }
@@ -220,48 +233,61 @@ export class A2UIRuntime {
     return exists ? null : { code: 'LIFECYCLE_INVALID', message: `Surface 尚未创建: ${surfaceId}` };
   }
 
+  /**
+   * Catalog 预校验。预计算（如 updateDataModel 的下一模型快照）可能因保留路径等
+   * 抛出异常——这里统一收敛为结构化拒绝，绝不让异常穿出 parse/dispatch，
+   * 保证同一 chunk 内的后续消息继续处理。
+   */
   private getCatalogIssue(message: A2UIMessage): A2UIError | null {
     const registry = this.options.catalogRegistry;
     if (!registry) return null;
 
-    if ('createSurface' in message) {
-      const catalogId = message.createSurface.catalogId;
-      return registry.has(catalogId)
-        ? null
-        : { code: 'CATALOG_UNSUPPORTED', message: `Agent catalog 未注册: ${catalogId}` };
+    try {
+      if ('createSurface' in message) {
+        const catalogId = message.createSurface.catalogId;
+        return registry.has(catalogId)
+          ? null
+          : { code: 'CATALOG_UNSUPPORTED', message: `Agent catalog 未注册: ${catalogId}` };
+      }
+
+      const state = this.store.getState();
+      let diagnostics: readonly ComponentSchemaDiagnostic[] = [];
+
+      if ('updateComponents' in message) {
+        const surfaceId = message.updateComponents.surfaceId;
+        const surface = state.surfaces[surfaceId];
+        const catalogId = surface?.catalogId;
+        if (!catalogId) return null;
+        const dataModel = state.dataModelBySurface[surfaceId];
+        diagnostics = message.updateComponents.components.flatMap((component) => [
+          ...registry.getComponentDiagnostics(catalogId, component, dataModel),
+          ...this.getActionDiagnostics(registry, catalogId, component),
+        ]);
+      } else if ('updateDataModel' in message) {
+        const surfaceId = message.updateDataModel.surfaceId;
+        const surface = state.surfaces[surfaceId];
+        const catalogId = surface?.catalogId;
+        if (!catalogId) return null;
+
+        const nextDataModel = applyDataModelUpdate(
+          state.dataModelBySurface[surfaceId],
+          message.updateDataModel,
+        );
+        diagnostics = Object.values(state.componentsBySurface[surfaceId] ?? {}).flatMap((component) =>
+          registry.getComponentDiagnostics(catalogId, component, nextDataModel),
+        );
+      }
+
+      return diagnostics.length > 0
+        ? { code: 'CATALOG_UNSUPPORTED', message: formatDiagnostics(diagnostics), diagnostics }
+        : null;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      return {
+        code: 'CATALOG_UNSUPPORTED',
+        message: `Catalog 预校验失败，消息被拒绝: ${messageText}`,
+      };
     }
-
-    const state = this.store.getState();
-    let diagnostics: readonly ComponentSchemaDiagnostic[] = [];
-
-    if ('updateComponents' in message) {
-      const surfaceId = message.updateComponents.surfaceId;
-      const surface = state.surfaces[surfaceId];
-      const catalogId = surface?.catalogId;
-      if (!catalogId) return null;
-      const dataModel = state.dataModelBySurface[surfaceId];
-      diagnostics = message.updateComponents.components.flatMap((component) => [
-        ...registry.getComponentDiagnostics(catalogId, component, dataModel),
-        ...this.getActionDiagnostics(registry, catalogId, component),
-      ]);
-    } else if ('updateDataModel' in message) {
-      const surfaceId = message.updateDataModel.surfaceId;
-      const surface = state.surfaces[surfaceId];
-      const catalogId = surface?.catalogId;
-      if (!catalogId) return null;
-
-      const nextDataModel = applyDataModelUpdate(
-        state.dataModelBySurface[surfaceId],
-        message.updateDataModel,
-      );
-      diagnostics = Object.values(state.componentsBySurface[surfaceId] ?? {}).flatMap((component) =>
-        registry.getComponentDiagnostics(catalogId, component, nextDataModel),
-      );
-    }
-
-    return diagnostics.length > 0
-      ? { code: 'CATALOG_UNSUPPORTED', message: formatDiagnostics(diagnostics), diagnostics }
-      : null;
   }
 
   private getActionDiagnostics(
@@ -317,7 +343,19 @@ export class A2UIRuntime {
     const components = st.componentsBySurface[surfaceId];
     if (!components) return; // surface 尚无组件
     const model = st.dataModelBySurface[surfaceId];
-    const root = buildTree(components, surfaceId, model);
+    const root = buildTree(components, surfaceId, model, {
+      maxNodes: this.options.maxNodes,
+      maxDepth: this.options.maxDepth,
+      onLimit: ({ reason, limit }) =>
+        reportRuntimeError(this.store, this.options, {
+          code: 'FEATURE_UNSUPPORTED',
+          message:
+            reason === 'depth'
+              ? `Surface ${surfaceId} 渲染深度超过上限 ${limit}，更深层以占位呈现`
+              : `Surface ${surfaceId} 渲染节点数超过上限 ${limit}，超出部分以占位呈现`,
+          surfaceId,
+        }),
+    });
     this.options.onRender?.(root, surfaceId);
   }
 }

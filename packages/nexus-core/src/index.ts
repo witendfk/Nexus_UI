@@ -69,6 +69,8 @@ export { buildTree } from './render/index';
 export { buildActionEvent } from './action/index';
 export { A2UIRuntime } from './runtime/index';
 export type { RuntimeOptions } from './runtime/index';
+export { compileSafeRegExp } from './checks/index';
+export type { SafeRegExp } from './checks/index';
 export { CatalogRegistry } from './catalog/index';
 export type {
   CatalogComponentActionPolicy,

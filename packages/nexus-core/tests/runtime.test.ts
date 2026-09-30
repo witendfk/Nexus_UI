@@ -530,4 +530,130 @@ describe('A2UIRuntime', () => {
     rt.push('{"version":"v0.9","deleteSurface":{"surfaceId":"d"}}\n');
     expect(last(events)?.root).to.equal(null);
   });
+  it('渲染节点超上限 → FEATURE_UNSUPPORTED 诊断 + 占位渲染，不炸运行时', () => {
+    const errors: unknown[] = [];
+    const rt = new A2UIRuntime({
+      onRender: () => undefined,
+      onError: (e) => errors.push(e),
+      maxNodes: 2,
+    });
+    rt.push('{"version":"v0.9","createSurface":{"surfaceId":"cap","catalogId":"basic"}}\n');
+    rt.push(
+      '{"version":"v0.9","updateComponents":{"surfaceId":"cap","components":[' +
+        '{"id":"root","component":"Column","children":["a","b","c"]},' +
+        '{"id":"a","component":"Text","text":"1"},' +
+        '{"id":"b","component":"Text","text":"2"},' +
+        '{"id":"c","component":"Text","text":"3"}]}}\n',
+    );
+    expect(errors).to.have.lengthOf(1);
+    expect((errors[0] as { code?: string }).code).to.equal('FEATURE_UNSUPPORTED');
+  });
+
+  it('__proto__ 数据路径：写被拒、读为 undefined、模型原型不被污染', () => {
+    const errors: unknown[] = [];
+    const rt = new A2UIRuntime({
+      onRender: () => undefined,
+      onError: (e) => errors.push(e),
+    });
+    rt.push('{"version":"v0.9","createSurface":{"surfaceId":"p","catalogId":"basic"}}\n');
+    rt.push(
+      '{"version":"v0.9","updateComponents":{"surfaceId":"p","components":[{"id":"root","component":"Column","children":[]}]}}\n',
+    );
+    rt.push(
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"p","path":"/__proto__/polluted","value":"evil"}}\n',
+    );
+    expect(errors.length).to.equal(1);
+    expect((errors[0] as { message: string }).message).to.include('保留段');
+    const model = rt.store.getState().dataModelBySurface['p'];
+    expect(model).to.equal(undefined);
+  });
+
+  it('错误日志有容量上限且 raw 截断，不随恶意流无界增长', () => {
+    const rt = new A2UIRuntime({ onRender: () => undefined });
+    const longGarbage = `{"bad":1,"pad":"${'x'.repeat(5000)}"}`;
+    for (let i = 0; i < 300; i++) rt.push(`${longGarbage}\n`);
+    const errors = rt.store.getState().errors;
+    expect(errors).to.have.lengthOf(200);
+    expect(errors[0]!.raw!.length).to.be.at.most(2001 + 8);
+    expect(errors.at(-1)!.raw).to.contain('[已截断]');
+  });
+
+  describe('L0-05 Catalog 预校验异常收敛为结构化拒绝', () => {
+    const registry = new CatalogRegistry([
+      { catalogId: 'task', components: ['TaskSummary'] },
+    ]);
+    const setup = (): {
+      runtime: A2UIRuntime;
+      errors: unknown[];
+    } => {
+      const errors: unknown[] = [];
+      const runtime = new A2UIRuntime({
+        catalogRegistry: registry,
+        onRender: () => undefined,
+        onError: (e) => errors.push(e),
+      });
+      runtime.push('{"version":"v0.9","createSurface":{"surfaceId":"t","catalogId":"task"}}\n');
+      return { runtime, errors };
+    };
+    const reservedWrite =
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"t","path":"/constructor/x","value":1}}\n';
+    const reservedDelete =
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"t","path":"/prototype/y"}}\n';
+    const benignLine =
+      '{"version":"v0.9","updateDataModel":{"surfaceId":"t","path":"/ok","value":true}}\n';
+
+    it('push 路径：保留路径写/删在预校验处结构化拒绝，同 chunk 后续消息继续处理', () => {
+      const { runtime, errors } = setup();
+      // 同一 chunk：坏消息在前，合法消息在后
+      runtime.push(`${reservedWrite}${benignLine}`);
+
+      expect(errors).to.have.lengthOf(1);
+      const error = errors[0] as { code?: string; message?: string };
+      expect(error.code).to.equal('CATALOG_UNSUPPORTED');
+      expect(error.message).to.include('预校验失败');
+      // 失败不改模型；同 chunk 的合法行已生效
+      expect(runtime.store.getState().dataModelBySurface['t']).to.deep.equal({ ok: true });
+
+      runtime.push(`${reservedDelete}${benignLine}`);
+      expect(errors).to.have.lengthOf(2);
+      expect(runtime.store.getState().dataModelBySurface['t']).to.deep.equal({ ok: true });
+    });
+
+    it('dispatch 路径：异常收敛为 onError，不向调用方抛出', () => {
+      const { runtime, errors } = setup();
+      expect(() =>
+        runtime.dispatch({
+          version: 'v0.9',
+          updateDataModel: { surfaceId: 't', path: '/constructor/x', value: 1 },
+        } as never),
+      ).to.not.throw();
+      expect(errors).to.have.lengthOf(1);
+      expect((errors[0] as { code?: string }).code).to.equal('CATALOG_UNSUPPORTED');
+      expect(runtime.store.getState().dataModelBySurface['t']).to.equal(undefined);
+    });
+
+    it('parse 路径：返回 ok:false 结构化错误而非抛出', () => {
+      const { runtime } = setup();
+      const result = runtime.parse(
+        '{"version":"v0.9","updateDataModel":{"surfaceId":"t","path":"/__proto__/x","value":1}}',
+      );
+      expect(result.ok).to.equal(false);
+      expect(result.error?.code).to.equal('CATALOG_UNSUPPORTED');
+    });
+
+    it('无 registry 时保留路径走 acceptMessage 的既有 try/catch，行为不变', () => {
+      const errors: unknown[] = [];
+      const runtime = new A2UIRuntime({ onRender: () => undefined, onError: (e) => errors.push(e) });
+      runtime.push('{"version":"v0.9","createSurface":{"surfaceId":"n","catalogId":"basic"}}\n');
+      const reservedWriteN =
+        '{"version":"v0.9","updateDataModel":{"surfaceId":"n","path":"/constructor/x","value":1}}\n';
+      const benignLineN =
+        '{"version":"v0.9","updateDataModel":{"surfaceId":"n","path":"/ok","value":true}}\n';
+      runtime.push(`${reservedWriteN}${benignLineN}`);
+      expect(errors).to.have.lengthOf(1);
+      expect((errors[0] as { message?: string }).message).to.include('保留段');
+      expect(runtime.store.getState().dataModelBySurface['n']).to.deep.equal({ ok: true });
+    });
+  });
+
 });

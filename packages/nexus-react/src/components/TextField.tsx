@@ -2,7 +2,7 @@
 import { createElement } from 'react';
 import { useMemo, useState } from 'react';
 import type { ChangeEvent, FocusEvent } from 'react';
-import { toDisplayString } from '@nexus-ui/core';
+import { compileSafeRegExp, toDisplayString } from '@nexus-ui/core';
 import type { RenderContext, RenderFn } from '../types';
 
 const labelStyle = {
@@ -57,13 +57,10 @@ function TextFieldView({
   setInputValue,
 }: TextFieldViewProps) {
   const [touched, setTouched] = useState(false);
+  // 走 core 的线性时间引擎：不受信 pattern 不经 new RegExp，杜绝灾难性回溯
   const validationPattern = useMemo(() => {
     if (typeof validationRegexp !== 'string') return null;
-    try {
-      return new RegExp(validationRegexp);
-    } catch {
-      return null;
-    }
+    return compileSafeRegExp(validationRegexp);
   }, [validationRegexp]);
   const formatInvalid = touched && validationPattern !== null && !validationPattern.test(value);
   const invalid = Boolean(checkMessage) || formatInvalid;

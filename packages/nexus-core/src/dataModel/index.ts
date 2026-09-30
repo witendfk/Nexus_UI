@@ -30,28 +30,71 @@ function isArrayIndex(seg: string): boolean {
   return /^(0|[1-9][0-9]*)$/.test(seg);
 }
 
-/** 浅克隆：数组/对象复制身份隔离；undefined → {}；原始值原样。 */
+/** 以这些段为键写普通对象会命中 Object.prototype 访问器/构造链（原型污染）。 */
+const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function hasUnsafeSegment(segments: string[]): boolean {
+  return segments.some((seg) => UNSAFE_SEGMENTS.has(seg));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * 数据容器：可安全遍历/写入的中间节点（普通对象或数组）。
+ * 函数、原始值与宿主对象（Date/Map/class 实例等）不是容器——沿它们继续遍历会把
+ * 写入导向共享对象（如继承来的 `Object.prototype.toString` 函数），一律显式拒绝。
+ */
+function isDataContainer(value: unknown): value is Record<string, unknown> | unknown[] {
+  return Array.isArray(value) || isPlainObject(value);
+}
+
+/**
+ * 路径是否含保留段；组件绑定等下游消费方据此在边界层拒绝。
+ * 读路径（getByPath）静默拒绝返回 undefined，写路径（setValueAtPath/removeAtPath）抛错。
+ */
+export function isUnsafeDataPath(path: DataPath): boolean {
+  return hasUnsafeSegment(parsePointer(path));
+}
+
+/** 浅克隆：数组/对象复制身份隔离；undefined/null → {}；原始值原样。 */
 function cloneShallow(value: unknown): unknown {
   if (Array.isArray(value)) return [...value];
   if (value && typeof value === 'object') return { ...(value as Record<string, unknown>) };
-  if (value === undefined) return {};
+  if (value === undefined || value === null) return {};
   return value;
+}
+
+/** 取对象「自身」属性：继承链上的成员（如 toString/valueOf）不视作数据。 */
+function getOwnProperty(target: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : undefined;
+}
+
+/** 非容器根/中间节点的统一拒绝信息（get/set/remove 语义一致）。 */
+function nonContainerMessage(path: DataPath): string {
+  return `数据路径中间节点不是受支持的数据容器（普通对象/数组）: ${path}`;
 }
 
 /* ───────────────────────── get ───────────────────────── */
 
 /** 按 JSON Pointer 取值；路径不存在返回 undefined（渐进期数据未到达时正常）。 */
 export function getByPath(model: unknown, path: DataPath): unknown {
+  const segments = parsePointer(path);
+  if (hasUnsafeSegment(segments)) return undefined;
   let cur: unknown = model;
-  for (const seg of parsePointer(path)) {
+  for (const seg of segments) {
     if (cur === null || cur === undefined) return undefined;
     if (Array.isArray(cur)) {
       const idx = Number(seg);
       if (!Number.isInteger(idx)) return undefined;
       cur = cur[idx];
-    } else if (typeof cur === 'object') {
-      cur = (cur as Record<string, unknown>)[seg];
+    } else if (isPlainObject(cur)) {
+      cur = getOwnProperty(cur, seg);
     } else {
+      // 函数/原始值/宿主对象不是数据容器：不再沿其遍历（含继承成员）
       return undefined;
     }
   }
@@ -67,6 +110,12 @@ export function getByPath(model: unknown, path: DataPath): unknown {
 export function setValueAtPath(model: unknown, path: DataPath, value: unknown): unknown {
   const segments = parsePointer(path);
   if (segments.length === 0) return value;
+  if (hasUnsafeSegment(segments)) {
+    throw new Error(`数据路径包含保留段（__proto__/constructor/prototype）: ${path}`);
+  }
+  if (model !== undefined && model !== null && !isDataContainer(model)) {
+    throw new Error(`数据模型根不是受支持的数据容器（普通对象/数组）: ${path}`);
+  }
   const root = cloneShallow(model);
   let current: Record<string, unknown> | unknown[] = root as Record<string, unknown> | unknown[];
   for (let i = 0; i < segments.length; i++) {
@@ -78,10 +127,16 @@ export function setValueAtPath(model: unknown, path: DataPath, value: unknown): 
       break;
     }
     const wantArray = isArrayIndex(segments[i + 1] as string);
-    let child: unknown = Array.isArray(current)
-      ? (current as unknown[])[Number(seg)]
-      : (current as Record<string, unknown>)[seg];
+    let child: unknown;
+    if (Array.isArray(current)) {
+      const idx = Number(seg);
+      if (!Number.isInteger(idx)) throw new Error(nonContainerMessage(path));
+      child = (current as unknown[])[idx];
+    } else {
+      child = getOwnProperty(current as Record<string, unknown>, seg);
+    }
     if (child === undefined || child === null) child = wantArray ? [] : {};
+    else if (!isDataContainer(child)) throw new Error(nonContainerMessage(path));
     child = cloneShallow(child);
     if (Array.isArray(current)) (current as unknown[])[Number(seg)] = child;
     else (current as Record<string, unknown>)[seg] = child;
@@ -98,6 +153,12 @@ export function setValueAtPath(model: unknown, path: DataPath, value: unknown): 
 export function removeAtPath(model: unknown, path: DataPath): unknown {
   const segments = parsePointer(path);
   if (segments.length === 0) return undefined;
+  if (hasUnsafeSegment(segments)) {
+    throw new Error(`数据路径包含保留段（__proto__/constructor/prototype）: ${path}`);
+  }
+  if (model !== undefined && model !== null && !isDataContainer(model)) {
+    throw new Error(`数据模型根不是受支持的数据容器（普通对象/数组）: ${path}`);
+  }
   const root = cloneShallow(model);
   let current: Record<string, unknown> | unknown[] = root as Record<string, unknown> | unknown[];
   for (let i = 0; i < segments.length; i++) {
@@ -108,10 +169,16 @@ export function removeAtPath(model: unknown, path: DataPath): unknown {
       else delete (current as Record<string, unknown>)[seg];
       break;
     }
-    let child: unknown = Array.isArray(current)
-      ? (current as unknown[])[Number(seg)]
-      : (current as Record<string, unknown>)[seg];
+    let child: unknown;
+    if (Array.isArray(current)) {
+      const idx = Number(seg);
+      if (!Number.isInteger(idx)) throw new Error(nonContainerMessage(path));
+      child = (current as unknown[])[idx];
+    } else {
+      child = getOwnProperty(current as Record<string, unknown>, seg);
+    }
     if (child === undefined || child === null) return root; // 无需删除
+    if (!isDataContainer(child)) throw new Error(nonContainerMessage(path));
     child = cloneShallow(child);
     if (Array.isArray(current)) (current as unknown[])[Number(seg)] = child;
     else (current as Record<string, unknown>)[seg] = child;

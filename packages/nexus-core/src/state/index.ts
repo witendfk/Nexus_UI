@@ -41,6 +41,16 @@ export interface CoreState {
 /** zustand vanilla store 实例类型。 */
 export type CoreStore = StoreApi<CoreState>;
 
+/** 错误记录容量上限（环形淘汰最旧）；超出部分仅经 onError 通知，不无界累积。 */
+const MAX_ERRORS = 200;
+/** 单条错误 raw 原文的截断长度，防恶意超长行常驻内存。 */
+const MAX_RAW_LENGTH = 2_000;
+
+function boundError(error: A2UIErrorRecord): A2UIErrorRecord {
+  if (error.raw === undefined || error.raw.length <= MAX_RAW_LENGTH) return error;
+  return { ...error, raw: `${error.raw.slice(0, MAX_RAW_LENGTH)}…[已截断]` };
+}
+
 /** 创建一个独立的内核 store（每运行时一个，避免状态串味）。 */
 export function createCoreStore(): CoreStore {
   return createStore<CoreState>()((set) => ({
@@ -90,6 +100,11 @@ export function createCoreStore(): CoreStore {
         return { surfaces, componentsBySurface, dataModelBySurface };
       }),
 
-    addError: (error) => set((st) => ({ errors: [...st.errors, error] })),
+    addError: (error) =>
+      set((st) => {
+        const next = [...st.errors, boundError(error)];
+        if (next.length > MAX_ERRORS) next.splice(0, next.length - MAX_ERRORS);
+        return { errors: next };
+      }),
   }));
 }

@@ -7,6 +7,7 @@
  */
 import { PROTOCOL_VERSION } from './types';
 import type { A2UIError, A2UIMessage, ParseResult } from './types';
+import { MAX_REGEX_PATTERN_LENGTH, getRegexPatternRejection } from '../checks';
 
 const MESSAGE_KEYS = [
   'createSurface',
@@ -408,11 +409,11 @@ function validateCheckCondition(value: unknown): string | null {
   }
   if (value.call === 'regex') {
     if (typeof args.pattern !== 'string') return 'checks.condition.args.pattern 必须是字符串';
-    try {
-      new RegExp(args.pattern);
-    } catch {
-      return 'checks.condition.args.pattern 必须是合法正则表达式';
+    if (args.pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+      return `checks.condition.args.pattern 长度不得超过 ${MAX_REGEX_PATTERN_LENGTH}`;
     }
+    const rejection = getRegexPatternRejection(args.pattern);
+    if (rejection) return `checks.condition.args.pattern ${rejection}`;
   }
   if (value.call === 'length' || value.call === 'numeric') {
     if (args.min === undefined && args.max === undefined) {
@@ -465,11 +466,11 @@ function validateTextField(component: Record<string, unknown>): string | null {
     return 'TextField.validationRegexp 必须是字符串';
   }
   if (typeof component.validationRegexp === 'string') {
-    try {
-      new RegExp(component.validationRegexp);
-    } catch {
-      return 'TextField.validationRegexp 必须是合法正则表达式';
+    if (component.validationRegexp.length > MAX_REGEX_PATTERN_LENGTH) {
+      return `TextField.validationRegexp 长度不得超过 ${MAX_REGEX_PATTERN_LENGTH}`;
     }
+    const rejection = getRegexPatternRejection(component.validationRegexp);
+    if (rejection) return `TextField.validationRegexp ${rejection}`;
   }
   if (component.checks !== undefined) {
     const checksError = validateChecks(component);
@@ -648,6 +649,7 @@ function validateMediaComponent(component: Record<string, unknown>): string | nu
 function validateComponent(value: unknown): string | null {
   if (!isObject(value)) return 'components[] 项必须是对象';
   if (typeof value.id !== 'string') return 'component.id 必须是字符串';
+  if (value.id === '__proto__') return 'component.id 不得为保留字 __proto__';
   if (typeof value.component !== 'string') return 'component.component 必须是字符串';
   if (value.checks !== undefined && !CHECKABLE_COMPONENTS.has(value.component)) {
     return `当前 Agent 线不支持 ${value.component}.checks`;
@@ -718,6 +720,7 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'createSurface 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'createSurface.surfaceId 必须是字符串';
+    if (payload.surfaceId === '__proto__') return 'createSurface.surfaceId 不得为保留字 __proto__';
     if (typeof payload.catalogId !== 'string') return 'createSurface.catalogId 必须是字符串';
     if (payload.theme !== undefined && !isObject(payload.theme))
       return 'createSurface.theme 必须是对象';
@@ -733,6 +736,7 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'updateComponents 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'updateComponents.surfaceId 必须是字符串';
+    if (payload.surfaceId === '__proto__') return 'updateComponents.surfaceId 不得为保留字 __proto__';
     if (!Array.isArray(payload.components) || payload.components.length === 0) {
       return 'updateComponents.components 必须是非空数组';
     }
@@ -748,6 +752,7 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'updateDataModel 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'updateDataModel.surfaceId 必须是字符串';
+    if (payload.surfaceId === '__proto__') return 'updateDataModel.surfaceId 不得为保留字 __proto__';
     if (payload.path !== undefined && typeof payload.path !== 'string') {
       return 'updateDataModel.path 必须是字符串';
     }
@@ -756,6 +761,7 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
 
   if (!hasOnlyKeys(payload, ['surfaceId'])) return 'deleteSurface 包含未知字段';
   if (typeof payload.surfaceId !== 'string') return 'deleteSurface.surfaceId 必须是字符串';
+  if (payload.surfaceId === '__proto__') return 'deleteSurface.surfaceId 不得为保留字 __proto__';
   return null;
 }
 

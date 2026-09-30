@@ -7,7 +7,9 @@ import {
   resolveDynamic,
   setValueAtPath,
   toDisplayString,
+  isUnsafeDataPath,
 } from '../src/dataModel';
+import { A2UIRuntime } from '../src/runtime';
 
 describe('dataModel · JSON Pointer get', () => {
   const model = { user: { name: 'Alice', tags: ['a', 'b'] } };
@@ -111,5 +113,91 @@ describe('dataModel · toDisplayString', () => {
   });
   it('对象 → JSON', () => {
     expect(toDisplayString({ a: 1 })).to.equal('{"a":1}');
+  });
+  it('保留段路径：读为 undefined，写/删抛错，原型不被污染', () => {
+    const model = { user: { name: 'a' } };
+    expect(getByPath(model, '/__proto__/polluted')).to.equal(undefined);
+    expect(() => setValueAtPath(model, '/constructor/x', 1)).to.throw(/保留段/);
+    expect(() => removeAtPath(model, '/__proto__/x')).to.throw(/保留段/);
+    expect(Object.getPrototypeOf(model)).to.equal(Object.prototype);
+    expect(isUnsafeDataPath('/a/__proto__/b')).to.equal(true);
+    expect(isUnsafeDataPath('/a/b')).to.equal(false);
+  });
+});
+
+describe('dataModel · L0-04 继承成员不是数据（自身属性遍历）', () => {
+  const builtinToString = Object.prototype.toString;
+  const builtinValueOf = Object.prototype.valueOf;
+
+  afterEach(() => {
+    // 内建函数对象绝不能被改动
+    expect(Object.prototype.toString).to.equal(builtinToString);
+    expect(Object.prototype.valueOf).to.equal(builtinValueOf);
+    expect((builtinToString as unknown as Record<string, unknown>).polluted).to.equal(undefined);
+    expect((builtinValueOf as unknown as Record<string, unknown>).polluted).to.equal(undefined);
+  });
+
+  it('写：继承名解析为「不存在」→ 创建同名自身数据，内建函数对象不变', () => {
+    const next = setValueAtPath({}, '/toString/polluted', true);
+    expect(next).to.deep.equal({ toString: { polluted: true } });
+    expect(getByPath(next, '/toString/polluted')).to.equal(true);
+    expect(Object.prototype.hasOwnProperty.call(next, 'toString')).to.equal(true);
+  });
+
+  it('写/删：中间节点是函数 → 显式拒绝，函数对象不被遍历、不被修改', () => {
+    const fn = function probe(): void {};
+    const fnRecord = fn as unknown as Record<string, unknown>;
+    const model = { handler: fn };
+    expect(() => setValueAtPath(model, '/handler/polluted', true)).to.throw(/数据容器/);
+    expect(() => removeAtPath(model, '/handler/polluted')).to.throw(/数据容器/);
+    expect(fnRecord.polluted).to.equal(undefined);
+    expect(model.handler).to.equal(fn);
+    expect(() => setValueAtPath(model, '/handler/deep/inner', 1)).to.throw(/数据容器/);
+  });
+
+  it('写：非容器根（字符串/函数）→ 显式拒绝，不静默丢失写入', () => {
+    expect(() => setValueAtPath('str' as unknown, '/a', 1)).to.throw(/数据容器/);
+    expect(() => setValueAtPath((() => 1) as unknown, '/a', 1)).to.throw(/数据容器/);
+    expect(() => removeAtPath('str' as unknown, '/a')).to.throw(/数据容器/);
+    // nullish 根与 undefined 等价：建容器
+    expect(setValueAtPath(null, '/a', 1)).to.deep.equal({ a: 1 });
+  });
+
+  it('读/删：继承名读为 undefined、删为无操作；合法同名自身数据属性正常读写删', () => {
+    expect(getByPath({}, '/toString')).to.equal(undefined);
+    expect(getByPath({}, '/valueOf/x')).to.equal(undefined);
+    expect(removeAtPath({}, '/toString/x')).to.deep.equal({});
+
+    const own = { toString: { v: 'own-data' }, valueOf: 3 };
+    expect(getByPath(own, '/toString/v')).to.equal('own-data');
+    expect(getByPath(own, '/valueOf')).to.equal(3);
+    expect(setValueAtPath(own, '/toString/v', 'updated')).to.deep.equal({
+      toString: { v: 'updated' },
+      valueOf: 3,
+    });
+    expect(removeAtPath(own, '/toString')).to.deep.equal({ valueOf: 3 });
+    expect(own).to.deep.equal({ toString: { v: 'own-data' }, valueOf: 3 });
+  });
+
+  it('两个独立运行时写同名继承路径互不影响，全局原型不被污染', () => {
+    const a = new A2UIRuntime();
+    const b = new A2UIRuntime();
+    for (const rt of [a, b]) {
+      rt.dispatch({
+        version: 'v0.9',
+        createSurface: { surfaceId: 's', catalogId: 'basic' },
+      } as never);
+    }
+    a.dispatch({
+      version: 'v0.9',
+      updateDataModel: { surfaceId: 's', path: '/toString/polluted', value: 'from-a' },
+    } as never);
+
+    const stateA = a.store.getState();
+    const stateB = b.store.getState();
+    expect(stateA.errors).to.have.lengthOf(0);
+    expect(stateA.dataModelBySurface.s).to.deep.equal({ toString: { polluted: 'from-a' } });
+    expect(stateB.dataModelBySurface.s).to.deep.equal(undefined);
+    expect(Object.prototype.toString).to.equal(builtinToString);
   });
 });
