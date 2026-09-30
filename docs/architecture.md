@@ -183,7 +183,7 @@ M0 是技术门槛；M1-M3 合起来才算第一条业务切片完成。M2 不�
 
 - `fixtures/` 尚无数据；正式 OrderOps Catalog v1、案件检测、SQLite migration、Agent RPC（现为玩具生成源）、队列/详情页面均未实现（M1/M2 范围，见 implementation-plan.md）。
 - Web 现为穿刺页面（生成按钮 + 受控渲染区），正式队列/详情导航在 M1 搭建。
-- Nexus 进程内锁与 ledger 之外的数据库原子性，仍由 M3 的领域幂等与结果查询负责。
+- Nexus 进程内锁（已含提交窗口，`44a7fee`）与 ledger 之外的部分：无数据库原子性、不跨重启，M3 的领域幂等与结果查询职责不变。
 
 ## 10. Nexus 公开面核查结论（2026-09-28）
 
@@ -204,7 +204,7 @@ M0 是技术门槛；M1-M3 合起来才算第一条业务切片完成。M2 不�
 - Guard 逐消息校验（协议 → Nexus profile → 序列/生命周期 → Catalog schema 与 policy 诊断；跨消息 `{path}` 绑定用运行态组件表 + dataModel 交叉校验）全部发生在该消息写入 SSE 之前，非法消息不会到达浏览器。
 - 生成流第一条消息必须是匹配 `surfaceId/catalogId` 的 `createSurface`，且必须包含 `id` 为 `root` 的组件；action 响应只允许 `updateComponents`/`updateDataModel`。
 - SSE 事件名为 `message`/`done`/`error`，`done` 在 `commit`（action 快照 → `onGenerationCommitted` → history）成功后发送；commit 抛错会先回滚快照。
-- action 提交有逐 surface 进程内锁与 in-memory ledger 去重；默认 `InMemorySurfaceActionStateStore`（LRU 256）重启即失效。`SurfaceActionStateStore` 是公开接口，后续可实现 SQLite 版支持跨重启。
+- action 提交有逐 surface 进程内锁与 in-memory ledger 去重。自 Nexus `44a7fee` 起（已随 2026-09-29 tarball 刷新进入本仓），锁持有到该 run 的 commit/onError 落定（`sendAgentRun` 置 `streamClaimed`）后才释放：排队中的同 surface action 必然看到前一 action 提交后的快照状态，不再存在"源流结束但 commit 未落"的串行窗口；history 读取失败会关闭 ledger 记录并释放锁（不留 running 孤儿与永久锁死）；ledger 容量驱逐跳过运行中记录。默认 `InMemorySurfaceActionStateStore`（LRU 256）重启即失效。`SurfaceActionStateStore` 是公开接口，后续可实现 SQLite 版支持跨重启。
 - Web 侧：`A2UIProvider` 接 `catalogRegistry`、`catalogRenderMaps`（标准组件用 `standardRenderMap` 展开，`OrderSummary`/`LogisticsTimeline` 写自定义 render fn）；`useA2UI().push(ndjsonLine)`/`end()` 对接 SSE。TextField 编辑经 `runtime.setInputValue` 写入客户端 dataModel，点击按钮时由 core 按当前 dataModel 解析出最新 context 值。
 
 ### 10.3 实现陷阱清单

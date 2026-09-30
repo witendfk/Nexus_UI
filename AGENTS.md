@@ -14,8 +14,10 @@
 ## 跨仓硬规则
 
 1. **tarball 对齐**：`../Nexus_UI` 合并加固或能力变更后，必须在本仓执行 `pnpm pack:nexus` + `pnpm install`，两仓测试全绿后才能继续业务迭代。进入 M2 前必须确认消费的是含 Nexus Layer 0 加固的产物（Nexus 已知 P0/P1 缺陷清单与其修复状态见 `../Nexus_UI/docs/component-iteration.md` Layer 0）。
+   **每次刷新必须先升 Nexus 三包的 patch 版本（如 0.1.0 → 0.1.1）并同步本仓 overrides/deps**——pnpm 不重读同名同版本的 file: tarball（`pnpm install --force` 也不行），同版本覆盖不可审计；2026-09-29 刷新时已实际踩坑（靠删 node_modules 才生效）。
 2. **guard 双端一致**：涉及 Catalog、校验行为的变更，用同一批 fixture 在两仓分别验证（本仓 guard 测试 + Nexus conformance 用例）。
 3. **评审标准统一**：所有工程评审按本仓 `.claude/skills/code-review-expert/SKILL.md` 执行（P0–P3 分级、四份检查清单、`::code-comment` 指令、review-first 未确认不修码）；Nexus_UI 侧同一标准在其 `.zcode/skills/`，两仓保持同版。**每个里程碑（M1–M5）宣告完成前必须过一轮完整评审**（README 纪律）。
+4. **Node 24 前置**：本仓所有 `pnpm`/`node` 命令必须先 `export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`（或 `nvm use 24`）——系统默认 node 是 18。2026-09-29 实际踩坑：删 node_modules 重装时漏了前置，`better-sqlite3` 原生模块被按 ABI 108（Node 18）编译，Node 24（ABI 137）下加载直接失败；修复须在 Node 24 下 `pnpm install --force`（绕过 pnpm side-effects cache，普通 `pnpm rebuild` 会把旧 ABI 构建还原回来，无效）。症状特征：`NODE_MODULE_VERSION 108 ... requires 137` 报错。
 
 ## 状态与文档入口
 
