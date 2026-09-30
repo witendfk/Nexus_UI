@@ -9,13 +9,18 @@ export interface HostConfig {
   migrationsDir: string;
   seedFixtures: boolean;
   port: number;
+  /** 停滞检测阈值（小时）：最新物流事件距今超过该值才建案（architecture.md §4）。 */
+  stallThresholdHours: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HostConfig {
+  const thresholdHours = Number(env.ORDEROPS_STALL_THRESHOLD_HOURS ?? 48);
   return {
     dbPath: env.ORDEROPS_DB_PATH ?? join(packageRoot, 'var', 'orderops.sqlite'),
     migrationsDir: join(packageRoot, 'src', 'db', 'migrations'),
     seedFixtures: env.ORDEROPS_SEED_FIXTURES === '1',
     port: Number(env.PORT ?? 3201),
+    stallThresholdHours:
+      Number.isFinite(thresholdHours) && thresholdHours > 0 ? thresholdHours : 48,
   };
 }
