@@ -8,6 +8,8 @@
 
 完整契约见 [host-integration.md](host-integration.md)。本页只解决第一步：“我该复制什么、改什么、怎么验收。”
 
+当前候选版本的 Layer 0.3 尚未通过 review，见 [Runtime 加固问题台账](runtime-hardening-review.md)。跑通本页示例只证明接线；作为 OrderOps M2 基线前，须关闭阻断项并完成 conformance、双仓 fixture 与新版本 tarball 验收。刷新流程见[迭代计划](iteration-plan.md)。
+
 ## 1. Copy The Minimum Template
 
 从最小可运行闭环开始，不需要复制 Playground：

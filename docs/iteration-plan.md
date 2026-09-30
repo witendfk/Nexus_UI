@@ -1,7 +1,7 @@
 # Nexus UI 迭代任务计划
 
 状态：当前迭代执行基线。更新时以代码、测试和独立宿主验收结果为准。
-日期：2026-09-28。
+更新：2026-09-30。历史执行记录保留原日期；本轮静态 review 与文档同步未重跑门禁。
 
 本文档综合 [工程现状与优先级](engineering-priorities.md)、[npm SDK 改造计划](npm-sdk-transformation.md) 和 [OrderOps Copilot 方向](order-ops-copilot.md)，给出按依赖关系排列的迭代阶段。每个任务标注验收标准；完成后在对应阶段标记日期和证据链接。
 
@@ -9,14 +9,27 @@
 
 | 项目 | 状态 |
 | --- | --- |
-| 全仓测试 | 通过（core 92 / React 23 / server 117 / web 9 / standalone-host-demo 22） |
-| typecheck / lint / build / format | 通过 |
+| 全仓测试 | 2026-09-28 历史记录通过（core 92 / React 23 / server 117 / web 9 / standalone-host-demo 22）；当前快照待修复后复验 |
+| typecheck / lint / build / format | 2026-09-28 历史记录通过；本轮未重跑 |
 | 独立宿主 demo | 可运行，外部 Agent RPC + local action 双模式验证通过 |
 | Catalog Contract | 已发布带 `contractVersion` / `contractHash` 的 discovery 和 onboarding 路由 |
-| 可安装 SDK | 未完成；core / React / server 仍为私有包，入口指向源码。OrderOps 独立仓 `orderops-agent` 已通过 tarball + pnpm overrides 完成 M0 接入穿刺（2026-09-28，7/7 绿），是当前唯一的外部安装证明 |
-| OrderOps 业务闭环 | M0 完成、M1（案件事实）进行中，工程在同级独立仓 `../orderops-agent`；M3 完成才算首条业务切片交付 |
+| 可安装 SDK | 三包仍为私有包，入口已指向 `dist`，已有历史 tarball 安装/公开 API 冒烟；当前加固产物尚未通过验收与双仓刷新验证 |
+| Layer 0.3 core 加固 | **REQUEST_CHANGES**；[L0-01–L0-07](runtime-hardening-review.md) 全部 OPEN（4 P0 / 2 P1 / 1 P2） |
+| Layer 0.1/0.2 | 官方 conformance harness 与偏差决策待完成；本轮未看到跨仓同 fixture 验收结果 |
+| OrderOps 业务闭环 | 本仓 2026-09-28 记录：M0 tarball 接入穿刺 7/7 通过，M1（案件事实）进行中；M3 才算首条业务切片交付。本轮未复核同级仓最新进度 |
 
-## 已完成
+## 当前阻断与下一步
+
+1. 先关闭 [Runtime 加固问题台账](runtime-hardening-review.md)中的 L0-01–L0-06，再修正 L0-07 的诊断分层；每项按台账补验收证据。
+2. 建立[组件计划](component-iteration.md) Layer 0.1 的官方 conformance 基线，完成 0.2 的偏差决策；校验 fixture 在本仓与 `orderops-agent` guard 两端验证。
+3. 通过相关回归与质量门禁后合并加固。先升 core/React/server 三包 patch 版本并同步对方 deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install`，记录实际消费版本与验证结果。
+4. 在以上证据闭合前，Layer 0 保持未完成，OrderOps M2 不消费当前改动作为已验收加固基线。既有 action 取消、领域幂等与业务工作按以下 Phase 继续跟踪。
+
+2026-09-30 加固尝试已有对应代码与单测。先前“core 102 全绿，双 Node 版本”是历史运行记录，本次未复验；现有用例未覆盖台账中的关键反例，因此移出完成清单，不作为 Layer 0.3 的关闭证据。
+
+## 已完成记录与验证范围
+
+以下是历史记录；临时目录路径仅用于追溯当时验收，不保证产物仍在，也不证明当前快照已通过。Phase 的剩余验收须继续跟踪。
 
 | 日期 | 任务 | 证据 |
 | --- | --- | --- |
@@ -27,7 +40,7 @@
 | 2026-09-29 | Phase 1.1.1 补强：action 锁释放点从 source 耗尽移到 commit/onError 之后（`AgentRun.streamClaimed`），并补证伪测试——同一 surface 的第二个 handler 必须读到第一个 action 提交后的 dataModel | `agent-adapter.test.ts` runs the next same-surface action only after the previous action commits |
 | 2026-09-29 | Phase 1.3.1 部分闭合：`historyStore.getHistory` 失败时 ledger 关闭为 `failed` 并释放 surface 锁；ledger 容量淘汰跳过 running 记录（重放保护不再被容量逐出打断） | `agent-adapter.test.ts` closes the action ledger ... when history reads fail；`surface-action-state.test.ts` never evicts running records |
 | 2026-09-28 | Phase 2.2–2.3 core / React / server `dist` 入口 + `files` + ESM import 修复 + `pnpm pack` 三 tarball | `/tmp/nexus-tarballs/*.tgz`；tarball 仅含 dist + README + metadata |
-| 2026-09-28 | Phase 2.4–2.5 干净宿主安装三 tarball 并通过公开 API 冒烟 | `/tmp/nexus-clean-host/smoke.mjs` 全部通过（17 standard components, compatible, protocol validation ok） |
+| 2026-09-28 | Phase 2.4–2.5 的安装与公开 API 冒烟记录；浏览器输入/action 闭环仍需当前快照证据 | `/tmp/nexus-clean-host/smoke.mjs` 记录通过（17 standard components, compatible, protocol validation ok） |
 
 ## 迭代原则
 
@@ -41,7 +54,7 @@
 
 目标：保证业务 action 不会在 guard 校验失败、流中断或重复提交时产生不可恢复的副作用。这是后续所有业务接入和 SDK 安装验证的前置条件。
 
-来源：[engineering-priorities.md](engineering-priorities.md) P0 三节。
+来源：[engineering-priorities.md](engineering-priorities.md)的 action、输入与幂等章节。以下保留验收目标；已记录修复不重复视为未实现：1.1.1、1.1.2、1.2.1 有历史实现/测试记录，1.3.1 部分闭合；1.1.3 和其余业务/恢复验收仍待完成。
 
 ### 1.1 串行与提交边界
 
@@ -74,6 +87,8 @@
 目标：让 core / React / 有限 server 入口产生可从 `dist` 安装的本地 tarball，在 monorepo 外的干净宿主中通过公开入口完成静态 A2UI 冒烟。暂不发布 npm。
 
 来源：[npm-sdk-transformation.md](npm-sdk-transformation.md) M0 + M1 + M2（不含 OrderOps 接入部分）。
+
+进度：2.2–2.3 已有产物配置与历史打包记录，2.4–2.5 有安装/公开 API 冒烟；当前加固版本的完整输入/action 与跨仓 fixture 验收仍待完成。每次重验新产物均遵守三包 patch 升级及对方 deps/overrides 同步规则。
 
 | # | 任务 | 验收 |
 | --- | --- | --- |
@@ -177,7 +192,7 @@
 
 | # | 任务 | 验收 |
 | --- | --- | --- |
-| 7.1 | 抽出共享合法 / 非法 A2UI fixtures；定义 renderer conformance contract | React 和 Vue 运行同一批 fixture；rendering / binding / action / error 语义一致 |
+| 7.1 | 在 Layer 0 已建立的官方/双仓 fixture 基础上扩展 renderer conformance contract | React 和 Vue 运行同一批 fixture；rendering / binding / action / error 语义一致 |
 | 7.2 | 实现 `@nexus-ui/vue` renderer adapter | 与 React 共享同一批 A2UI conformance fixtures |
 
 ---

@@ -1,8 +1,8 @@
 # 组件能力迭代方向
 
 状态：组件层迭代执行基线（配套 [iteration-plan.md](iteration-plan.md)，不替代其 Phase 定义）。
-日期：2026-09-29。
-背景：运行时主体框架已闭环；17 个 Basic-like 组件当前是受限子集。本文定义"把一个组件打穿到什么程度算完成"，以及 18 个官方 Basic 组件的迭代顺序。
+更新：2026-09-30。
+背景：运行时最小功能闭环已有样例；17 个 Basic-like 组件当前是受限子集。公共边界加固仍有阻断项，详见 [Runtime 加固问题台账](runtime-hardening-review.md)。本文定义"把一个组件打穿到什么程度算完成"，以及 18 个官方 Basic 组件的迭代顺序。
 
 ## 1. 现状基线：与官方 Basic Catalog 的已知偏差
 
@@ -51,9 +51,9 @@
 | --- | --- | --- |
 | 0.1 | conformance harness：测试直读 `specification/v0_9/test/cases/*.json`，逐条跑 core 的 protocol/profile 校验，产出"官方用例通过率"基线，纳入 CI | 有基线数字；每份用例文件标记 pass / known-deviation / fail 三态 |
 | 0.2 | 偏差定案：对 §1 表 #1–#11 逐条决策（对齐 / 声明偏差），写入 host-integration.md | 表格清零，无未声明状态 |
-| 0.3 | 加固切片（见工程优先级与 2026-09-29 review）：buildTree memoize+上限、check pattern 长度上限+编译 memo、`__proto__` 路径拒绝、errors ring buffer；server 三个 P1 配证伪测试 | review P0/P1 关闭 |
+| 0.3 | **未通过验收**：按 [L0-01–L0-07](runtime-hardening-review.md)修复流截断、正则求值、实际渲染预算、继承属性、异常隔离、深链及协议分层；服务端剩余项按工程优先级验收 | P0/P1 关闭，P2 分层问题与 0.2 同步解决；完整渲染链及双仓同 fixture 证据齐全 |
 
-0.1 先行：没有裁判就没有训练。0.3 与 0.1/0.2 可并行。
+2026-09-30 静态复核：0.1 harness 与 0.2 偏差决策仍待落地；0.3 的局部实现和历史单测结果不足以关闭加固。0.1/0.2 与 0.3 可并行，验收以台账反例、conformance 数字和双仓结果为准。
 
 ## 5. Layer 1：模板组件（先纵向打穿两个）
 
@@ -81,7 +81,7 @@
 组件迭代提供能力完整性，OrderOps 提供业务价值证明，两条线互相供给。**业务工程在同级独立仓 `../orderops-agent`（三包：agent-server / host-server / web），通过 `tarballs/*.tgz` + pnpm overrides 消费本仓产物；本仓 Phase 2 的"干净宿主安装证明"由该仓承担。**
 
 1. Layer 0 + Layer 1 完成后即转 [iteration-plan.md](iteration-plan.md) Phase 3 首条切片——它恰好只消费 Text/TextField/Button + 两个业务组件，正好检验模板。
-2. **tarball 纪律**：本仓每次合并加固或能力变更后，必须 `pnpm pack` 刷新 `orderops-agent/tarballs/` 并在其仓重装，否则对方持续消费旧的 0.1.0 快照；两个仓的 guard 行为以同一批 fixture 双端验证（D5 的跨仓形式）。
+2. **tarball 纪律**：本仓每次合并加固或能力变更后，先提升 core/React/server 三包 patch 版本并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` + `pnpm install`；记录实际安装版本和 tarball 身份。禁止覆盖同名同版本 tarball（pnpm 不会因此重读，`--force` 也不能替代版本升级）；两个仓的 guard 行为以同一批 fixture 双端验证（D5 的跨仓形式）。当前未验收的 Layer 0 改动不能作为对方 M2 的加固基线。
 3. Phase 3/4（即 orderops-agent M2–M4）暴露的组件需求反过来提升对应批次在 Layer 2 中的优先级；业务等不到的批次提前，等得到的顺延。
 4. 不等 17 个全好才接业务；也不在业务仓里实现绕过模板的组件能力。
 

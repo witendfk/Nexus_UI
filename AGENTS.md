@@ -4,7 +4,7 @@
 
 本仓与同级仓 `../orderops-agent` 是固定双子仓：本仓是受约束 A2UI v0.9 运行时（协议/Catalog/Policy 校验、surface 状态、渲染、SDK 打包），`orderops-agent` 是独立的 OrderOps Copilot 业务工程（agent-server / host-server / web 三包）。依赖方向单一：对方通过 `tarballs/*.tgz` + pnpm overrides 只消费本仓公开入口。硬规则：
 
-1. 本仓合并加固或能力变更后，提醒并配合对方仓执行 `pnpm pack:nexus` + `pnpm install` 刷新快照；对方进 M2 前必须消费含 Layer 0 加固的产物。
+1. 本仓合并加固或能力变更后，提醒并配合对方仓执行 `pnpm pack:nexus` + `pnpm install` 刷新快照；对方进 M2 前必须消费含 Layer 0 加固的产物。**每次刷新必须先升本仓三包的 patch 版本并让对方同步 overrides/deps**——pnpm 不重读同名同版本的 file: tarball（`--force` 也不行），同版本覆盖不可审计（2026-09-29 已实际踩坑）。
 2. Catalog/校验行为变更用同一批 fixture 双仓验证（本仓 conformance 用例 + 对方 guard 测试）。
 3. 本仓组件层迭代计划见 `docs/component-iteration.md`（Layer 2 批次由 orderops 业务需求拉动）；OrderOps 的业务模型绝不进入本仓通用包。
 

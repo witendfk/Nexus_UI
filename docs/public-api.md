@@ -4,6 +4,8 @@
 适用版本：Nexus UI MVP `0.1.0`。  
 目的：定义宿主可以 import 的稳定入口、禁止依赖的内部路径，以及协议版本、包版本和 API 版本的兼容规则。
 
+2026-09-30 状态：三包公开入口已指向 `dist`，历史安装记录见[迭代计划](iteration-plan.md)。当前工作区的 Runtime 加固仍为 **REQUEST_CHANGES**；[问题台账](runtime-hardening-review.md)中的已知缺陷不构成新的 API 保证，当前改动也不代表旧 tarball 行为已更新。
+
 ## API Principles
 
 Nexus UI uses root-entry APIs only:
@@ -97,7 +99,7 @@ The assembly API intentionally does not export:
 
 A host still owns credentials, deployment policy, transport hardening, durable storage, tenant isolation, and business systems. The promise is narrower: an external host can assemble `AgentAdapter`, its own catalog, external Agent RPC, history, action handler, and the guarded router without importing server source internals. `AgentAdapterOptions.fallbackGeneration` is a host-owned deterministic source; `onGenerationCommitted` is a host-owned success hook. The generic adapter has no Basic / Task / Workbench fixture fallback or default example handlers. The guarded router's `/health` endpoint reports the selected `agentMode` and `actionMode` labels supplied by the assembling host.
 
-This is an in-workspace API contract, not proof of an installable npm SDK. The current action queue does not yet serialize handler execution, and the in-memory ledger does not replace domain idempotency. See [engineering-priorities.md](engineering-priorities.md).
+The three packages have `dist` root entries and historical tarball installation evidence; each refreshed artifact still requires independent host verification. `prepareAction()` now locks the surface before handler execution, with the `sendAgentRun` path holding the lock through commit/error handling. This in-process serialization and the in-memory ledger do not replace domain transactions or durable idempotency. Cancellation and recovery acceptance remains tracked in [engineering-priorities.md](engineering-priorities.md).
 
 `AgentAdapterOptions.policy` accepts a partial `AgentPolicy`. Omitted hooks use `nexusAgentPolicy`; provided hooks become the authoritative policy for that adapter. For example, a host can override `validateFinal` to enforce its own approval workflow without changing Catalog contracts or the runtime.
 
@@ -111,6 +113,8 @@ There are three independent version layers:
 | Package version | `0.1.0` | Implementation release version |
 | Root API version | Core `1`, React `1`, server host-assembly `1` | Shape of the root-entry contract |
 
+The Protocol/Profile row describes the intended boundary. The current candidate rejects `__proto__` IDs in protocol validation; [L0-07](runtime-hardening-review.md#l0-07) tracks moving that implementation restriction into Profile validation.
+
 While Nexus UI remains in `0.x`, all packages are private and pre-stable. Within the workspace, however, these rules apply:
 
 1. Removing or changing a documented root-entry export requires a public API version bump.
@@ -119,5 +123,6 @@ While Nexus UI remains in `0.x`, all packages are private and pre-stable. Within
 4. React `0.1.x` supports core package versions `0.1.x` with core API version `1` and protocol version `v0.9`.
 5. The server API version covers only the documented host-assembly exports, not the full reference server implementation.
 6. The API version does not describe runtime completeness. Unsupported protocol features remain tracked in the support matrix and must not be advertised as stable capabilities.
+7. 每次刷新 OrderOps tarball 前先升 core/React/server 三包 patch 版本，并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` + `pnpm install`。pnpm 不会因覆盖同名同版本的 file tarball 而可靠重读，`--force` 不能替代版本升级。记录实际安装版本与验证结果；文档更新不触发产物刷新。
 
 This policy intentionally keeps the product honest: a host can detect the core/renderer contract and know exactly which entry points are part of the runtime, while unfinished A2UI v0.9 features remain outside the supported matrix.

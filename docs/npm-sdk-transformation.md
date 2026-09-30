@@ -1,7 +1,8 @@
 # Nexus UI npm SDK Transformation
 
 状态：改造方向与验证锚点。  
-日期：2026-09-28。  
+更新：2026-09-30。
+
 用途：把 Nexus UI 从 monorepo 内可运行的 reference implementation，推进为宿主应用可以安装和接入的 npm SDK。
 
 ## 1. Target Positioning
@@ -82,19 +83,19 @@ Agent / LLM
 
 ## 3. Current Gap to npm Distribution
 
-当前项目在 monorepo 内可运行，但还不是真正的可安装 SDK。
+core/React/server 已有 `dist` 入口与打包字段，并有 2026-09-28 的本地 tarball 安装/公开 API 冒烟记录，见[迭代计划](iteration-plan.md)。这证明了一部分安装链路；公开 npm 发布、完整业务切片和当前加固产物验收仍未完成。当前候选版本有 [7 项 Runtime review 问题](runtime-hardening-review.md)，Layer 0.3 保持未通过。
 
 | 问题 | 当前状态 | 目标 |
 | --- | --- | --- |
-| 包发布 | core / react 均为 `private: true` | 发布 public alpha 包 |
-| 包入口 | 指向 `src/index.ts` 或 `src/index.tsx` | 指向构建后的 `dist` |
-| 产物字段 | 缺少完整 `files` / `exports` / `publishConfig` | 满足 npm 包消费语义 |
+| 包发布 | core / React / server 均为 `private: true`，可做本地 tarball 验收 | 业务与工程门禁完成后再评估 public alpha |
+| 包入口 | 三包公开入口已指向 `dist` | 每次产物验收保持公开入口独立可用 |
+| 产物字段 | 已有 `files` / `exports`；公开发布配置仍待规划 | 验证 tarball 内容，公开发布前再补发布配置 |
 | 传输层 | SSE client 位于 web playground | 抽成 `@nexus-ui/client` |
 | 高层组件 | 宿主需要自己 push 流 | 提供 `NexusSurface` |
 | server guard | 位于 reference server | 抽出可复用的 `@nexus-ui/guard` |
-| 安装验证 | 没有干净宿主 tarball 测试 | 新建 Vite 宿主验证安装产物 |
+| 安装验证 | 有历史干净宿主安装/公开 API 冒烟和 OrderOps M0 接入记录 | 加固后重新验证具体版本的渲染、输入、action、patch 与双仓 fixture |
 | Vue 支持 | 尚未开始 | React 发布闭环后按同一 renderer contract 实现 |
-| 发布流程 | 无版本发布纪律 | 使用 changesets 和 alpha tag |
+| 发布流程 | 本地快照要求三包 patch 升级、对方 deps/overrides 同步 | 公开发布时再引入 changesets 和 alpha tag |
 
 ## 4. Target Package Graph
 
@@ -106,7 +107,7 @@ Agent / LLM
 @nexus-ui/client
 ```
 
-在正式发布前，先将 `core`、`react` 和现有有限 `server` 根入口打成仅供独立宿主验收的本地 tarball。`server` 暂时提供受控 Adapter/guard/HTTP 装配面；待两条 OrderOps 业务流程验证边界后，再决定抽出独立 `@nexus-ui/guard` 和 `@nexus-ui/client` 的稳定 API。这个本地安装关口不等于 npm 发布承诺。
+当前已采用 `core`、`react` 和有限 `server` 根入口的本地 tarball 验收路径。`server` 暂时提供受控 Adapter/guard/HTTP 装配面；待两条 OrderOps 业务流程验证边界后，再决定抽出独立 `@nexus-ui/guard` 和 `@nexus-ui/client` 的稳定 API。这个本地安装关口不等于 npm 发布承诺。
 
 后续扩展：
 
@@ -312,6 +313,8 @@ NexusSurface
 
 目标：让 core、React 和有限 server 入口产生可被独立宿主安装的本地 tarball。
 
+进度：`dist` 入口、打包字段和三 tarball 历史记录已有；以下保留持续验收要求。更新快照时先升三包 patch 版本并同步 `orderops-agent` deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install`。禁止覆盖同名同版本 file tarball，`--force` 不能替代升级。
+
 工作项：
 
 1. core、React 和 server 的 `main` / `types` / `exports` 指向 `dist`。
@@ -335,6 +338,8 @@ tarball 只包含构建产物、README、LICENSE 和 package metadata，不包�
 ### M2: Clean Host Install Test
 
 目标：先证明安装产物可以脱离 monorepo 使用，再让同一宿主完成真实 OrderOps 闭环。
+
+进度：已有历史安装/公开 API 冒烟和 OrderOps M0 接入记录；当前加固版本的完整浏览器与业务闭环仍需证据。不得从历史脚本通过推导当前源码或旧快照已经满足 Runtime 台账的关闭条件。
 
 工作项：
 
@@ -498,14 +503,14 @@ alpha 包文档必须明确：
 
 ## 10. Recommended Validation Order
 
-1. 恢复全仓测试全绿，修正通用 action 执行顺序、失败生成残留、输入校验边界和失败状态；领域幂等由 OrderOps Host 负责，见 [engineering-priorities.md](engineering-priorities.md)。
-2. 将 core / React / 有限 server 接入面打成本地 tarball，在干净宿主验证静态 A2UI、输入与 action 冒烟；暂不发布 npm。
+1. 关闭 [Runtime 加固问题](runtime-hardening-review.md)，建立官方 conformance 基线与双仓共用 fixture 验证；补齐 action 取消、输入校验和失败恢复证据。领域幂等由 OrderOps Host 负责，见 [engineering-priorities.md](engineering-priorities.md)。
+2. 加固合并后按三包 patch 版本纪律刷新 tarball，在干净宿主重新验证静态 A2UI、输入、action 和 patch；记录实际安装版本，暂不发布 npm。
 3. 用一个标注的物流停滞案例定义 OrderOps Catalog、查询工具与业务 action 契约；接入真实 Agent、订单/物流证据组件和 mock 建单，完成同 surface patch。
 4. 用确定性 fixture 和真实模型分别验收：事实引用、人工输入、非法输出、伪造 context、重复提交、并发和中断。
 5. 增加处理界面与 action 不同的高金额退款案例，检验同一宿主边界能否复用；发现业务特判时先修抽象。
 6. 再扩充到 30 SKU、90 天订单、20-30 个标注异常，并逐步增加 Daily Briefing、Monthly Review 与其他 action。采纳率和处理时长收益需要实际参与者和人工基线。
 7. 在两条流程暴露的重复接入逻辑上定型 client、`NexusSurface` 和独立 guard；保持原有限 server 入口兼容，重新跑干净宿主安装验收。
-8. 最后评估 Vue renderer、共享 conformance fixtures 和正式 alpha 发布。
+8. 最后评估 Vue renderer 和正式 alpha 发布；Vue 在 Layer 0 已建立的 fixture 基础上增加跨渲染器一致性验收。
 
 ## 11. Non-Goals
 

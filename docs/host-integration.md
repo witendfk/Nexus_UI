@@ -6,6 +6,8 @@
 
 当前具象业务方向锚点是 [OrderOps Copilot](order-ops-copilot.md)。本文中的 Workbench / approval 示例描述已实现的接入机制，不代表 OrderOps catalog 已经实现。
 
+2026-09-30 验收提示：当前工作区 Layer 0.3 加固为 **REQUEST_CHANGES**，未形成可交付的安全基线。实现限制及未闭合问题见第 7 节与 [Runtime 加固问题台账](runtime-hardening-review.md)；历史安装/测试结果不覆盖当前改动。
+
 如果你要从一个可复制模板开始接入，先读 [host-quickstart.md](host-quickstart.md)；本文件保留完整契约和边界。
 
 ## 1. Integration Model
@@ -640,7 +642,22 @@ The reference guard rejects:
 
 The reference HTTP adapter also rejects non-JSON request media types, oversized request bodies, and request bodies that exceed the configured read timeout. Authentication, tenant policy, and public-network rate limiting remain host responsibilities.
 
-The committed server surface snapshot verifies `surfaceId`, source component, and declared action name. Its in-memory action ledger rejects an exact replay while retained, but it does not provide durable domain idempotency. The current surface queue begins after `prepareAction()` calls the handler, so it does not yet serialize the business side effect. Domain actions must not rely on the queue or client `actionId` alone for at-most-once execution. Current corrective work is tracked in [engineering-priorities.md](engineering-priorities.md).
+The committed server surface snapshot verifies `surfaceId`, source component, and declared action name. Its in-memory action ledger rejects an exact replay while retained, but it does not provide durable domain idempotency. `prepareAction()` acquires a per-surface lock before invoking the handler; when `sendAgentRun` consumes the run, the lock is retained through commit/error handling. This serializes that in-process path, not domain transactions or external side effects. HTTP cancellation propagation and domain recovery still need acceptance evidence. Domain actions must not rely on the lock or client `actionId` alone for at-most-once execution. See [engineering-priorities.md](engineering-priorities.md).
+
+### 当前工作区加固状态（未通过验收）
+
+以下描述 2026-09-30 工作区实现，不能据此认定旧 tarball 或当前候选产物已经具备完整防护。7 项问题的触发条件、级别与关闭验收统一记录在 [Runtime 加固问题台账](runtime-hardening-review.md)。
+
+| 范围 | 当前实现 | 尚未闭合的边界 |
+| --- | --- | --- |
+| JSONL | 拼接字符串超 1,000,000 个 JavaScript 字符后截头，再切行；不是仅限制半行或严格的 1 MB 字节上限 | 大 chunk 内合法完整消息可丢失，截断后缀可能被继续解析（L0-01） |
+| 正则 | checks 与 TextField pattern 限长 200，并执行嵌套量词启发式；checks 编译结果有缓存 | 可绕过启发式，匹配耗时仍无保证（L0-02） |
+| 渲染 | `A2UIRuntime.maxNodes` 默认 10000，统计创建的非占位唯一 VNode；memo 复用共享节点，超限上报 `FEATURE_UNSUPPORTED` | React 仍按引用展开，占位节点未计入预算；深链无独立深度上限（L0-03 / L0-06） |
+| dataModel | 含 `__proto__` / `constructor` / `prototype` 的路径读返回 undefined，写/删抛错 | 其他继承属性仍可导向共享函数；Catalog 预计算的异常可穿出运行时（L0-04 / L0-05） |
+| ID 拒绝 | 组件 ID 与四类消息的 surface ID 为 `__proto__` 时被协议层拒绝 | 应调整为 Profile 限制，以保持诊断分层（L0-07） |
+| 错误记录 | store 保留最近 200 条，单条 `raw` 截取前 2000 字符并附标记；`onError` 仍接收原错误 | 这是局部存储限制，不能推导整体内存或执行耗时有界 |
+
+该表中的问题属于待修复缺陷，不归入以下宿主部署职责。关闭问题并补全 conformance、双仓 fixture 和安装产物验证前，不将 Layer 0 标记完成。
 
 Known gaps that an enterprise deployment must add:
 
@@ -654,6 +671,8 @@ Known gaps that an enterprise deployment must add:
 These gaps are intentional MVP boundaries, not claims of production completeness.
 
 ## 8. Host Acceptance Checklist
+
+当前候选版本还须先满足上述加固门禁；已有最小闭环演示不替代这些反例验收。双仓刷新时先升三包 patch 版本并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` + `pnpm install`，禁止覆盖同名同版本产物。
 
 A new integration should be accepted only when all eight items pass:
 

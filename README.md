@@ -2,7 +2,7 @@
 
 Nexus UI 是基于 A2UI v0.9 消息模型的 **Agent Task Surface Runtime**。Agent 输出受约束的声明式消息；宿主校验消息与 Catalog，Nexus 逐步渲染、绑定用户输入、回传 action，并在同一个 surface 更新结果。当前交付的是 Nexus Agent Task Profile，不宣称完整 A2UI v0.9 或官方 Basic Catalog 一致性。
 
-项目目标是让 Agent 生成的任务界面能够接入业务系统，并保持组件、数据和执行权由宿主控制。当前具象业务验证方向是 [OrderOps Copilot](docs/order-ops-copilot.md)：电商内部订单异常处理 Agent。Nexus 是运行时，OrderOps 是独立业务 Agent 与宿主；它尚未实现。
+项目目标是让 Agent 生成的任务界面能够接入业务系统，并保持组件、数据和执行权由宿主控制。当前具象业务验证方向是 [OrderOps Copilot](docs/order-ops-copilot.md)：电商内部订单异常处理 Agent。Nexus 是运行时，OrderOps 的业务 Agent 与宿主位于同级独立仓 `../orderops-agent`；本仓记录已有 M0 tarball 接入验证，完整业务切片仍需在对方仓验收。
 
 ## 当前能力
 
@@ -11,7 +11,9 @@ Nexus UI 是基于 A2UI v0.9 消息模型的 **Agent Task Surface Runtime**。Ag
 - 参考 server：Agent Adapter、Catalog/Policy guard、SSE、外部 Agent JSONL RPC、宿主 action handler 与同 surface patch。
 - 独立宿主 Demo：自定义 Catalog、外部 Agent、可切换的本地/远端 action 和坏输出验收。
 
-Workbench 和独立宿主已证明最小交互闭环。Catalog Contract 有版本和 hash，外部 Agent 可发现并校验契约身份。服务端已有进程内 surface action 快照、action ledger 和运行状态；它们不等于业务事务、持久化会话或完整并发保证。当前 core/React 包仍是私有 workspace 包，尚未通过 tarball 在干净宿主安装验证。
+Workbench 和独立宿主已证明最小交互闭环。Catalog Contract 有版本和 hash，外部 Agent 可发现并校验契约身份。服务端已有进程内 surface action 快照、action ledger 和运行状态；它们不等于业务事务或持久化会话。core/React/server 三包仍为私有包，公开入口已指向 `dist`；历史 tarball 安装冒烟见[迭代记录](docs/iteration-plan.md)，新快照仍须单独验证。
+
+**当前验收状态（2026-09-30）：Layer 0.3 加固未通过 review。** [问题台账](docs/runtime-hardening-review.md)记录 4 项 P0、2 项 P1、1 项 P2，涉及 JSONL 丢消息、正则与渲染资源限制、共享对象写入、异常隔离、深链及 Protocol/Profile 分层。已有实现和历史测试记录不代表这些场景已关闭；当前改动不能作为 OrderOps M2 的加固基线。
 
 ```text
 Agent / LLM
@@ -29,8 +31,8 @@ Agent / LLM
 
 ## 工程方向
 
-1. 恢复全仓测试全绿，修正 action 执行顺序、失败生成残留、用户输入权威性与幂等/失败结局。
-2. 做 core/React/受控 server 入口的本地 tarball 安装冒烟；随即用独立宿主和真实 Agent 跑通物流异常的查询、解释、人工建单与原 surface 更新。
+1. 关闭 Runtime 加固台账，建立官方 conformance 基线和双仓共用 fixture 验证；补齐 action 取消、用户输入权威性与失败恢复验收。
+2. 加固合并后先提升三包 patch 版本，同步 OrderOps deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install` 验证新产物；继续推进物流异常的查询、解释、人工建单与原 surface 更新。
 3. 用第二类处理方式不同的异常验证 Catalog 和宿主 API 的复用性，再定型 client、guard、`NexusSurface` 等高层 SDK 能力。OrderOps 的 Daily Briefing、Exception Resolution 与 Monthly Review 继续逐步扩展。
 
 具体问题和验收口径见 [工程现状与优先级](docs/engineering-priorities.md)，包改造见 [npm SDK 路线](docs/npm-sdk-transformation.md)。个人项目以可复现的工程与业务演示为目标；多租户、通用权限平台及公网部署不作为当前前置条件。
@@ -41,6 +43,7 @@ Agent / LLM
 | --- | --- |
 | [OrderOps Copilot](docs/order-ops-copilot.md) | 业务问题、Agent 工作流、功能路线和评测 |
 | [工程现状与优先级](docs/engineering-priorities.md) | 已证明能力、待纠偏边界和下一步 |
+| [Runtime 加固问题台账](docs/runtime-hardening-review.md) | 当前 7 项 review 问题、触发条件、关闭验收与快照门禁 |
 | [npm SDK 路线](docs/npm-sdk-transformation.md) | 包边界、安装验证与发布要求 |
 | [架构边界](docs/architecture-boundary.md) | 协议、能力、策略、渲染分层 |
 | [宿主接入契约](docs/host-integration.md) | API、Catalog、HTTP/SSE 和支持范围 |

@@ -15,6 +15,8 @@ Nexus UI 基于 A2UI v0.9 消息模型实现受约束的 Agent 任务界面运�
 
 诊断使用 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`CATALOG_UNSUPPORTED`、`FEATURE_UNSUPPORTED` 和 `POLICY_REJECTED` 区分错误来源。server guard 是 Agent 输出进入浏览器前的边界；浏览器 runtime 校验是附加防线，不能代替服务端校验。
 
+2026-09-30 已知实现偏移：[L0-07](runtime-hardening-review.md#l0-07)记录当前工作区在协议层拒绝 `__proto__` ID，修复时应保留安全限制并移入 Profile。其他 Runtime 加固问题同见该台账；上述分层是工程契约，不代表当前所有边界已通过验收。
+
 ## Catalog 身份
 
 | 名称 | 含义 |
