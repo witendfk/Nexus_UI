@@ -19,6 +19,10 @@
 3. **评审标准统一**：所有工程评审按本仓 `.claude/skills/code-review-expert/SKILL.md` 执行（P0–P3 分级、四份检查清单、`::code-comment` 指令、review-first 未确认不修码）；Nexus_UI 侧同一标准在其 `.zcode/skills/`，两仓保持同版。**每个里程碑（M1–M5）宣告完成前必须过一轮完整评审**（README 纪律）。
 4. **Node 24 前置**：本仓所有 `pnpm`/`node` 命令必须先 `export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`（或 `nvm use 24`）——系统默认 node 是 18。2026-09-29 实际踩坑：删 node_modules 重装时漏了前置，`better-sqlite3` 原生模块被按 ABI 108（Node 18）编译，Node 24（ABI 137）下加载直接失败；修复须在 Node 24 下 `pnpm install --force`（绕过 pnpm side-effects cache，普通 `pnpm rebuild` 会把旧 ABI 构建还原回来，无效）。症状特征：`NODE_MODULE_VERSION 108 ... requires 137` 报错。
 
+## 工程 SOP
+
+日常工程作业按宿主仓 `docs/engineering-sop.md` 执行（测试入口、验证门禁、文档同步、提交流程）；返工教训写回该文件。
+
 ## 状态与文档入口
 
 - 进度事实源：`docs/implementation-plan.md`（同居后路径 `examples/orderops/docs/implementation-plan.md`）。

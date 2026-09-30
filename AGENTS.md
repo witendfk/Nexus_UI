@@ -12,6 +12,10 @@
 4. **测试入口**：根 `pnpm test` 已覆盖 orderops（其 root 包被 workspace 通配纳入）；orderops 专属命令用 `pnpm -C examples/orderops <script>`（test / dev / build / typecheck / lint）。orderops 需要 Node 24（better-sqlite3 原生模块 ABI 敏感，见其 AGENTS.md 规则 4）。
 5. orderops 组件层迭代计划见 `docs/component-iteration.md`；其业务模型绝不进入本仓通用包。
 
+## 工程 SOP（强制）
+
+日常工程作业（任务选取、实现纪律、验证门禁、文档同步、提交流程、环境注意）按 `docs/engineering-sop.md` 执行；返工教训写回该文件。
+
 ## Code Review 标准（强制）
 
 所有代码 review（如 "review 这次改动"、"审查代码"、提交前检查）必须按工程级 skill
