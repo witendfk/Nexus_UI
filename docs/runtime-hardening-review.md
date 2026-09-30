@@ -1,6 +1,6 @@
 # Runtime 加固问题台账
 
-更新：2026-09-30。结论：~~REQUEST_CHANGES；Layer 0.3 未通过验收。~~ **七项问题全部修复并关闭（CLOSED，2026-09-30）：修复提交 `3dc308a`，同居接线提交 `20213f8`（orderops-agent 以 git subtree 同居为本仓 `examples/orderops`，guard 34 例经 workspace 链接消费加固后的 core/react/server）。最终验证：core 174 / react 27 / orderops 34 / playground 9 / demo 1 全绿，构建与双 lint 通过。Layer 0 加固完成，作为 OrderOps M2 的入口基线；官方 conformance 基线（门禁 2 剩余）按工程优先级另行推进，不阻断 M2。**
+更新：2026-09-30。结论：~~REQUEST_CHANGES；Layer 0.3 未通过验收。~~ **七项问题全部修复并关闭（CLOSED，2026-09-30）：修复提交 `3dc308a`，同居接线提交 `20213f8`（orderops-agent 以 git subtree 同居为本仓 `examples/orderops`，guard 34 例经 workspace 链接消费加固后的 core/react/server）。最终验证：core 174 / react 27 / orderops 34 / playground 9 / demo 1 全绿，构建与双 lint 通过。Layer 0 加固完成，作为 OrderOps M2 的入口基线；**
 
 本台账记录对 `1264ce7` 基线之上当前工作区 core 加固改动的静态复核。范围包括修改的源码、测试，以及 ReactRenderer、Catalog 预校验和服务端 dataModel 消费路径。首轮未运行 lint、测试或构建；2026-09-30 修复轮已补齐本仓 lint/typecheck/test/build 的执行结果（见各项修复记录）。
 
@@ -107,7 +107,7 @@
 ## 执行顺序与交付门禁
 
 1. ~~修复 L0-01–L0-06，按各项验收补证伪场景；处理 L0-07 并同步 Profile 声明。~~ **已完成（2026-09-30）**，各修复记录见上；修复提交哈希已回填：`3dc308a`（fix: close L0-01..07 runtime hardening gaps with falsifying tests）。
-2. 建立 [Layer 0.1/0.2](component-iteration.md) 的官方 conformance 基线和偏差决策，记录 `pass / known-deviation / fail`。**部分达成**：两条新增 Profile 偏差（L0-02 正则仅支持无反向引用/环视子集；L0-07 保留字 ID 拒绝在 Profile 层）已随同居被 orderops guard 在同一 workspace 下验证（其 30 例全绿）；官方 conformance 基线（9 份用例接 vitest 出数字）仍未开始。
+2. ~~建立 [Layer 0.1/0.2](component-iteration.md) 的官方 conformance 基线和偏差决策，记录 `pass / known-deviation / fail`。~~ **已完成（2026-09-30）**：官方 9 份用例（80 条判定）接 mocha 出基线——**33 pass / 47 known-deviation（四类决策）/ 0 fail**，快照 `packages/nexus-core/tests/conformance-baseline.json` + 漂移检测 `conformance.test.ts`，决策见 [conformance-baseline.md](conformance-baseline.md)。两条 Layer 0 新增 Profile 偏差（L0-02 正则子集、L0-07 保留字 ID 分层）已纳入声明，orderops guard 同 workspace 验证全绿。
 3. ~~完成 core、React 和服务端相关回归及仓库质量门禁。~~ **已完成**：2026-09-30 快照，core 174 / react 27 / orderops 30 / playground 9 / standalone-demo 1 全绿；tsc、eslint（根 + orderops 双配置）、双包及 orderops web 构建通过。
 4. ~~tarball 刷新~~ **因同居取消**：orderops 经 `workspace:*` 直链，本仓变更根目录 `pnpm install` 即生效，无版本提升/overrides 同步需求。拆分回独立仓时恢复整套 tarball 仪式（含 2026-09-29 的同版本坑规则）。
 5. ~~关闭阻断项并完成上述验证后，才将 Layer 0 标记完成并作为 OrderOps M2 的入口基线。~~ **已达成（2026-09-30）：Layer 0 标记完成，作为 OrderOps M2 的入口基线。**官方 conformance 基线（门禁 2 剩余部分）不阻断 M2，按工程优先级另行推进。
