@@ -6,7 +6,7 @@
 
 当前具象业务方向锚点是 [OrderOps Copilot](order-ops-copilot.md)。本文中的 Workbench / approval 示例描述已实现的接入机制，不代表 OrderOps catalog 已经实现。
 
-2026-09-30 验收提示：当前工作区 Layer 0.3 加固为 **REQUEST_CHANGES**，未形成可交付的安全基线。实现限制及未闭合问题见第 7 节与 [Runtime 加固问题台账](runtime-hardening-review.md)；历史安装/测试结果不覆盖当前改动。
+2026-09-30 验收状态：Layer 0 加固七项已全部关闭（CLOSED），官方 conformance 基线 33 pass / 47 已决策偏差 / 0 fail；本文件的防护描述与该基线一致。实现限制及偏差决策见第 7 节、[Runtime 加固问题台账](runtime-hardening-review.md)与 [conformance 基线](conformance-baseline.md)。
 
 如果你要从一个可复制模板开始接入，先读 [host-quickstart.md](host-quickstart.md)；本文件保留完整契约和边界。
 
@@ -644,20 +644,21 @@ The reference HTTP adapter also rejects non-JSON request media types, oversized 
 
 The committed server surface snapshot verifies `surfaceId`, source component, and declared action name. Its in-memory action ledger rejects an exact replay while retained, but it does not provide durable domain idempotency. `prepareAction()` acquires a per-surface lock before invoking the handler; when `sendAgentRun` consumes the run, the lock is retained through commit/error handling. This serializes that in-process path, not domain transactions or external side effects. HTTP cancellation propagation and domain recovery still need acceptance evidence. Domain actions must not rely on the lock or client `actionId` alone for at-most-once execution. See [engineering-priorities.md](engineering-priorities.md).
 
-### 当前工作区加固状态（未通过验收）
+### 运行时加固状态（2026-09-30 已关闭）
 
-以下描述 2026-09-30 工作区实现，不能据此认定旧 tarball 或当前候选产物已经具备完整防护。7 项问题的触发条件、级别与关闭验收统一记录在 [Runtime 加固问题台账](runtime-hardening-review.md)。
+下表是当前运行时实施的防护边界；七项问题的触发条件、修复与证伪测试记录在 [Runtime 加固问题台账](runtime-hardening-review.md)。
 
-| 范围 | 当前实现 | 尚未闭合的边界 |
-| --- | --- | --- |
-| JSONL | 拼接字符串超 1,000,000 个 JavaScript 字符后截头，再切行；不是仅限制半行或严格的 1 MB 字节上限 | 大 chunk 内合法完整消息可丢失，截断后缀可能被继续解析（L0-01） |
-| 正则 | checks 与 TextField pattern 限长 200，并执行嵌套量词启发式；checks 编译结果有缓存 | 可绕过启发式，匹配耗时仍无保证（L0-02） |
-| 渲染 | `A2UIRuntime.maxNodes` 默认 10000，统计创建的非占位唯一 VNode；memo 复用共享节点，超限上报 `FEATURE_UNSUPPORTED` | React 仍按引用展开，占位节点未计入预算；深链无独立深度上限（L0-03 / L0-06） |
-| dataModel | 含 `__proto__` / `constructor` / `prototype` 的路径读返回 undefined，写/删抛错 | 其他继承属性仍可导向共享函数；Catalog 预计算的异常可穿出运行时（L0-04 / L0-05） |
-| ID 拒绝 | 组件 ID 与四类消息的 surface ID 为 `__proto__` 时被协议层拒绝 | 应调整为 Profile 限制，以保持诊断分层（L0-07） |
-| 错误记录 | store 保留最近 200 条，单条 `raw` 截取前 2000 字符并附标记；`onError` 仍接收原错误 | 这是局部存储限制，不能推导整体内存或执行耗时有界 |
+| 范围 | 已实施防护 |
+| --- | --- |
+| JSONL | 限长作用于单行（1,000,000 字符）：超长行经 `onOversizedLine` 整行明确拒绝并丢弃，永不换行的流进入溢出丢弃态；同一字节流按任意 chunk 切分结果一致，后续消息可恢复（L0-01） |
+| 正则 | 求值走 Thompson NFA 线性时间引擎（无回溯路径），输入 10k 字符 / NFA 状态 5000 / 量词 1000 硬上限；校验与求值同源；反向引用/环视等不在 Profile 子集（L0-02） |
+| 渲染 | `maxNodes`（默认 10000）把占位节点计入预算；ReactRenderer 元素预算默认 10000 并在耗尽后停止扩展；`maxDepth`（默认 1000）限制链式深度（L0-03） |
+| 遍历 | buildTree 为显式栈迭代 DFS，深链不耗尽调用栈；祖先集合单一可变 Set，深链成本 O(d)（L0-06） |
+| dataModel | 只遍历自身属性，中间值必须是普通对象/数组——继承名路径不命中 `Object.prototype` 函数对象；Catalog 预校验异常收敛为结构化拒绝，同 chunk 后续消息继续（L0-04 / L0-05） |
+| ID 拒绝 | 保留字 ID（`__proto__`）在 Nexus Profile 层以 `FEATURE_UNSUPPORTED` 拒绝；官方协议结构层保持零分歧（L0-07） |
+| 错误记录 | store 保留最近 200 条，单条 `raw` 截取前 2000 字符并附标记；`onError` 仍接收原错误 |
 
-该表中的问题属于待修复缺陷，不归入以下宿主部署职责。关闭问题并补全 conformance、双仓 fixture 和安装产物验证前，不将 Layer 0 标记完成。
+这些是通用运行边界，不归入以下宿主部署职责。
 
 Known gaps that an enterprise deployment must add:
 
@@ -672,7 +673,7 @@ These gaps are intentional MVP boundaries, not claims of production completeness
 
 ## 8. Host Acceptance Checklist
 
-当前候选版本还须先满足上述加固门禁；已有最小闭环演示不替代这些反例验收。双仓刷新时先升三包 patch 版本并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` + `pnpm install`，禁止覆盖同名同版本产物。
+加固门禁已于 2026-09-30 闭合（反例验收见台账各项证伪测试）；已有最小闭环演示仍不替代这些反例验收。同居期（业务工程位于 `examples/orderops`）依赖经 workspace 直链生效，无需 tarball 刷新；拆回独立仓或 npm 发布时恢复「升 patch 版本再刷新」纪律，禁止覆盖同名同版本产物。
 
 A new integration should be accepted only when all eight items pass:
 

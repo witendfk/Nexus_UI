@@ -2,7 +2,7 @@
 
 状态：当前工程决策基线。更新时以代码、测试和独立宿主验收结果为准。
 
-更新：2026-09-30；本轮为静态复核与文档同步，未重跑工程门禁。
+更新：2026-09-30（晚间）；Layer 0 台账关闭、conformance 基线建成与 orderops 同居接线后同步，门禁结果见下。
 
 ## 目标与职责
 
@@ -23,25 +23,15 @@ Nexus UI 提供受约束的 Agent Task Surface Runtime；[OrderOps Copilot](orde
 - 通用 `AgentAdapter` 已与 Basic/Task/Workbench 示例装配解耦；Catalog Contract 有版本和内容 hash，discovery 与 RPC 可以传递契约身份。
 - 服务端可保存生成后的 surface 组件及 dataModel 快照，校验 action 的 surface、组件和名称；存在进程内 action ledger、run 状态与客户端断开取消信号。
 
-这些是参考实现的能力。core/React/server 三包仍为私有包，公开入口已指向 `dist`，并有 `files`/`exports` 打包配置。[迭代记录](iteration-plan.md)保存了 2026-09-28 的 tarball 安装冒烟与 OrderOps M0 接入证据；这些历史结果不覆盖当前工作区加固改动。OrderOps 已在同级独立仓推进，完整业务切片与当前里程碑须以对方仓验收为准。
+这些是参考实现的能力。core/React/server 三包仍为私有包（正式 npm 发布在 SDK 路线 M4 后），公开入口已指向 `dist`，并有 `files`/`exports` 打包配置；tarball 安装冒烟（2026-09-28）与 orderops 同居后的 workspace 直链消费（2026-09-30 起，orderops guard 34 例全绿）共同构成接入证据。OrderOps 业务工程同居于 `examples/orderops/`（阶段性，后续拆回），业务切片在该目录内验收。
 
-历史门禁记录（2026-09-28）：`pnpm test` 全仓通过（core 92、React 23、server 117、web 9、standalone-host-demo 22）；`pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm format:check` 通过。独立宿主 discovery 测试已同步 `contractVersion` / `contractHash` 响应字段。当前快照的门禁结果需在修复后重新记录。
+历史门禁记录（2026-09-28）：core 92、React 23、server 117、web 9、standalone-host-demo 22。**当前快照（2026-09-30）已复验**：core 179（含 conformance 5 例）/ react 27 / orderops 34 / playground 9 / demo 1 全绿；typecheck、lint（根 + orderops 双配置）、build 通过。
 
 ## 需要纠偏的工程边界
 
-### 当前阻断：Layer 0.3 Runtime 加固未通过验收
+### 已关闭：Layer 0 Runtime 加固（2026-09-30）
 
-2026-09-30 静态复核结论为 **REQUEST_CHANGES**。当前有 4 项 P0、2 项 P1、1 项 P2，全部为 `OPEN`，具体触发路径与关闭条件以 [Runtime 加固问题台账](runtime-hardening-review.md)为准：
-
-- L0-01 / P0：JSONL 在切行前截断，合法完整消息会随 chunk 大小被丢弃。
-- L0-02 / P0：正则长度限制和嵌套量词启发式不能保证匹配耗时有界。
-- L0-03 / P0：memo 只限制唯一 VNode 创建，React 展开和占位节点仍可能超预算。
-- L0-04 / P0：继承属性可把 dataModel 路径导向共享函数对象并修改它。
-- L0-05 / P1：配置 CatalogRegistry 时，保留路径异常可穿出运行时并中断后续消息。
-- L0-06 / P1：深链仍有递归栈与平方级路径复制成本。
-- L0-07 / P2：保留 ID 的实现限制被归为官方协议结构错误。
-
-其中 L0-01、L0-05 是本次加固引入的行为回归，L0-07 是边界偏移，其余为既有风险尚未闭合。不得将局部测试通过等同于安全边界完成。Layer 0.1 的官方 conformance harness、0.2 的偏差决策与跨仓同 fixture 验证仍需交付；当前改动不能作为 OrderOps M2 的入口基线。
+七项问题（4 P0 / 2 P1 / 1 P2）全部 **CLOSED**：每项带证伪测试修复（commit `3dc308a`），官方 conformance 基线建成——9 份用例 80 条判定，**33 pass / 47 已决策偏差（四类）/ 0 fail**（commit `261ea43`），偏差决策见 [conformance-baseline.md](conformance-baseline.md)。OrderOps（同居于 `examples/orderops`，commit `20213f8`）guard 经 workspace 直链消费加固产物全绿。Layer 0 已作为 OrderOps M2 的入口基线；当前无阻断项，业务主线回到 orderops M1（T2.4 停滞检测起）。
 
 ### P0：业务 action 必须进入真正的串行与提交边界
 
@@ -65,9 +55,9 @@ Nexus UI 提供受约束的 Agent Task Surface Runtime；[OrderOps Copilot](orde
 
 验收目标：OrderOps Host 用 SQLite 为业务操作建立领域幂等键和最终状态；同一订单异常的同一处理决策只能执行一次。每个 action 在成功、失败、取消后都有可查询结局，重启后能恢复或明确标记待核查状态。Nexus 的通用 ledger 不替代领域事务。
 
-### P1：验证加固后的安装产物与跨仓契约
+### P2（降级）：安装产物与接入契约的持续验证
 
-已有 `dist` 打包和历史 tarball 安装冒烟；下一步是关闭 Runtime 台账后验证新产物。每次刷新先提升本仓三包 patch 版本，同步 `orderops-agent` deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install`。记录实际安装版本与 tarball 身份，用同一批 fixture 跑本仓 conformance 和对方 guard，再验收生成、输入、action 和 patch。不得覆盖同名同版本 tarball，也不能把历史冒烟当作新快照的证明。reference server 继续称为有限装配 API，暂不宣称生产 SDK。
+已有 `dist` 打包、历史 tarball 安装冒烟，以及同居后的 workspace 直链消费验证（orderops guard 34 例全绿，2026-09-30）。**同居期 tarball 刷新仪式暂停**：本仓变更后根目录 `pnpm install` 即生效；拆回独立仓或正式 npm 发布时恢复「升 patch 版本再刷新」纪律（禁止同名同版本覆盖的教训保留为发布工程规则）。Catalog/校验行为变更仍用同一批 fixture 双端验证（同居后一次 `pnpm test` 覆盖）。reference server 继续称为有限装配 API，暂不宣称生产 SDK。
 
 ### P1：统一内部模型提示与 Catalog 契约
 
@@ -88,15 +78,15 @@ server guard 仍把 action 挂载组件写死为 `Button`，Task 另有 `TaskBut
 | OrderOps Agent 有效 | 标注异常样本上的识别与证据引用、处理建议质量、人工确认流程 |
 | 有业务收益 | 与可复现的人工流程基线比较步骤、用时或错误；没有基线时只报告模拟样本结果，不宣称真实运营改善 |
 
-文档中的“已实现”“已通过测试”“已完成独立宿主验收”和“规划中”应分别标注，不用单一“完成”代替。下一阶段先关闭 Runtime 台账并建立 conformance/双仓门禁，再刷新 SDK 产物；action 剩余验收和 OrderOps 业务闭环按依赖推进。
+文档中的“已实现”“已通过测试”“已完成独立宿主验收”和“规划中”应分别标注，不用单一“完成”代替。Runtime 台账与 conformance 门禁已闭合（2026-09-30）；下一阶段为 OrderOps 业务切片（M1 T2.4 起收口，M2 真实模型分析），action 剩余验收随切片推进，SDK 定型按 [npm SDK 路线](npm-sdk-transformation.md)在 M4 复用性验证后执行。
 
 ## 降低返工的开发节奏
 
 以一条完整业务切片为迭代单位，不以组件数量或包数量为单位。首条切片的功能边界见 [OrderOps Copilot](order-ops-copilot.md#首条端到端业务切片)。组件数量由完成真实业务判断所需的信息决定；只做一张卡片不足以证明 Agent 和 Nexus 的价值，先做完整组件库又会延迟外部接入反馈。
 
 1. **固定最小契约**：先定义 CatalogDefinition、订单摘要/物流时间线 props、只读订单/物流查询结果、可编辑备注、`createTicket` action 的输入/结果和业务幂等键。只锁这条切片实际用到的字段；契约样例同时供 Agent、Host、guard 与测试使用。
-2. **清除集成阻断**：关闭 Runtime 台账，补齐端到端与证伪场景，建立 conformance/双仓共用 fixture 门禁；完成 action 取消和失败恢复的剩余验收。避免业务 handler 在 guard 最终通过前产生不可恢复副作用。
-3. **刷新可安装产物**：沿已有 `dist` + tarball 路径，按三包 patch 版本纪律刷新快照，在独立宿主验证新版本。继续使用有限 `@nexus-ui/server` 装配 API；后续抽出 guard 时保留兼容入口。无需先完成 Vue、通用高层组件或正式 npm 发布。
+2. ~~清除集成阻断~~（2026-09-30 完成：Runtime 台账关闭 + conformance 基线 + 同居接入验证）；action 取消和失败恢复的剩余验收随 M3 人工闭环推进。
+3. **可安装产物**：同居期 workspace 直链即生效，无需刷新动作；tarball 纪律在拆分/npm 发布时恢复。继续使用有限 `@nexus-ui/server` 装配 API；后续抽出 guard 时保留兼容入口。无需先完成 Vue、通用高层组件或正式 npm 发布。
 4. **尽早接真实 Agent**：用一个标注的物流停滞案例和只读工具调用，让真实模型生成证据引用与处理建议；同一案例保留确定性 fixture 供 CI 重放。Agent 输出 A2UI，订单事实仍由 Host 校验。
 5. **用第二个场景检验抽象**：首条流程完成后，增加处理方式和确认界面显著不同的异常，例如高金额退款请求。先观察 Catalog、guard、绑定和 Host action 是否能复用；若必须加入业务特判，再调整通用边界。完成两个场景后才稳定高层宿主 API 和扩展组件库。
 

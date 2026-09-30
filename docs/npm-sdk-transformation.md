@@ -313,7 +313,7 @@ NexusSurface
 
 目标：让 core、React 和有限 server 入口产生可被独立宿主安装的本地 tarball。
 
-进度：`dist` 入口、打包字段和三 tarball 历史记录已有；以下保留持续验收要求。更新快照时先升三包 patch 版本并同步 `orderops-agent` deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install`。禁止覆盖同名同版本 file tarball，`--force` 不能替代升级。
+进度：`dist` 入口、打包字段和三 tarball 历史记录已有；orderops 已同居为本仓 `examples/orderops` 并经 workspace 直链消费（2026-09-30 起），tarball 刷新仪式随之**暂停**，拆回独立仓或正式发布时恢复：先升三包 patch 版本再刷新，禁止覆盖同名同版本 file tarball，`--force` 不能替代升级（2026-09-29 踩坑存档）。正式 alpha 发布前按 M3 工作项处理 `private: false`、npm scope、`publishConfig` 与 `prepublishOnly`。
 
 工作项：
 

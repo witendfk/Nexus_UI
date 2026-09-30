@@ -9,23 +9,20 @@
 
 | 项目 | 状态 |
 | --- | --- |
-| 全仓测试 | 2026-09-28 历史记录通过（core 92 / React 23 / server 117 / web 9 / standalone-host-demo 22）；当前快照待修复后复验 |
+| 全仓测试 | **2026-09-30 快照通过**：core 179（含 conformance 5 例）/ react 27 / orderops 34 / playground 9 / demo 1；2026-09-28 历史记录（core 92 / React 23 / server 117 / web 9 / demo 22）存档 |
 | typecheck / lint / build / format | 2026-09-28 历史记录通过；本轮未重跑 |
 | 独立宿主 demo | 可运行，外部 Agent RPC + local action 双模式验证通过 |
 | Catalog Contract | 已发布带 `contractVersion` / `contractHash` 的 discovery 和 onboarding 路由 |
-| 可安装 SDK | 三包仍为私有包，入口已指向 `dist`，已有历史 tarball 安装/公开 API 冒烟；当前加固产物尚未通过验收与双仓刷新验证 |
-| Layer 0.3 core 加固 | **REQUEST_CHANGES**；[L0-01–L0-07](runtime-hardening-review.md) 全部 OPEN（4 P0 / 2 P1 / 1 P2） |
-| Layer 0.1/0.2 | 官方 conformance harness 与偏差决策待完成；本轮未看到跨仓同 fixture 验收结果 |
-| OrderOps 业务闭环 | 本仓 2026-09-28 记录：M0 tarball 接入穿刺 7/7 通过，M1（案件事实）进行中；M3 才算首条业务切片交付。本轮未复核同级仓最新进度 |
+| 可安装 SDK | 三包仍为私有包（npm 发布按 SDK 路线在 M4 后），入口已指向 `dist`；tarball 冒烟（2026-09-28）+ 同居 workspace 直链消费验证（2026-09-30，orderops guard 全绿） |
+| Layer 0.3 core 加固 | **已关闭（2026-09-30）**：[L0-01–L0-07](runtime-hardening-review.md) 全部 CLOSED，每项带证伪测试（commit `3dc308a`） |
+| Layer 0.1/0.2 | **已完成（2026-09-30，commit `261ea43`）**：官方 9 份用例基线 33 pass / 47 已决策偏差 / 0 fail，决策见 [conformance-baseline.md](conformance-baseline.md)；orderops guard 同 workspace 验证 |
+| OrderOps 业务闭环 | 同居于 `examples/orderops`（2026-09-30 起）：M0 闭环，M1 T2.1–T2.3 完成、transport P1 已修（34 例绿）；下一步 T2.4 停滞检测。M3 才算首条业务切片交付 |
 
-## 当前阻断与下一步
+## 当前状态与下一步
 
-1. 先关闭 [Runtime 加固问题台账](runtime-hardening-review.md)中的 L0-01–L0-06，再修正 L0-07 的诊断分层；每项按台账补验收证据。
-2. 建立[组件计划](component-iteration.md) Layer 0.1 的官方 conformance 基线，完成 0.2 的偏差决策；校验 fixture 在本仓与 `orderops-agent` guard 两端验证。
-3. 通过相关回归与质量门禁后合并加固。先升 core/React/server 三包 patch 版本并同步对方 deps/overrides，再在对方仓执行 `pnpm pack:nexus` + `pnpm install`，记录实际消费版本与验证结果。
-4. 在以上证据闭合前，Layer 0 保持未完成，OrderOps M2 不消费当前改动作为已验收加固基线。既有 action 取消、领域幂等与业务工作按以下 Phase 继续跟踪。
+**无阻断（2026-09-30）**：Layer 0 七项关闭（修复 `3dc308a`）、conformance 基线建成（`261ea43`）、orderops 同居接线（`20213f8`，tarball 刷新仪式随之暂停，拆分/npm 发布时恢复）。Layer 0 已作为 OrderOps M2 的入口基线。
 
-2026-09-30 加固尝试已有对应代码与单测。先前“core 102 全绿，双 Node 版本”是历史运行记录，本次未复验；现有用例未覆盖台账中的关键反例，因此移出完成清单，不作为 Layer 0.3 的关闭证据。
+下一步（业务主线）：orderops M1 收口——T2.4 停滞检测规则、T2.5 案件查询 API、T2.6 队列/详情页；随后 M2 真实模型分析（Catalog 转正、A2UI 消息编译）。action 取消、领域幂等剩余验收随 M3 推进。
 
 ## 已完成记录与验证范围
 

@@ -4,7 +4,7 @@
 
 > **进度（2026-09-29）**：M0 完全闭环（CI 绿 + fresh clone 绿 + 真浏览器走通）。M1 进行中：T2.1 contracts ✓；T2.2 SQLite migration + 7 表 ✓；T2.3 fixtures ✓（相对时间生成保证任意时刻可复现，幂等 upsert seed 实机双启动验证）；transport 流中断 P1 已修。34/34 测试绿。开发在 `feature` 分支。下一步：T2.4（停滞检测规则 + 单测）。
 >
-> **跨仓同步（2026-09-29，来自 Nexus_UI 会话）**：Nexus_UI 已合并 action 锁/ledger 修复并带证伪测试（其 `44a7fee`/`1264ce7`，Phase 1 的 1.1.1 串行窗口与 1.3.1 两个缺口闭合）；本仓服务端 tarball 已刷新含该修复，锁语义已同步进 architecture.md §10.2。T2.2/T2.3 不依赖 Nexus；**进 M2 前按 AGENTS.md 新门禁走版本号刷新**（升 patch 版本，禁止同版本覆盖，pnpm 不重读同版本 file: tarball）。~~遗留待修：web transport 流中断误报成功~~（已修，settled 语义见 `web/src/nexus/transport.ts`）。
+> **跨仓同步（2026-09-30 更新）**：Nexus_UI Layer 0 加固七项已全部关闭、官方 conformance 基线建成（33 pass / 47 已决策偏差 / 0 fail）；本工程已以 git subtree 同居为 Nexus_UI `examples/orderops/`，经 pnpm `workspace:*` 直链消费其公开入口——**「进 M2 前版本号刷新 tarball」门禁随同居失效**，M2 入口基线已达成（guard 34 例在同居 workspace 全绿）。action 锁/ledger 修复（`44a7fee`/`1264ce7`）与 transport 流中断修复（settled 语义见 `web/src/nexus/transport.ts`）均已在本工程消费的产物中。
 
 ## 工程纪律（每个迭代 part 适用）
 

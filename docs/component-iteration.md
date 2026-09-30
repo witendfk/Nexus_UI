@@ -78,10 +78,10 @@
 
 ## 7. 与业务切片的衔接
 
-组件迭代提供能力完整性，OrderOps 提供业务价值证明，两条线互相供给。**业务工程在同级独立仓 `../orderops-agent`（三包：agent-server / host-server / web），通过 `tarballs/*.tgz` + pnpm overrides 消费本仓产物；本仓 Phase 2 的"干净宿主安装证明"由该仓承担。**
+组件迭代提供能力完整性，OrderOps 提供业务价值证明，两条线互相供给。**业务工程同居于本仓 `examples/orderops/`（2026-09-30 起，git subtree，阶段性安排后续拆回；四包：agent-server / host-server / contracts / web），经 pnpm `workspace:*` 直链消费本仓公开入口；本仓的"干净宿主安装证明"由它承担，tarball 冒烟历史（2026-09-28）存档。**
 
 1. Layer 0 + Layer 1 完成后即转 [iteration-plan.md](iteration-plan.md) Phase 3 首条切片——它恰好只消费 Text/TextField/Button + 两个业务组件，正好检验模板。
-2. **tarball 纪律**：本仓每次合并加固或能力变更后，先提升 core/React/server 三包 patch 版本并同步对方 deps/overrides，再在 `orderops-agent` 执行 `pnpm pack:nexus` + `pnpm install`；记录实际安装版本和 tarball 身份。禁止覆盖同名同版本 tarball（pnpm 不会因此重读，`--force` 也不能替代版本升级）；两个仓的 guard 行为以同一批 fixture 双端验证（D5 的跨仓形式）。当前未验收的 Layer 0 改动不能作为对方 M2 的加固基线。
+2. **接入纪律（同居期）**：本仓变更后根目录 `pnpm install` 即对 `examples/orderops` 生效；Catalog/校验行为变更以同一批 fixture 双端验证（同居后一次 `pnpm test` 覆盖，即 D5 的跨仓形式）。**拆分回独立仓或 npm 发布时恢复 tarball 纪律**：先升 core/React/server 三包 patch 版本再刷新，禁止覆盖同名同版本 tarball（pnpm 不会因此重读，`--force` 也不能替代版本升级；2026-09-29 踩坑存档）。Layer 0 已验收（2026-09-30），是 orderops M2 的加固基线。
 3. Phase 3/4（即 orderops-agent M2–M4）暴露的组件需求反过来提升对应批次在 Layer 2 中的优先级；业务等不到的批次提前，等得到的顺延。
 4. 不等 17 个全好才接业务；也不在业务仓里实现绕过模板的组件能力。
 
