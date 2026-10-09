@@ -17,7 +17,7 @@ async function* toyGeneration(request: AgentGenerationSourceRequest): AgentMessa
         {
           id: 'root',
           component: 'Column',
-          children: ['case-title', 'note', 'ping'],
+          children: ['case-title', 'note', 'submit-ticket'],
         },
         {
           id: 'case-title',
@@ -33,17 +33,17 @@ async function* toyGeneration(request: AgentGenerationSourceRequest): AgentMessa
           variant: 'longText',
         },
         {
-          id: 'ping-label',
+          id: 'submit-ticket-label',
           component: 'Text',
-          text: { path: '/pingLabel' },
+          text: { path: '/submitButtonLabel' },
         },
         {
-          id: 'ping',
+          id: 'submit-ticket',
           component: 'Button',
-          child: 'ping-label',
+          child: 'submit-ticket-label',
           action: {
             event: {
-              name: 'ping',
+              name: 'createTicket',
               context: { note: { path: '/draft/note' } },
             },
           },
@@ -58,28 +58,28 @@ async function* toyGeneration(request: AgentGenerationSourceRequest): AgentMessa
       value: {
         title: '穿刺玩具案件',
         noteLabel: '处理备注',
-        pingLabel: 'Ping',
+        submitButtonLabel: '提交工单',
         draft: { note: '' },
       },
     },
   };
 }
 
-/** action 回流穿刺：回一个禁用按钮的 patch，验证 guard → commit → SSE 全链。 */
-async function* pingPatch(surfaceId: string): AgentMessageSource {
+/** action 回流穿刺：回一个禁用按钮的 patch，验证 guard → commit → SSE 全链。T4.1 起由本地事务 handler 替换。 */
+async function* disableSubmitPatch(surfaceId: string): AgentMessageSource {
   yield {
     version: 'v0.9',
     updateComponents: {
       surfaceId,
       components: [
         {
-          id: 'ping',
+          id: 'submit-ticket',
           component: 'Button',
-          child: 'ping-label',
+          child: 'submit-ticket-label',
           disabled: true,
           action: {
             event: {
-              name: 'ping',
+              name: 'createTicket',
               context: { note: { path: '/draft/note' } },
             },
           },
@@ -95,8 +95,8 @@ export function createAgentAdapter(): AgentAdapter {
     useLlm: () => false,
     fallbackGeneration: toyGeneration,
   });
-  adapter.registerActionHandler(ORDEROPS_CATALOG_ID, 'ping', (action) =>
-    pingPatch(action.surfaceId),
+  adapter.registerActionHandler(ORDEROPS_CATALOG_ID, 'createTicket', (action) =>
+    disableSubmitPatch(action.surfaceId),
   );
   return adapter;
 }

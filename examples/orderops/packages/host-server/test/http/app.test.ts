@@ -71,7 +71,7 @@ it('analyze 路由流式输出受控 surface 并以 done 结束', async () => {
   expect(create.createSurface.catalogId).toBe(ORDEROPS_CATALOG_ID);
 });
 
-it('action 回流触发 ping patch 并禁用按钮', async () => {
+it('action 回流触发 createTicket patch 并禁用按钮', async () => {
   const app = createApp();
   const baseUrl = await listen(app);
 
@@ -89,9 +89,9 @@ it('action 回流触发 ping patch 并禁用按钮', async () => {
     body: JSON.stringify({
       version: 'v0.9',
       action: {
-        name: 'ping',
+        name: 'createTicket',
         surfaceId,
-        sourceComponentId: 'ping',
+        sourceComponentId: 'submit-ticket',
         timestamp: new Date().toISOString(),
         actionId: 'test-action-1',
         context: { note: '穿刺备注' },
@@ -104,7 +104,7 @@ it('action 回流触发 ping patch 并禁用按钮', async () => {
   expect(actionEvents.at(-1)?.event).toBe('done');
   const patch = actionEvents.find((entry) => entry.event === 'message')
     ?.data as { updateComponents: { components: Array<{ id: string; disabled?: boolean }> } };
-  expect(patch.updateComponents.components[0]).toMatchObject({ id: 'ping', disabled: true });
+  expect(patch.updateComponents.components[0]).toMatchObject({ id: 'submit-ticket', disabled: true });
 });
 
 it('伪造的 action 名被拒绝', async () => {
@@ -118,16 +118,16 @@ it('伪造的 action 名被拒绝', async () => {
   const createMessage = generateEvents.find((entry) => entry.event === 'message')
     ?.data as { createSurface: { surfaceId: string } };
 
-  // surface 快照里的 Button 只声明了 ping，伪造 action 名在快照校验即被拒（400，不进流）。
+  // surface 快照里的 Button 只声明了 createTicket，伪造 action 名在快照校验即被拒（400，不进流）。
   const actionResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       version: 'v0.9',
       action: {
-        name: 'createTicket',
+        name: 'ping',
         surfaceId: createMessage.createSurface.surfaceId,
-        sourceComponentId: 'ping',
+        sourceComponentId: 'submit-ticket',
         timestamp: new Date().toISOString(),
         context: {},
       },

@@ -3,15 +3,22 @@ import type { CatalogDefinition } from '@nexus-ui/core';
 export const ORDEROPS_CATALOG_ID = 'https://example.com/catalogs/orderops/v1';
 
 /**
- * 穿刺用最小 Catalog（T1.2）：只覆盖生成 → guard → 渲染 → action 回流链路验证。
- * M2 会替换为正式的 OrderOps Catalog v1（增加 OrderSummary / LogisticsTimeline 与 createTicket）。
+ * OrderOps Catalog v1（M2/T3.2，architecture.md §6）。
+ *
+ * - 首条切片允许 6 组件，唯一 action 为 `createTicket`；
+ * - Column 是根布局：不声明 schema/policy，registry 跳过无 schema 组件的 props
+ *   检查（与 Nexus 内置目录一致，有意为之）；
+ * - OrderSummary / LogisticsTimeline 是宿主扩展组件：只展示事实、不挂 action，
+ *   schema 与 componentPolicies.fields 双声明（缺一不进 prompt contract）；
+ * - Button.disabled 只能字面布尔（binding forbidden），child 是组件引用；
+ * - TextField 仅绑定 `/draft/note`：catalog 的绑定策略只能表达"必须是 {path} 绑定"，
+ *   具体 path 白名单由 Agent prompt contract 声明、并在 T4.1 本地 handler 的
+ *   resolveActionContext 中强制——guard 无法表达 path 级约束，此处诚实分层。
  */
 export const ORDEROPS_CATALOG: CatalogDefinition = {
   catalogId: ORDEROPS_CATALOG_ID,
-  // Column 是布局组件：与 Nexus 内置目录一致，不声明 schema/policy，
-  // registry 校验会跳过无 schema 组件的 props 检查（有意为之，非遗漏）。
-  components: ['Column', 'Text', 'TextField', 'Button'],
-  actions: ['ping'],
+  components: ['Column', 'Text', 'OrderSummary', 'LogisticsTimeline', 'TextField', 'Button'],
+  actions: ['createTicket'],
   componentSchemas: {
     Text: {
       type: 'object',
@@ -19,6 +26,40 @@ export const ORDEROPS_CATALOG: CatalogDefinition = {
       properties: {
         text: { type: 'string', dynamic: 'allowed' },
         variant: { type: 'string', enum: ['h1', 'h2', 'h3', 'body', 'caption'] },
+      },
+    },
+    OrderSummary: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['orderId', 'product', 'currency', 'amountMinor', 'customerSummary'],
+      properties: {
+        orderId: { type: 'string', dynamic: 'allowed' },
+        product: { type: 'string', dynamic: 'allowed' },
+        currency: { type: 'string', dynamic: 'allowed', pattern: '^[A-Z]{3}$' },
+        amountMinor: { type: 'integer', dynamic: 'allowed', minimum: 0 },
+        customerSummary: { type: 'string', dynamic: 'allowed' },
+      },
+    },
+    LogisticsTimeline: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['events'],
+      properties: {
+        events: {
+          type: 'array',
+          dynamic: 'allowed',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'status', 'occurredAt', 'source'],
+            properties: {
+              id: { type: 'string' },
+              status: { type: 'string' },
+              occurredAt: { type: 'string' },
+              source: { type: 'string' },
+            },
+          },
+        },
       },
     },
     TextField: {
@@ -44,6 +85,24 @@ export const ORDEROPS_CATALOG: CatalogDefinition = {
       fields: {
         text: { binding: 'allowed' },
         variant: { binding: 'forbidden' },
+      },
+      action: { allowed: false },
+    },
+    OrderSummary: {
+      origin: 'host-extension',
+      fields: {
+        orderId: { binding: 'allowed' },
+        product: { binding: 'allowed' },
+        currency: { binding: 'allowed' },
+        amountMinor: { binding: 'allowed' },
+        customerSummary: { binding: 'allowed' },
+      },
+      action: { allowed: false },
+    },
+    LogisticsTimeline: {
+      origin: 'host-extension',
+      fields: {
+        events: { binding: 'allowed' },
       },
       action: { allowed: false },
     },
