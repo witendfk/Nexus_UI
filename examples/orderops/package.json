@@ -16,7 +16,10 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "predev": "pnpm --filter \"@nexus-ui/react...\" --filter \"@nexus-ui/server...\" build",
+    "pretest": "pnpm --filter \"@nexus-ui/react...\" --filter \"@nexus-ui/server...\" build",
+    "pretypecheck": "pnpm --filter \"@nexus-ui/react...\" --filter \"@nexus-ui/server...\" build"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
