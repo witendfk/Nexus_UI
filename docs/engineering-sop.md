@@ -28,6 +28,15 @@
 
 ## 3. 验证门禁
 
+**验证命令禁止裸管道**:pnpm/eslint 的失败退出码会被管道后的 grep/tail 吞掉,必须 `set -o pipefail` 或直接看命令退出码。
+- 实例(2026-09-30):fresh clone 演练宣布"GATES ALL PASS",实际 typecheck 失败被 `pnpm test | grep` 吞掉,演练当天即被证伪。
+
+**声明跨环境可用(部署/fresh clone/CI)前,必须真的在那个环境跑一次**——集成缺口单测永远抓不到。
+- 实例(2026-09-30):orderops dev/test 依赖 `@nexus-ui/*` 的 `dist/`(gitignored),本地能跑全靠手动 build,fresh clone 直接 ERR_MODULE_NOT_FOUND;修复为 predev/pretest/pretypecheck 构建依赖闭包(fb6e6a5)。
+- 实例(2026-09-30):orderops dev 裸 `pnpm -r` 在同居后递归宿主示例,无 OPENAI_API_KEY 的示例退出连坐整棵 dev 树(d4869a2)——**脚本里的 `-r`/通配范围在仓库结构变化后要重新审视**。
+
+**Vite dev 的一次性行为(依赖预构建触发 full reload)不是应用 bug**;判定前端状态丢失前先排除 dev-server 行为,用生产 build 或二次访问复验。
+
 声明任何"完成/全绿"前,按下表跑齐;跨包影响时加跑全仓:
 
 | 包 | 测试入口 | 注意 |
