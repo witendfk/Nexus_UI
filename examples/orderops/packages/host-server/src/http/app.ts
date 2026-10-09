@@ -5,6 +5,7 @@ import { HOST_SERVER_VERSION } from '../index';
 import { createAgentAdapter } from '../nexus/adapter';
 import { ORDEROPS_CATALOG } from '../nexus/catalog';
 import { createCasesRouter } from './cases';
+import { createInternalRouter } from '../tools/read-api';
 import type { SqliteDb } from '../db/client';
 
 export interface CreateAppOptions {
@@ -15,6 +16,12 @@ export interface CreateAppOptions {
 export function createApp(options: CreateAppOptions = {}): Koa {
   const app = new Koa();
   const adapter = createAgentAdapter();
+  if (options.db !== undefined) {
+    // 内部只读工具：鉴权在 router 内 fail-closed（ORDEROPS_INTERNAL_TOKEN）
+    const internalRouter = createInternalRouter(options.db);
+    app.use(internalRouter.routes());
+    app.use(internalRouter.allowedMethods());
+  }
 
   const own = new Router();
 
