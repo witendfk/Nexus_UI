@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "pnpm -r --workspace-concurrency=1 --parallel dev",
+    "dev": "pnpm --filter @orderops/agent-server --filter @orderops/host-server --filter @orderops/web --parallel dev",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present typecheck",
