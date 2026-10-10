@@ -1,60 +1,36 @@
 # Nexus UI
 
-Nexus UI 是基于 A2UI v0.9 消息模型的 **Agent Task Surface Runtime**。Agent 输出受约束的声明式消息；宿主校验消息与 Catalog，Nexus 逐步渲染、绑定用户输入、回传 action，并在同一个 surface 更新结果。当前交付的是 Nexus Agent Task Profile，不宣称完整 A2UI v0.9 或官方 Basic Catalog 一致性。
+Nexus UI 是基于 A2UI v0.9 消息模型的受约束 Agent Task Surface SDK。Agent 生成候选声明式界面；宿主通过协议、Profile、Catalog 和 Policy guard 后渲染，绑定输入、回传 action，并在同一 surface 更新结果。当前交付的是 Nexus Agent Task Profile，不宣称完整 v0.9 或官方 Basic Catalog 兼容。
 
-项目目标是让 Agent 生成的任务界面能够接入业务系统，并保持组件、数据和执行权由宿主控制。当前具象业务验证方向是 [OrderOps Copilot](docs/order-ops-copilot.md)：电商内部订单异常处理 Agent。Nexus 是运行时；OrderOps 业务工程自 2026-09-30 以 git subtree 同居于本仓 `examples/orderops/`（阶段性安排，后续拆回独立项目），经 pnpm `workspace:*` 直链消费公开入口。M0 接入穿刺已验证，业务切片在 `examples/orderops` 内验收。
+**SDK 是主产品，目标是达到生产级设计规范并提供可安装、可集成的公开能力。** 这是用于开源展示和面试的个人项目，但用途不降低 SDK 的边界、安全、兼容和验证标准。[OrderOps Copilot](docs/PRD.md) 是自建的简化验证 Agent/宿主：确定性规则发现物流停滞，Agent 解释证据和建议，运营人员确认后由 Host 执行模拟建单。OrderOps 本身不以生产级业务系统为目标；它暂以 subtree 同居于 `examples/orderops/`，只消费 Nexus 公开入口。
 
-## 当前能力
+## 当前状态
 
-- `@nexus-ui/core`：JSONL 流解析、协议/Profile/Catalog 校验、surface 状态、VNode 构建、dataModel 绑定、action context 和结构化 diagnostics。
-- `@nexus-ui/react`：Provider、renderMap、基础任务组件和自定义 Catalog 组件映射。
-- 参考 server：Agent Adapter、Catalog/Policy guard、SSE、外部 Agent JSONL RPC、宿主 action handler 与同 surface patch。
-- 独立宿主 Demo：自定义 Catalog、外部 Agent、可切换的本地/远端 action 和坏输出验收。
+Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard → SSE → 渲染 → action → 同 surface patch。Catalog Contract 带版本与 hash，可发现、校验并用于外部 Agent 接入。三包 `dist` 根入口可在 workspace 使用，当前仍为私有包；当前产物尚未通过完整的 SDK 发行门禁。内存 surface 快照和 action ledger 不代替业务事务。
 
-Workbench 和独立宿主已证明最小交互闭环。Catalog Contract 有版本和 hash，外部 Agent 可发现并校验契约身份。服务端已有进程内 surface action 快照、action ledger 和运行状态；它们不等于业务事务或持久化会话。core/React/server 三包仍为私有包，公开入口已指向 `dist`；历史 tarball 安装冒烟见[迭代记录](docs/iteration-plan.md)，新快照仍须单独验证。
-
-**当前验收状态（2026-09-30）：Layer 0 加固七项全部关闭（CLOSED），官方 conformance 基线建成（33 pass / 47 已决策偏差 / 0 fail），OrderOps M2 入口基线达成。** 证据见[问题台账](docs/runtime-hardening-review.md)与[conformance 基线](docs/conformance-baseline.md)：core 179 / react 27 / orderops 34 / playground 9 / demo 1 全绿，typecheck、lint、build 通过。
+SDK 主线仍需当前产物的仓外安装、公开 API/兼容、失败恢复、资源边界和独立宿主验收。OrderOps M0 接入和 M1 案件事实已完成，M2 Agent 分析进行中；Host 仍使用玩具生成源与回显 patch，人工确认建单 M3 尚未实现。2026-09-30 已知基线：Nexus Layer 0 七项关闭；官方 v0.9 conformance 9 份用例为 33 pass / 47 已决策偏差 / 0 fail。最新任务、证据和门禁见 [CURRENT](docs/tasks/CURRENT.md)，历史数字不代表当前未提交工作区已验证。
 
 ```text
-Agent / LLM
-  -> A2UI v0.9 JSONL
-  -> 宿主协议、Profile、Catalog、Policy guard
-  -> SSE 参考传输
-  -> @nexus-ui/core 状态与 VNode
-  -> @nexus-ui/react + 宿主 renderMap
-  -> 用户输入与 action
-  -> 宿主业务 handler 或外部 Agent
-  -> 同 surface patch
+Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
+  → @nexus-ui/core 状态 → @nexus-ui/react + Host renderMap
+  → 人工输入与 action → Host 业务 handler → 同 surface patch
 ```
 
-当前只显示一个 active surface。Nexus Basic Task Profile 使用 17 个 Basic-like 组件名，支持有限的组件字段、`{ path }` 绑定和最小 checks；完整字段与非目标见 [宿主接入契约](docs/host-integration.md)。不生成 HTML 或 React 源码，不替代业务后端的事实、事务和执行策略。
+## 文档主链
 
-## 工程方向
-
-1. ~~关闭 Runtime 加固台账、建立官方 conformance 基线~~（2026-09-30 完成，偏差决策见 [conformance-baseline.md](docs/conformance-baseline.md)）；剩余：action 取消、用户输入权威性与失败恢复验收。
-2. 同居期 core/React/server 变更后根目录 `pnpm install` 即对 `examples/orderops` 生效；拆回独立仓或正式 npm 发布时恢复「升 patch 版本再刷新」纪律（pnpm 不重读同名同版本 file: tarball，2026-09-29 踩坑存档）。业务主线：物流异常的停滞检测（T2.4）、查询、解释、人工建单与原 surface 更新。
-3. 用第二类处理方式不同的异常验证 Catalog 和宿主 API 的复用性，再定型 client、guard、`NexusSurface` 等高层 SDK 能力。OrderOps 的 Daily Briefing、Exception Resolution 与 Monthly Review 继续逐步扩展。
-
-具体问题和验收口径见 [工程现状与优先级](docs/engineering-priorities.md)，包改造见 [npm SDK 路线](docs/npm-sdk-transformation.md)。个人项目以可复现的工程与业务演示为目标；多租户、通用权限平台及公网部署不作为当前前置条件。
-
-## 文档入口
-
-| 文档 | 用途 |
+| 文档 | 回答的问题 |
 | --- | --- |
-| [OrderOps Copilot](docs/order-ops-copilot.md) | 业务问题、Agent 工作流、功能路线和评测 |
-| [工程现状与优先级](docs/engineering-priorities.md) | 已证明能力、待纠偏边界和下一步 |
-| [Runtime 加固问题台账](docs/runtime-hardening-review.md) | Layer 0 七项问题的触发条件、修复与证伪测试记录（已全部关闭） |
-| [npm SDK 路线](docs/npm-sdk-transformation.md) | 包边界、安装验证与发布要求 |
-| [架构边界](docs/architecture-boundary.md) | 协议、能力、策略、渲染分层 |
-| [宿主接入契约](docs/host-integration.md) | API、Catalog、HTTP/SSE 和支持范围 |
-| [宿主 Quickstart](docs/host-quickstart.md) | 最小宿主接入步骤 |
-| [外部 Agent 接入](docs/external-agent-onboarding.md) | discovery、Contract、RPC 与 verifier |
-| [公开 API](docs/public-api.md) | root entry 与兼容策略 |
-| [面试叙事](docs/interview-narrative.md) | 项目讲解与已实现样例 |
+| [PRD](docs/PRD.md) | SDK 产品目标、生产级设计门禁与验证场景 |
+| [SPEC](docs/SPEC.md) | 双端必须遵守的协议、Catalog、RPC、数据与状态契约 |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | 包边界、服务拓扑和生成/执行数据流 |
+| [DESIGN](docs/DESIGN.md) | 关键设计选择及代价 |
+| [CURRENT](docs/tasks/CURRENT.md) | 当前任务、进度与验证门禁 |
 
-A2UI 协议事实源在 `specification/v0_9`；各包和示例的运行说明见其目录 README。历史需求和里程碑记录可从 Git 历史查阅，不作为当前能力事实源。
+各示例的实际运行命令见其 README；A2UI 上游快照在 `specification/v0_9`。历史讨论可从 Git 记录查阅。
 
 ## 本地运行
+
+Node 24、pnpm 9。仓库根目录：
 
 ```bash
 pnpm install
@@ -63,7 +39,7 @@ pnpm dev:server
 pnpm dev:web
 ```
 
-Web：`http://localhost:5173/`；server health：`http://localhost:3001/health`。配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 可运行真实 LLM；未配置 key 时使用 fallback。`.env` 被 Git 忽略。
+Workbench：`http://localhost:5173/`；参考 server health：`http://localhost:3001/health`。设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 可用真实 LLM；无 key 时走 fallback。`.env` 不入库。
 
 无 key 的独立宿主演示：
 
@@ -71,9 +47,9 @@ Web：`http://localhost:5173/`；server health：`http://localhost:3001/health`�
 NEXUS_DEMO_AGENT_MODE=deterministic NEXUS_DEMO_ACTION_MODE=local pnpm demo:standalone
 ```
 
-打开 `http://127.0.0.1:3100/`，生成任务面并执行本地审批 action，检查同 surface 更新。真实 LLM 和外部 Agent 接入命令见 [独立宿主说明](examples/standalone-host-demo/README.md)。
+打开 `http://127.0.0.1:3100/`，生成任务面、执行本地审批 action 并检查同 surface patch。外部 Agent 验收、discovery 和环境变量见 [独立宿主 Demo](examples/standalone-host-demo/README.md)；其最小复制点是 CatalogDefinition、renderMap、Host action handler 与 Agent endpoint。Agent 输出只是候选消息，必须经过 Host guard。
 
-质量门禁：
+OrderOps 在根目录安装依赖后运行 `pnpm -C examples/orderops dev`；测试与质量门禁：
 
 ```bash
 pnpm format:check
@@ -83,4 +59,4 @@ pnpm build
 pnpm test
 ```
 
-测试通过只证明当前仓库行为；SDK 可安装性与 OrderOps 业务收益需要各自的独立验收。
+测试通过仅证明当前仓库行为；SDK 的仓外可安装性与发行门禁仍需独立验收，OrderOps 的 mock 结果不代表真实业务收益。

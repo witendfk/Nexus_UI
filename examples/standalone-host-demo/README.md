@@ -44,7 +44,7 @@ NEXUS_VERIFY_ONBOARDING_URL='http://127.0.0.1:3101/api/a2ui/agent-onboarding?cat
 
 宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此外部 Agent 可以先读取 `GET /api/a2ui/published-catalogs` 发现 catalog 摘要和 contract URL；浏览器也可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约。页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
 
-外部宿主最小复制路径、catalog / renderMap / action 替换点和坏输出验收见 [../../docs/host-quickstart.md](../../docs/host-quickstart.md)。
+外部宿主最小复制路径是本 Demo 的 CatalogDefinition、renderMap、action handler 与 Agent endpoint；Nexus 支持子集和公开 API 边界见 [SPEC](../../docs/SPEC.md)。
 
 ## Run
 

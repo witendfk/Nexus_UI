@@ -1,18 +1,17 @@
 # OrderOps Copilot
 
-电商内部订单异常案件处理助手，使用 [Nexus UI](../Nexus_UI/) 作为受控的人机审核界面。
+电商内部订单异常案件处理验证工程，使用 [Nexus UI SDK](../../) 作为受控的人机审核界面。Agent 与业务数据刻意保持简化；本工程用于检验 SDK 接入、边界和失败行为，不宣称生产级订单系统。
 
-项目已完成 **M0 Nexus 接入穿刺**：`Agent 生成 → guard 校验 → SSE → 受控渲染 → action 回流 → patch` 全链有自动化测试覆盖（7/7 绿）。产品功能、系统边界、技术栈、数据模型、执行流程与逐阶段验收见 [框架设计与实施方案](docs/architecture.md)；框架设计图（拓扑、模块、时序、数据模型）见 [docs/design.md](docs/design.md)；逐任务实施顺序与进度见 [docs/implementation-plan.md](docs/implementation-plan.md)。
+M0 Nexus 接入穿刺与 M1 案件事实已完成；M2 Agent 分析进行中，Host 目前仍使用玩具生成源，M3 人工建单尚未完成。产品范围见 [PRD](../../docs/PRD.md)，契约见 [SPEC](../../docs/SPEC.md)，拓扑见 [ARCHITECTURE](../../docs/ARCHITECTURE.md)，当前任务和验收见 [CURRENT](../../docs/tasks/CURRENT.md)。
 
 ## 快速开始
 
-前置：Node 24（见 `.nvmrc`）、pnpm 9、本仓同级目录存在 `Nexus_UI` 参考仓（或用 `NEXUS_UI_DIR` 环境变量指定路径）。
+前置：Node 24（`better-sqlite3` ABI 敏感）、pnpm 9；从 Nexus_UI 根目录执行安装，同居期依赖通过 `workspace:*` 链接。
 
 ```bash
 pnpm install
-pnpm pack:nexus   # 首次或 Nexus 更新后：打包 @nexus-ui/* tarball 到 tarballs/
-pnpm dev          # web localhost:3200（Vite 绑 localhost，用 127.0.0.1 访问不到）/ host :3201 / agent :3202
-pnpm test         # 单测位于各包 test/ 目录（镜像 src 结构），含 Nexus 接入穿刺测试
+pnpm -C examples/orderops dev   # web localhost:3200 / host :3201 / agent :3202
+pnpm -C examples/orderops test
 ```
 
 ## 代码评审

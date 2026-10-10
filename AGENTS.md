@@ -10,11 +10,16 @@
 2. **同居期不刷 tarball**：core/react/server 变更后只需根目录 `pnpm install` 即对 orderops 生效；`pnpm pack:nexus` + 版本提升 + overrides 同步的整套仪式**暂停使用**，拆分时恢复——届时必须先升三包 patch 版本并让对方同步 overrides/deps（pnpm 不重读同名同版本的 file: tarball，`--force` 也不行；2026-09-29 已实际踩坑）。
 3. **校验行为变更**（Catalog/协议/Profile）用同一批 fixture 在仓内双端验证：本仓 conformance 用例 + `examples/orderops` guard 测试，一次 `pnpm test` 全覆盖。
 4. **测试入口**：根 `pnpm test` 已覆盖 orderops（其 root 包被 workspace 通配纳入）；orderops 专属命令用 `pnpm -C examples/orderops <script>`（test / dev / build / typecheck / lint）。orderops 需要 Node 24（better-sqlite3 原生模块 ABI 敏感，见其 AGENTS.md 规则 4）。
-5. orderops 组件层迭代计划见 `docs/component-iteration.md`；其业务模型绝不进入本仓通用包。
+5. 产品与任务事实源依次为 `docs/PRD.md`、`docs/SPEC.md`、`docs/ARCHITECTURE.md`、`docs/DESIGN.md`、`docs/tasks/CURRENT.md`；OrderOps 业务模型绝不进入本仓通用包。
 
 ## 工程 SOP（强制）
 
-日常工程作业（任务选取、实现纪律、验证门禁、文档同步、提交流程、环境注意）按 `docs/engineering-sop.md` 执行；返工教训写回该文件。
+1. 动手前读 `docs/tasks/CURRENT.md` 的当前任务和完成判据，再对照代码核实“已知缺陷”；产品线任务优先，方向变化先写明依据并与用户对齐。返工教训写回本节，不再开并行 SOP。
+2. 测试放在所在包 `test/`，路径镜像 `src/`。安全、正确性、幂等或隔离声明要有真正触发失败条件的证伪测试；oracle 期望先与实现对拍，fixture 的数据作用域与断言作用域一致。共享常量在定义处导出；配置非法要显式报错。
+3. 验证命令看真实退出码；用管道时必须 `set -o pipefail`。core 公开 API 改动后先构建 core 再跑 React 测试。完成声明需对应单测、typecheck、lint（根与 OrderOps）、涉及构建面的 build；跨包改动加跑根 `pnpm test`。声称 CI、fresh clone 或浏览器可用时，必须真的在相应环境验证，不能引用旧快照。
+4. 同一任务状态变化时同步 `docs/tasks/CURRENT.md` 与 README 对外状态；契约、结构、决策、需求分别更新 SPEC、ARCHITECTURE、DESIGN、PRD。历史证据标日期，提交哈希只在实际提交后回填。
+5. 显著变更或安全/协议面代码提交前按下述 review skill 评审。若用户要求提交，先给出提交范围与 message 供确认，再 commit/push；OrderOps 业务与 Nexus 基建不混成无关提交。
+6. OrderOps 用 Node 24（`better-sqlite3` ABI 敏感）；先核对 `node -v`。仓库结构变动后复查递归脚本和 fresh clone 的 `dist` 构建依赖。Vite 首次依赖预构建可能触发 full reload，应用状态问题须二次访问或生产构建复验。
 
 ## Code Review 标准（强制）
 

@@ -21,13 +21,12 @@
 
 ## 工程 SOP
 
-日常工程作业按宿主仓 `docs/engineering-sop.md` 执行（测试入口、验证门禁、文档同步、提交流程）；返工教训写回该文件。
+日常工程作业按宿主仓根 `AGENTS.md` 的工程 SOP 执行（测试入口、验证门禁、文档同步、提交流程）；返工教训写回根 `AGENTS.md`。
 
 ## 状态与文档入口
 
-- 进度事实源：`docs/implementation-plan.md`（同居后路径 `examples/orderops/docs/implementation-plan.md`）。
-- 设计与验收门禁：`docs/architecture.md`（§8 阶段门禁；§10 是对 Nexus 公开面的源码级核查与陷阱清单，M2/M3 动工前逐条对照）。
-- 状态快照不写进本文件——更新 implementation-plan 的任务行与进度注记，本文件只放不随时间变化的规则。
+- 产品及技术主链：宿主仓 `docs/PRD.md` → `docs/SPEC.md` → `docs/ARCHITECTURE.md` → `docs/DESIGN.md`。
+- 唯一进度与任务事实源：宿主仓 `docs/tasks/CURRENT.md`；完成任务后更新判据和证据，本文件只放不随时间变化的规则。
 
 ## 项目性质与叙事边界
 
