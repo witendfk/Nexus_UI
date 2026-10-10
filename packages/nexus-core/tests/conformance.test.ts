@@ -10,7 +10,7 @@ import { A2UIRuntime } from '../src/runtime';
  * + 1 份完整示例流）。每条用例过本仓两层校验（协议层 = 官方结构对齐面，Profile 层 =
  * 支持边界），归类 pass / known-deviation / fail 后与 conformance-baseline.json
  * 逐条比对。校验器行为变化若改变 conformance 面，测试即失败——必须显式重新生成
- * 基线并在 docs/conformance-baseline.md 记录偏差决策，不允许静默漂移。
+ * 基线并在 docs/SPEC.md 记录偏差决策，不允许静默漂移。
  */
 describe('official conformance baseline (v0.9 cases)', () => {
   const report = buildConformanceReport();

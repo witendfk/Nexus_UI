@@ -5,7 +5,7 @@
  *   - validateProtocolMessage  = 官方结构层（对齐官方 schema 的结论面）
  *   - validateNexusProfileMessage = Nexus Runtime Profile 支持边界
  *
- * 结论口径（与 docs/conformance-baseline.md 一致）：
+ * 结论口径（与 docs/SPEC.md 的 conformance 决策一致）：
  *   pass        官方与我们的两层结论一致
  *   deviation   已决策的已知偏差（kind 标注），决策记录在基线文档
  *   fail        官方合法但协议层拒绝（分层回归，禁止出现）等未决策分歧
