@@ -1,11 +1,35 @@
 import http from 'node:http';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { afterAll, expect, it } from 'vitest';
+import { afterAll, afterEach, expect, it } from 'vitest';
 import type Koa from 'koa';
 import { createApp } from '../../src/http/app';
 import { ORDEROPS_CATALOG_ID } from '../../src/nexus/catalog';
+import { openDatabase, type SqliteDb } from '../../src/db/client';
+import { detectStalledCases } from '../../src/cases/detect';
+import { seedFixtures } from '../../src/fixtures/seed';
+
+const NOW = new Date('2026-09-30T12:00:00.000Z');
+/** detect 的确定性格式 `case-{orderId}-{eventId}`（fixtures 中唯一停滞案件）。 */
+const SEEDED_CASE_ID = 'case-order-stalled-001-evt-stalled-002';
 
 const servers: http.Server[] = [];
+const dbs: SqliteDb[] = [];
+
+function seededDb(): SqliteDb {
+  const dir = mkdtempSync(join(tmpdir(), 'orderops-app-http-'));
+  const db = openDatabase(join(dir, 'test.sqlite'), fileMigrationsDir());
+  dbs.push(db);
+  seedFixtures(db, NOW);
+  detectStalledCases(db, { now: NOW, thresholdHours: 48 });
+  return db;
+}
+
+function fileMigrationsDir(): string {
+  return new URL('../../src/db/migrations', import.meta.url).pathname;
+}
 
 function listen(app: Koa): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -39,6 +63,11 @@ afterAll(() => {
   for (const server of servers) server.close();
 });
 
+afterEach(() => {
+  for (const db of dbs) db.close();
+  dbs.length = 0;
+});
+
 it('GET /health 返回服务状态', async () => {
   const baseUrl = await listen(createApp());
   const response = await fetch(`${baseUrl}/health`);
@@ -57,8 +86,8 @@ it('GET /api/a2ui/published-catalogs 发布 OrderOps Catalog', async () => {
 });
 
 it('analyze 路由流式输出受控 surface 并以 done 结束', async () => {
-  const baseUrl = await listen(createApp());
-  const response = await fetch(`${baseUrl}/api/cases/case-1/analyze`, { method: 'POST' });
+  const baseUrl = await listen(createApp({ db: seededDb() }));
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/event-stream');
 
@@ -72,10 +101,10 @@ it('analyze 路由流式输出受控 surface 并以 done 结束', async () => {
 });
 
 it('action 回流触发 createTicket patch 并禁用按钮', async () => {
-  const app = createApp();
+  const app = createApp({ db: seededDb() });
   const baseUrl = await listen(app);
 
-  const generateResponse = await fetch(`${baseUrl}/api/cases/case-1/analyze`, {
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
     method: 'POST',
   });
   const generateEvents = parseSse(await generateResponse.text());
@@ -108,10 +137,10 @@ it('action 回流触发 createTicket patch 并禁用按钮', async () => {
 });
 
 it('伪造的 action 名被拒绝', async () => {
-  const app = createApp();
+  const app = createApp({ db: seededDb() });
   const baseUrl = await listen(app);
 
-  const generateResponse = await fetch(`${baseUrl}/api/cases/case-1/analyze`, {
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
     method: 'POST',
   });
   const generateEvents = parseSse(await generateResponse.text());

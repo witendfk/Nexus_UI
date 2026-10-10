@@ -9,7 +9,7 @@ export interface HostConfig {
   migrationsDir: string;
   seedFixtures: boolean;
   port: number;
-  /** 停滞检测阈值（小时）：最新物流事件距今超过该值才建案（architecture.md §4）。 */
+  /** 停滞检测阈值（小时）：最新物流事件距今超过该值才建案（docs/PRD.md §5.1）。 */
   stallThresholdHours: number;
 }
 

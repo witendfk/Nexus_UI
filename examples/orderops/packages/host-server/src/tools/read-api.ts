@@ -3,10 +3,10 @@ import { ReadContextResponseSchema } from '@orderops/contracts';
 import type { SqliteDb } from '../db/client';
 
 /**
- * Agent 只读工具入口（T3.1，architecture.md §5）：`GET /internal/cases/:caseId/context`。
+ * Agent 只读工具入口（T3.1，docs/SPEC.md §5）：`GET /internal/cases/:caseId/context`。
  *
  * 鉴权：`Authorization: Bearer <ORDEROPS_INTERNAL_TOKEN>`，host 与 agent 两边共享
- * 同一 token（design.md 环境变量表）。**fail-closed**：token 未配置时一律 401——
+ * 同一内部 token。**fail-closed**：token 未配置时一律 401——
  * 内部端点宁可不服务，不在无鉴权状态下暴露案件事实。
  */
 export function createInternalRouter(db: SqliteDb): Router {

@@ -3,7 +3,7 @@ import type { CatalogDefinition } from '@nexus-ui/core';
 export const ORDEROPS_CATALOG_ID = 'https://example.com/catalogs/orderops/v1';
 
 /**
- * OrderOps Catalog v1（M2/T3.2，architecture.md §6）。
+ * OrderOps Catalog v1（M2/T3.2，docs/SPEC.md §2）。
  *
  * - 首条切片允许 6 组件，唯一 action 为 `createTicket`；
  * - Column 是根布局：不声明 schema/policy，registry 跳过无 schema 组件的 props

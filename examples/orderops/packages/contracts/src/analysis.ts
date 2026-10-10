@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // ---------- Agent 分析契约（Agent 产出 → Host 消费）----------
-// 模型输出属于不可信输入：strict 拒绝一切未声明字段（模型不得发明数据，architecture.md §3.2）。
+// 模型输出属于不可信输入：strict 拒绝一切未声明字段（docs/DESIGN.md D2）。
 
 export const AnalysisVerdictSchema = z.enum(['analysis', 'insufficient_evidence']);
 
@@ -17,7 +17,7 @@ export const AnalysisResultSchema = z
   })
   .strict();
 
-/** 证据不足：Agent 必须明确说缺什么，而不是编造结论（architecture.md §3.2）。 */
+/** 证据不足：Agent 必须明确说缺什么，而不是编造结论（docs/PRD.md §5.1）。 */
 export const InsufficientEvidenceSchema = z
   .object({
     verdict: z.literal('insufficient_evidence'),

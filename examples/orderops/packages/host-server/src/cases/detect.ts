@@ -29,7 +29,7 @@ interface LatestEventRow {
 }
 
 /**
- * T2.4 首条检测规则（architecture.md §4）：仅扫描运输中（status='shipping'）的订单，
+ * T2.4 首条检测规则（docs/PRD.md §5.1）：仅扫描运输中（status='shipping'）的订单，
  * 最新物流事件距今超过阈值即建 `logistics_stalled` 案件，严重度结合承诺送达时间判定。
  *
  * - 乱序：按 `occurred_at`（`id` 兜底排序键）取最新，不依赖插入顺序；

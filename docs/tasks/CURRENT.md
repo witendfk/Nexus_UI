@@ -6,9 +6,9 @@
 
 ## 当前结论
 
-**主产品是 Nexus SDK，当前验证任务是 OrderOps M2 → M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0 接入穿刺、M1 案件事实已完成。OrderOps Host 当前仍用玩具生成源和回显 patch；T3.3 Agent RPC / Catalog Contract 缓存位于未提交工作区，不能把 M2 或人工建单写成已完成。
+**主产品是 Nexus SDK，当前验证任务是 OrderOps M2 → M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0 接入穿刺、M1 案件事实已完成。OrderOps Host 当前仍用玩具生成源和回显 patch（T3.6 切换）；T3.3 Agent RPC / Catalog Contract 缓存与 T3.3b 案件入口封口已于 2026-10-10 完成验证（尚在本轮提交中），不能把 M2 或人工建单写成已完成。
 
-**下一步只收口 T3.3**：先验证工作区 Agent `/rpc`、Contract hash 缓存和错误信封；Host adapter 切换留到 T3.6。后续按 T3.3b → T3.4/T3.5 → T3.6/T3.7 → M3 → 仓外独立宿主 → M4 推进。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
+**下一步**：T3.3 与 T3.3b 已于 2026-10-10 收口（Agent `/rpc` 契约 + Contract hash 缓存 + 案件入口封口，证据见下方快照）；Host adapter 切换留到 T3.6。后续按 T3.4/T3.5 → T3.6/T3.7 → M3 → 仓外独立宿主 → M4 推进。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
 
 | 阶段 | 状态 | 下一门禁 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | Nexus conformance | 已完成基线（`261ea43`）：9 份用例，33 pass / 47 已决策偏差 / 0 fail | 行为改变时更新 JSON 基线和 SPEC |
 | Nexus SDK 生产级设计门禁 | 进行中；当前三包根入口与独立 Demo 已有证据，完整门禁未通过 | 见下方 SDK 队列；不能以 OrderOps 演示代替 |
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
-| OrderOps M2 | 进行中；T3.1、T3.2 完成，T3.3 工作区开发中 | 真实模型分析、证据校验和受控渲染 |
+| OrderOps M2 | 进行中；T3.1、T3.2、T3.3、T3.3b 完成，T3.4/T3.5 待开工 | 真实模型分析、证据校验和受控渲染 |
 | OrderOps M3 | 未开始 | 人工确认、领域事务及失败恢复 |
 | OrderOps M4 | 待 M3 收口 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
@@ -45,14 +45,14 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 | R6 包兼容 | 三包根入口指向 dist、API 版本和历史 tarball 冒烟 | 当前快照的仓外干净安装、peer/types/exports 与升级记录 |
 | R7 可验证性 | 官方 v0.9 基线与双端 guard 测试入口 | 新增业务失败样本、资源/取消回归及发行 CI 证据 |
 
-**优先纠偏（已立为 T3.3b，接真实模型前必须闭合，不再留到 T3.6）**：`host-server/src/http/app.ts` 的案件 analyze 路由目前把任意 `:caseId` 直接传给 adapter，未查案件/状态；同一 adapter 还挂在通用 `/api/a2ui/generate`（接受任意 `message?`）。两条入口都须核对案件存在/状态并配证伪测试，避免外部 Agent 用自由 message 绕过只读案件边界；`app.ts` 中原称"浏览器无法注入任意 prompt"的注释已按实际状态改写。该缺口属于 OrderOps 接线，不等于 Nexus SDK 的通用 generate 路由有业务逻辑错误。
+**优先纠偏已闭合（T3.3b，2026-10-10）**：analyze 路由现在经 `admitAnalyze` 核对案件存在与状态（未知 404、`ticket_created`/`dismissed` 409、db 未接线 503，白名单 `open`/`in_review`）；通用 `POST /api/a2ui/generate` 在业务宿主下线（404 `ROUTE_DISABLED`）。证伪测试：`host-server/test/http/analyze-guard.test.ts`（5 例）+ `test/cases/analyze-guard.test.ts`（3 例）。原 `app.ts` 注释与实际相反的问题已一并修正。该缺口属于 OrderOps 接线，不等于 Nexus SDK 的通用 generate 路由有业务逻辑错误。
 
 ## M2 待办
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| T3.3 | Agent `/rpc` NDJSON 与 Catalog Contract hash 缓存；用测试 Host 验证 RPC 契约 | fixture 请求打通，错误为非 2xx + `{error:{message}}`，契约身份不匹配被拒；正式 Host adapter 切换属于 T3.6 |
-| T3.3b | 封口案件生成入口：analyze 核对案件存在/状态；通用 `/api/a2ui/generate` 加同约束或下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface，各有一条证伪测试 |
+| T3.3 | ✅ 已完成（2026-10-10）：Agent `/rpc` NDJSON 与 Catalog Contract hash 缓存；测试 Host 验证 RPC 契约——fixture 打通、非 2xx + `{error:{message}}`、hash 不一致 502、空产出 500、GET 405 | 正式 Host adapter 切换属于 T3.6 |
+| T3.3b | ✅ 已完成（2026-10-10）：封口案件生成入口——analyze 经 `admitAnalyze` 核对案件存在/状态；通用 `/api/a2ui/generate` 业务宿主下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface；8 条证伪测试全绿 |
 | T3.4 | 确定性分析默认模式 + 真实模型模式；五字段 schema、证据 ID ∈ 快照、失败重试/不足证据 | 非法模型输出被拒并有明确失败结局；真实模型单独冒烟 |
 | T3.5 | 分析结果由代码编译 `createSurface` + `updateComponents` + `updateDataModel` | 稳定快照；root、证据链接和 Catalog 通过 guard |
 | T3.6 | Host adapter 改外部 Agent 源；提交后写 `surface_bindings` | 真实模型 surface 可渲染；失败流无可执行快照（案件入口约束已于 T3.3b 闭合） |
@@ -83,6 +83,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-09-30 至 T3.2，**不代表当前未提交代码已验证**）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1；typecheck、lint、build 曾通过。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-10，T3.3 + T3.3b 收口）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 90 / React 27 / playground 9 / demo 1；orderops typecheck、lint 通过。本轮工作区同时含 T3.3 实现与其收口修复：两处 type 错误（mock 参数类型、非 async 函数内 `await`）、两处测试与实现对齐（空产出用例补 `hostBaseUrl`，GET `/rpc` 期望 405 而非 404——`allowedMethods` 标准语义）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-/** 契约版本：任何字段变更必须升版本，并同步所有消费方（architecture.md §8.1）。 */
+/** 契约版本：任何字段变更必须升版本，并同步所有消费方（docs/SPEC.md §5）。 */
 export const CONTRACTS_VERSION = 1;
 
 const isoDatetime = z.string().datetime({ offset: true });
 
-// ---------- 共享枚举（对齐 architecture.md §4 数据模型与状态机）----------
+// ---------- 共享枚举（对齐 docs/SPEC.md §5 数据与状态契约）----------
 
 /** M4 增加第二种异常时在此扩展（如 'high_amount_refund'），并升 CONTRACTS_VERSION。 */
 export const CaseTypeSchema = z.enum(['logistics_stalled']);
@@ -29,7 +29,7 @@ export const OrderFactsSchema = z.object({
   customerId: z.string().min(1),
   /** ISO 4217 大写三字母。 */
   currency: z.string().regex(/^[A-Z]{3}$/),
-  /** 整数最小货币单位，禁止小数（architecture.md §4）。 */
+  /** 整数最小货币单位，禁止小数（docs/SPEC.md §5）。 */
   amountMinor: z.number().int().nonnegative(),
   promisedAt: isoDatetime.nullable(),
   status: z.string().min(1),

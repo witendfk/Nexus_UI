@@ -19,7 +19,7 @@
 3. 验证命令看真实退出码；用管道时必须 `set -o pipefail`。core 公开 API 改动后先构建 core 再跑 React 测试。完成声明需对应单测、typecheck、lint（根与 OrderOps）、涉及构建面的 build；跨包改动加跑根 `pnpm test`。声称 CI、fresh clone 或浏览器可用时，必须真的在相应环境验证，不能引用旧快照。
 4. 同一任务状态变化时同步 `docs/tasks/CURRENT.md` 与 README 对外状态；契约、结构、决策、需求分别更新 SPEC、ARCHITECTURE、DESIGN、PRD。历史证据标日期，提交哈希只在实际提交后回填。
 5. 显著变更或安全/协议面代码提交前按下述 review skill 评审。若用户要求提交，先给出提交范围与 message 供确认，再 commit/push；OrderOps 业务与 Nexus 基建不混成无关提交。
-6. OrderOps 用 Node 24（`better-sqlite3` ABI 敏感）；先核对 `node -v`。仓库结构变动后复查递归脚本和 fresh clone 的 `dist` 构建依赖。Vite 首次依赖预构建可能触发 full reload，应用状态问题须二次访问或生产构建复验。
+6. OrderOps 用 Node 24（`better-sqlite3` ABI 敏感）；先核对 `node -v`。根 `pnpm install` 同样必须在 Node 24 下执行：Node 18 安装会把 better-sqlite3 编成 ABI 108，测试全量报 NODE_MODULE_VERSION；且 `pnpm rebuild` 不重编，需进 `.pnpm/better-sqlite3-*` 目录 `rm -rf build && npm run install`（2026-10-10 踩坑）。仓库结构变动后复查递归脚本和 fresh clone 的 `dist` 构建依赖。Vite 首次依赖预构建可能触发 full reload，应用状态问题须二次访问或生产构建复验。
 
 ## Code Review 标准（强制）
 

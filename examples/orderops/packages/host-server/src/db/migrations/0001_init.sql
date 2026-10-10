@@ -1,4 +1,4 @@
--- OrderOps 初始 schema（architecture.md §4）。时间一律存 ISO 8601 文本；金额为整数最小货币单位。
+-- OrderOps 初始 schema（docs/SPEC.md §5）。时间一律存 ISO 8601 文本；金额为整数最小货币单位。
 
 CREATE TABLE orders (
   id TEXT PRIMARY KEY,
