@@ -51,8 +51,8 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| T3.3 | ✅ 已完成（2026-10-10）：Agent `/rpc` NDJSON 与 Catalog Contract hash 缓存；测试 Host 验证 RPC 契约——fixture 打通、非 2xx + `{error:{message}}`、hash 不一致 502、空产出 500、GET 405 | 正式 Host adapter 切换属于 T3.6 |
-| T3.3b | ✅ 已完成（2026-10-10）：封口案件生成入口——analyze 经 `admitAnalyze` 核对案件存在/状态；通用 `/api/a2ui/generate` 业务宿主下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface；8 条证伪测试全绿 |
+| T3.3 | ✅ 已完成（2026-10-10，`6d1d7bc`）：Agent `/rpc` NDJSON 与 Catalog Contract hash 缓存；测试 Host 验证 RPC 契约——fixture 打通、非 2xx + `{error:{message}}`、hash 不一致 502、空产出 500、GET 405 | 正式 Host adapter 切换属于 T3.6 |
+| T3.3b | ✅ 已完成（2026-10-10，`6d1d7bc`）：封口案件生成入口——analyze 经 `admitAnalyze` 核对案件存在/状态；通用 `/api/a2ui/generate` 业务宿主下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface；8 条证伪测试全绿 |
 | T3.4 | 确定性分析默认模式 + 真实模型模式；五字段 schema、证据 ID ∈ 快照、失败重试/不足证据 | 非法模型输出被拒并有明确失败结局；真实模型单独冒烟 |
 | T3.5 | 分析结果由代码编译 `createSurface` + `updateComponents` + `updateDataModel` | 稳定快照；root、证据链接和 Catalog 通过 guard |
 | T3.6 | Host adapter 改外部 Agent 源；提交后写 `surface_bindings` | 真实模型 surface 可渲染；失败流无可执行快照（案件入口约束已于 T3.3b 闭合） |
