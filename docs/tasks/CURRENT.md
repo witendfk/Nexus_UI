@@ -83,6 +83,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-10，T3.3 + T3.3b 收口）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 90 / React 27 / playground 9 / demo 1；orderops typecheck、lint 通过。本轮工作区同时含 T3.3 实现与其收口修复：两处 type 错误（mock 参数类型、非 async 函数内 `await`）、两处测试与实现对齐（空产出用例补 `hostBaseUrl`，GET `/rpc` 期望 405 而非 404——`allowedMethods` 标准语义）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-10，T3.3 + T3.3b 收口）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 90 / React 32 / playground 9 / demo 1；根 typecheck、lint 通过。本轮工作区同时含：T3.3 实现与其收口修复（两处 type 错误、空产出用例补 `hostBaseUrl`、GET `/rpc` 期望对齐 405——`allowedMethods` 标准语义）；React 标准组件保真度修复（Icon 覆盖官方 v0.9 `basic_catalog` 全部 59 个 `name` 枚举并双向锁定测试、Text 消费 h4/h5、Button 消费 default/primary/borderless variant）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

@@ -1,4 +1,4 @@
-/** Text：text（{path} 绑定已在 tree-builder 解析）+ variant（h1/h2/h3/caption，默认 body→p）。 */
+/** Text：text（{path} 绑定已在 tree-builder 解析）+ variant（官方 7 档全消费，默认 body→p）。 */
 import { createElement } from 'react';
 import { toDisplayString } from '@nexus-ui/core';
 import type { RenderFn } from '../types';
@@ -12,6 +12,10 @@ export const Text: RenderFn = (vnode) => {
       return createElement('h2', { key: vnode.id }, text);
     case 'h3':
       return createElement('h3', { key: vnode.id }, text);
+    case 'h4':
+      return createElement('h4', { key: vnode.id }, text);
+    case 'h5':
+      return createElement('h5', { key: vnode.id }, text);
     case 'caption':
       return createElement(
         'span',
