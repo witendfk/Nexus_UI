@@ -55,8 +55,8 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 | T3.3b | ✅ 已完成（2026-10-10，`6d1d7bc`）：封口案件生成入口——analyze 经 `admitAnalyze` 核对案件存在/状态；通用 `/api/a2ui/generate` 业务宿主下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface；8 条证伪测试全绿 |
 | T3.4 | ✅ 已完成（2026-10-11，`2c6dea6`）：确定性默认 + 真实模型模式；strict schema、证据 ID ⊆ 快照、重试耗尽 → 不足证据（越界）或明确失败（结构非法） | 非法输出证伪测试全绿（引擎 8 例）；真实模型冒烟待 `ORDEROPS_AGENT_MODE=model` 凭证后单独跑 |
 | T3.5 | ✅ 已完成（2026-10-11，`2c6dea6`）：分析结果由确定性代码编译 createSurface + updateComponents + updateDataModel；证据不足编译不可执行面（无输入/按钮） | protocol/profile/catalog guard 等价校验全绿（9 例）；同输入编译逐字节一致；组件/action 全在 Catalog v1 声明内 |
-| T3.6 | ✅ 已完成（2026-10-12）：Host adapter 切换外部 Agent 生成源（玩具源已删）；analyze 提交后经 commit 钩子写 `surface_bindings(surface_id, case_id, case_version, catalog_hash)`；agentRpc 未配置显式 503 | 集成测试：analyze → 替身 RPC → SSE done → 绑定行断言；RPC 失败 → error 且无绑定；非法 caseId 均被拒（T3.3b 用例保持全绿） |
-| T3.7 | ✅ 已完成（2026-10-12）：Web 业务 renderMap（OrderSummary/LogisticsTimeline 与标准组件显式合并）；证据 id 渲染页内锚点可回查；`done` 前丢弃 action 事件；SSE error 与网络失败在 transport 区分 | renderMap/transport 单测 7 例 + 既存穿刺全链 jsdom 用例全绿；真实浏览器验收留在里程碑门禁 |
+| T3.6 | ✅ 已完成（2026-10-12，`bdc5ca2`）：Host adapter 切换外部 Agent 生成源（玩具源已删）；analyze 提交后经 commit 钩子写 `surface_bindings(surface_id, case_id, case_version, catalog_hash)`；agentRpc 未配置显式 503 | 集成测试：analyze → 替身 RPC → SSE done → 绑定行断言；RPC 失败 → error 且无绑定；非法 caseId 均被拒（T3.3b 用例保持全绿） |
+| T3.7 | ✅ 已完成（2026-10-12，`bdc5ca2`）：Web 业务 renderMap（OrderSummary/LogisticsTimeline 与标准组件显式合并）；证据 id 渲染页内锚点可回查；`done` 前丢弃 action 事件；SSE error 与网络失败在 transport 区分 | renderMap/transport 单测 7 例 + 既存穿刺全链 jsdom 用例全绿；真实浏览器验收留在里程碑门禁 |
 
 **M2 完成**：真实模型生成可渲染 surface，证据引用正确，非法输出被 guard 拒；CI 仍以确定性 fixture 为主。
 
