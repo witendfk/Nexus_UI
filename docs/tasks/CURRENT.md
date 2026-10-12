@@ -6,9 +6,9 @@
 
 ## 当前结论
 
-**主产品是 Nexus SDK，当前验证任务是 OrderOps M2 → M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0 接入穿刺、M1 案件事实已完成。**OrderOps M2 全部任务（T3.1–T3.7）已完成**：Agent 分析管线（快照 → deterministic/model 分析 → 确定性编译）经 Host 外部生成源端到端接通，`surface_bindings` 落库，Web 业务 renderMap 与终态门控就位。M2 收口仅差真实模型冒烟（待 API 凭证）；action 回流仍是穿刺 patch，真实建单事务属 M3/T4.1。
+**主产品是 Nexus SDK，当前验证任务是 OrderOps M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0/M1 完成，**M2 全部任务（T3.1–T3.7）已完成**（收口仅差真实模型冒烟，待凭证）。**M3 进行中：T4.1 已完成**——action 回流走真实建单事务：resolver 限定 `/draft/note` 提纯浏览器最新备注，SQLite 事务一次写唯一工单（`tickets.case_id UNIQUE` 兜底）、案件 `ticket_created`+版本推进、操作记录与审计；重复检查先于版本检查（双击应答"已建单"而非"重新分析"）。patch 仍只禁用按钮（工单号展示属 T4.2），`GET /api/actions/:actionId` 未建。
 
-**下一步**：T3.6/T3.7 已于 2026-10-12 完成，M2 收口仅差真实模型冒烟（拿到凭证后设 `ORDEROPS_AGENT_MODE=model` 单独跑）。下一步 **M3**：T4.1 本地建单事务（自定义 resolver 限定 `/draft/note`、核对 case version、事务写工单/案件/操作/审计）→ T4.2 确定性 patch 与 `GET /api/actions/:actionId` → T4.3 Web 提交态/恢复 → T4.4 七类失败样本。之后仓外独立宿主 → M4。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
+**下一步**：T4.1 已于 2026-10-12 完成。下一步 **T4.2**：工单号与禁用按钮的确定性 patch + `GET /api/actions/:actionId`（事务先于流、SSE 中断不回滚、按 actionId 查询终态）→ **T4.3** Web 提交态/失败态/刷新恢复 → **T4.4** 七类失败样本（含"事务成功但 patch 失败"反例锁定 D5）。之后仓外独立宿主 → M4。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
 
 | 阶段 | 状态 | 下一门禁 |
 | --- | --- | --- |
@@ -17,7 +17,7 @@
 | Nexus SDK 生产级设计门禁 | 进行中；当前三包根入口与独立 Demo 已有证据，完整门禁未通过 | 见下方 SDK 队列；不能以 OrderOps 演示代替 |
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
 | OrderOps M2 | T3.1–T3.7 已完成；收口仅差真实模型冒烟（待凭证） | 真实模型单独特定冒烟通过即宣告 M2 |
-| OrderOps M3 | 未开始 | 人工确认、领域事务及失败恢复 |
+| OrderOps M3 | 进行中；T4.1 完成（2026-10-12），T4.2–T4.4 待开工 | 事务先于流、七类失败样本、刷新恢复 |
 | OrderOps M4 | 待 M3 收口 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
 
@@ -64,7 +64,7 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| T4.1 | `createTicket` 本地 handler：自定义 resolver 限定 `/draft/note` 和 note 字段、核对 case version，事务写唯一工单/案件状态/操作记录/审计 | 最新备注生效；换 path、伪造字段、过期、双击不能重复建单 |
+| T4.1 | ✅ 已完成（2026-10-12）：`createTicket` 本地 handler——resolver 限定 `note`（contracts 契约校验，换 path/伪造字段在此被拒），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；**重复检查先于版本检查**（双击答"已建单"） | 证伪测试 10 例：最新备注生效、伪造字段、过期、双击不重复建单、dismissed 拒绝、无绑定 fail-closed；HTTP 双击 400 且仅一单 |
 | T4.2 | 工单号与禁用按钮的确定性 patch；`GET /api/actions/:actionId` | 事务先于流；SSE 中断不回滚成功事务 |
 | T4.3 | Web 提交态、失败态、结果查询与刷新恢复 | 断线/刷新后与 Host 状态一致，不盲目重发 |
 | T4.4 | 七类失败样本：编造事件 ID、非法 Catalog 字段、伪造订单 ID、旧 surface、双击、SSE 中断、事务成功但 patch 失败 | 每类有触发该失败的自动化用例 |
@@ -83,6 +83,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-12，T3.6/T3.7 完成、M2 收口待真实模型冒烟）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 121 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。T3.6 起 Host adapter 走外部 Agent RPC（`ORDEROPS_AGENT_URL`，默认 120s 超时），无 Agent 时 analyze 显式 503 不静默降级。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-12，T4.1 完成）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 131 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。action 回流已接真实领域事务；工单号展示 patch 与 `GET /api/actions/:actionId` 属 T4.2。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

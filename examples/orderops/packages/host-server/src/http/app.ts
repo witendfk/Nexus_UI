@@ -24,7 +24,7 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions = {}): Koa {
   const app = new Koa();
-  const adapter = createAgentAdapter({ agentRpc: options.agentRpc });
+  const adapter = createAgentAdapter({ agentRpc: options.agentRpc, db: options.db });
   if (options.db !== undefined) {
     // 内部只读工具：鉴权在 router 内 fail-closed（ORDEROPS_INTERNAL_TOKEN）
     const internalRouter = createInternalRouter(options.db);

@@ -53,14 +53,14 @@ OrderOps 位于 `examples/orderops/`，包含 `packages/contracts`、`host-serve
 | 包 | 当前模块 | 目标模块 / 阶段 |
 | --- | --- | --- |
 | `contracts` | `CaseSnapshot`、只读上下文、分析结果、建单输入 schema、**Catalog v1 定义**（Host 发布 / Agent 编译共用） | M4 增加退款契约，版本化字段变更 |
-| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（外部 Agent 生成源 + `surface_bindings`；action 仍穿刺 patch） | M3 建单事务、操作查询 |
+| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（外部 Agent 生成源 + `surface_bindings`；`createTicket` 领域事务已接） | T4.2 工单号 patch 与操作查询；T4.3 前端恢复 |
 | `agent-server` | `/rpc`、Catalog Contract 缓存、只读快照客户端、分析引擎（deterministic/model）、A2UI 编译器 | 模型适配真实冒烟（凭证就绪后） |
 | `web` | 队列、详情、业务 renderMap（证据锚点回查）、SSE 终态门控 | M3 提交态和断线恢复 |
 
 ## 2. 当前运行路径
 
 - M0/M1：Host 启动时迁移 SQLite、导入 fixture、扫描停滞，暴露队列、详情和只读上下文。Web 可筛选、打开详情并刷新恢复。
-- **T3.6 起 Host adapter 生成走外部 Agent RPC**（`ORDEROPS_AGENT_URL`，缺省 120s 超时；未配置时 analyze 显式 503 不静默降级），Nexus 快照提交后经 commit 钩子写 `surface_bindings`；action 回流仍是穿刺 patch（T4.1 接真实建单事务）。
+- **T3.6 起 Host adapter 生成走外部 Agent RPC**（`ORDEROPS_AGENT_URL`，缺省 120s 超时；未配置时 analyze 显式 503 不静默降级），Nexus 快照提交后经 commit 钩子写 `surface_bindings`。**T4.1 起 action 回流走真实建单事务**：resolver 限定 `note`（contracts 契约校验）提纯浏览器最新备注，事务写唯一工单/案件推进/操作/审计；重复检查先于版本检查（双击答"已建单"）；patch 仅禁用按钮（工单号展示属 T4.2）。
 - Catalog v1 声明六组件与 `createTicket`（定义在 `@orderops/contracts`）。Agent 侧分析管线 T3.4/T3.5 完成：`/rpc` → 只读快照 → 分析（deterministic 默认 / model 待冒烟）→ 确定性编译六组件 surface。真实模型冒烟通过前不宣告 M2 完成。
 - `POST /api/cases/:id/analyze` 的案件约束已封口（T3.3b：未知 404、状态 409、未接线/未配置 503）；通用 `POST /api/a2ui/generate` 已在业务宿主下线。
 - Catalog 的 schema/policy 能要求 TextField 使用动态绑定，但现有声明不能直接约束绑定路径为 `/draft/note`；M3 的自定义 context resolver/handler 必须执行路径及字段白名单（agent 编译器与 prompt contract 已固定为 `/draft/note`）。
@@ -124,7 +124,7 @@ sequenceDiagram
     Web->>Host: 断线/刷新时查询案件或 action 终态
 ```
 
-图为 M3 **目标**。同一请求的 actionId 只处理传输重放；两个不同 actionId 仍由 `tickets.case_id` 唯一约束和领域状态阻止重复建单。事务提交后 patch 失败时，Web 通过查询恢复，不能重新执行同一业务动作。
+图为 M3 **目标**，其中 **T4.1 领域事务已实现**（同一请求的 actionId 由 Nexus ledger 处理传输重放；两个不同 actionId 由 `tickets.case_id` 唯一约束与先于版本检查的重复检查阻止重复建单）。T4.2 的工单号 patch 与 `GET /api/actions/:actionId` 查询恢复待做；"事务成功但 patch 失败"反例（D5）由 T4.4 锁定。
 
 ## 5. 数据所有权与失败边界
 

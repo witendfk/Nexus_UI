@@ -2,17 +2,22 @@ import { CatalogRegistry } from '@nexus-ui/core';
 import { AgentAdapter, createExternalAgentGenerationSource } from '@nexus-ui/server';
 import type { ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { ORDEROPS_CATALOG, ORDEROPS_CATALOG_ID } from './catalog';
+import { createTicketForSurface, resolveCreateTicketContext } from '../actions/create-ticket';
+import type { SqliteDb } from '../db/client';
 
 const registry = new CatalogRegistry([ORDEROPS_CATALOG]);
 
 export interface CreateAgentAdapterOptions {
   /** T3.6：配置后生成走外部 Agent `/rpc`；缺省时 prepareGeneration 显式失败（不静默降级）。 */
   agentRpc?: ExternalAgentRpcConfig;
+  /** M3/T4.1：提供后 createTicket 走本地领域事务（resolver 提纯最新备注 + 事务建单）。 */
+  db?: SqliteDb;
 }
 
 /**
- * M2 生成管线（T3.6）：生成源 = 外部 Agent RPC（fixture 双实现已删）；
- * action = 本地 handler（D4：领域事务在 Host，T4.1 起接真实建单事务）。
+ * M2/M3 装配：生成源 = 外部 Agent RPC（T3.6）；action = 本地领域事务（D4：
+ * 事实与执行权在 Host）。resolver 限定 `/draft/note` 提纯最新输入，handler
+ * 事务写唯一工单并回禁用按钮 patch（工单号 patch 属 T4.2）。
  */
 export function createAgentAdapter(options: CreateAgentAdapterOptions = {}): AgentAdapter {
   const adapter = new AgentAdapter({
@@ -20,14 +25,28 @@ export function createAgentAdapter(options: CreateAgentAdapterOptions = {}): Age
     ...(options.agentRpc === undefined
       ? {}
       : { createGenerationSource: createExternalAgentGenerationSource(options.agentRpc) }),
+    ...(options.db === undefined
+      ? {}
+      : {
+          resolveActionContext: resolveCreateTicketContext,
+        }),
   });
-  adapter.registerActionHandler(ORDEROPS_CATALOG_ID, 'createTicket', (action) =>
-    disableSubmitPatch(action.surfaceId),
-  );
+  if (options.db !== undefined) {
+    const db = options.db;
+    adapter.registerActionHandler(ORDEROPS_CATALOG_ID, 'createTicket', (action) => {
+      const outcome = createTicketForSurface(db, {
+        surfaceId: action.surfaceId,
+        note: String(action.context.note ?? ''),
+        requestId: action.actionId,
+      });
+      if (!outcome.ok) throw new Error(outcome.message);
+      return disableSubmitPatch(action.surfaceId);
+    });
+  }
   return adapter;
 }
 
-/** action 回流穿刺：回一个禁用按钮的 patch，验证 guard → commit → SSE 全链。T4.1 起由本地事务 handler 替换。 */
+/** 建单成功后的确定性 patch：禁用提交按钮（工单号展示 patch 属 T4.2）。 */
 async function* disableSubmitPatch(surfaceId: string): AsyncGenerator<unknown, void, void> {
   yield {
     version: 'v0.9',

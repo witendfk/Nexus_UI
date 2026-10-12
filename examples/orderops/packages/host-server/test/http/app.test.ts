@@ -156,8 +156,8 @@ it('Agent RPC 失败 → SSE error 收尾，且不留 surface_bindings', async (
   expect(caseRows).toHaveLength(0);
 });
 
-it('action 回流触发 createTicket patch 并禁用按钮', async () => {
-  const { baseUrl } = await appWithAgent();
+it('action 回流触发真实建单事务：备注落库、案件推进、patch 禁用按钮', async () => {
+  const { baseUrl, db } = await appWithAgent();
 
   const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
     method: 'POST',
@@ -189,6 +189,53 @@ it('action 回流触发 createTicket patch 并禁用按钮', async () => {
   const patch = actionEvents.find((entry) => entry.event === 'message')
     ?.data as { updateComponents: { components: Array<{ id: string; disabled?: boolean }> } };
   expect(patch.updateComponents.components[0]).toMatchObject({ id: 'submit-ticket', disabled: true });
+
+  // T4.1：领域事务生效——浏览器最新备注落库，案件推进
+  const ticket = db.prepare('SELECT case_id, note, status FROM tickets').get() as { case_id: string; note: string; status: string };
+  expect(ticket).toMatchObject({ case_id: SEEDED_CASE_ID, note: '穿刺备注', status: 'created' });
+  const c = db.prepare('SELECT status, version FROM anomaly_cases WHERE id = ?').get(SEEDED_CASE_ID) as { status: string; version: number };
+  expect(c).toEqual({ status: 'ticket_created', version: 2 });
+});
+
+it('双击建单（不同 actionId 的第二个请求）→ 400 拒绝，不产生第二张工单', async () => {
+  const { baseUrl, db } = await appWithAgent();
+
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+  });
+  const generateEvents = parseSse(await generateResponse.text());
+  const createMessage = generateEvents.find((entry) => entry.event === 'message')
+    ?.data as { createSurface: { surfaceId: string } };
+  const surfaceId = createMessage.createSurface.surfaceId;
+
+  const postAction = (actionId: string): Promise<Response> =>
+    fetch(`${baseUrl}/api/a2ui/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        version: 'v0.9',
+        action: {
+          name: 'createTicket',
+          surfaceId,
+          sourceComponentId: 'submit-ticket',
+          timestamp: new Date().toISOString(),
+          actionId,
+          context: { note: `备注-${actionId}` },
+        },
+      }),
+    });
+
+  const first = await postAction('click-1');
+  expect(first.status).toBe(200);
+  const second = await postAction('click-2');
+  expect(second.status).toBe(400);
+  const body = (await second.json()) as { error: string; message: string };
+  expect(body.error).toBe('INVALID_REQUEST');
+  expect(body.message).toContain('已建单');
+
+  const tickets = db.prepare('SELECT note FROM tickets').all() as Array<{ note: string }>;
+  expect(tickets).toHaveLength(1);
+  expect(tickets[0]?.note).toBe('备注-click-1');
 });
 
 it('伪造的 action 名被拒绝', async () => {
