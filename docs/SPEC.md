@@ -51,7 +51,7 @@ Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并�
 
 回流端点 `POST /api/a2ui/event` 接 A2UI `action` 信封。必填 `version: 'v0.9'`、`name`、`surfaceId`、`sourceComponentId`、可解析的 `timestamp` 和对象 `context`；`actionId` 在服务端解析器中可选，OrderOps Web 当前会生成并携带。服务端顺序为 surface 锁 → 已提交 action 快照及组件/action 归属校验 → ledger 去重 → 解析声明过的 context → Host handler → patch 重新过 guard → SSE。同一 surface 的 handler 串行，第二个读第一个提交后的 dataModel。ledger 有 `actionId` 时按它与 surface/组件/action 标识去重；缺失时按时间戳和 context 等字段组成键。Nexus 快照与内存 ledger 不等于持久化业务事务；默认 resolver 使用服务端提交时的 dataModel，不能拿到浏览器后续编辑值；自定义 `resolveActionContext` 必须自己拒绝未声明字段并验证类型。
 
-外部 Agent 生成源是 Host→Agent HTTP RPC。请求字段为 `{ version: 1, kind: 'generate', surfaceId, message, catalogId, supportedComponents, supportedActions, catalogContract, history }`；`catalogContract` 至少含 `version: 1` 与 `hash`，可含 URL。成功返回 `application/x-ndjson`，每行一个候选 A2UI 消息；错误为非 2xx + `{error:{message}}`。OrderOps 把 `message` 规范化为 caseId。当前 T3.3 handler 正在工作区开发，会先缓冲输出再一次性返回，尚不能声称逐条实时生成。Host 侧连接真实模型时把默认 15s 超时提高至其设定的 120s，并继续逐条 guard。
+外部 Agent 生成源是 Host→Agent HTTP RPC。请求字段为 `{ version: 1, kind: 'generate', surfaceId, message, catalogId, supportedComponents, supportedActions, catalogContract, history }`；`catalogContract` 至少含 `version: 1` 与 `hash`，可含 URL。成功返回 `application/x-ndjson`，每行一个候选 A2UI 消息；错误为非 2xx + `{error:{message}}`。OrderOps 把 `message` 规范化为 caseId。Agent 分析管线已落地（T3.4/T3.5）：caseId → 只读快照（Bearer fail-closed）→ 分析（deterministic 默认 / model）→ 确定性编译；handler 仍先缓冲输出再一次性返回，接真实模型流式时再评估逐行。Host 侧连接真实模型时把默认 15s 超时提高至其设定的 120s，并继续逐条 guard。
 
 | HTTP / RPC 边界 | 当前默认上限与结果 |
 | --- | --- |
@@ -72,7 +72,7 @@ Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并�
 
 ## 5. OrderOps 领域契约（部分已实现，M2/M3 待闭合）
 
-`packages/contracts` 的跨包 zod 契约包括 `CaseSnapshot`、`ReadContextResponse`、`AgentAnalysis` 判别联合和 `CreateTicketInput`。分析成功分支有 `verdict: 'analysis'`、`summary`（≤500）、`reason`（≤1000）、`evidenceEventIds`（≤20）、`recommendation`（≤500）、`uncertainties`（≤10）；证据不足分支为 `verdict: 'insufficient_evidence'`、`reason`、`missingInformation`。Agent 不 import Host 数据库模块。`evidenceEventIds` 必须属于只读快照；不满足时输出明确的证据不足结果而非可执行 surface（M2 待实现）。
+`packages/contracts` 的跨包 zod 契约包括 `CaseSnapshot`、`ReadContextResponse`、`AgentAnalysis` 判别联合和 `CreateTicketInput`；OrderOps Catalog v1 定义亦在 contracts（Host 发布、Agent 编译器共用）。分析成功分支有 `verdict: 'analysis'`、`summary`（≤500）、`reason`（≤1000）、`evidenceEventIds`（≤20）、`recommendation`（≤500）、`uncertainties`（≤10）；证据不足分支为 `verdict: 'insufficient_evidence'`、`reason`、`missingInformation`。Agent 不 import Host 数据库模块。`evidenceEventIds` 必须属于只读快照；Agent 分析引擎（T3.4）强制该校验——模型越界重试耗尽后输出 `insufficient_evidence`（missingInformation 为越界 id）而非可执行结论。
 
 | 持久化表（M1 已建） | 关键字段/约束 | 权威用途 |
 | --- | --- | --- |
@@ -87,10 +87,10 @@ Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并�
 | --- | --- |
 | `GET /api/cases?status=&severity=&q=`、`GET /api/cases/:id` | M1 已实现；过滤/搜索、事实与事件时间线可回查，非法枚举 400 |
 | `GET /internal/cases/:id/context` | M2 T3.1 已实现；Bearer 内部 token fail-closed，出口校验 schema，最近 200 事件升序 |
-| `POST /api/cases/:id/analyze` | 目前是玩具生成源且未核对 caseId/状态；M2 目标接校验后的 Agent RPC 与真实分析 |
+| `POST /api/cases/:id/analyze` | 案件约束已封口（T3.3b：404/409/503）；M2 目标经 T3.6 切换到 Agent RPC 与真实分析 |
 | `POST /api/a2ui/event` | 目前是回显 patch；M3 目标接本地业务事务 |
 | `GET /api/actions/:actionId` | M3 待实现；操作终态与断线恢复 |
-| Agent `POST /rpc`、`GET /health` | T3.3 开发中；仅 Host 可达，无浏览器面 |
+| Agent `POST /rpc`、`GET /health` | 已完成（T3.3–T3.5）：`message` 规范化为 caseId → 只读快照 → 分析（deterministic 默认；model 经 `ORDEROPS_AGENT_MODE` + `ORDEROPS_MODEL_*` 配置，真实冒烟待凭证）→ 确定性编译六组件 surface；仅 Host 可达，无浏览器面 |
 
 M3 案件状态目标为 `open → in_review → ticket_created`，另可 `dismissed`；状态变更加 `case_version`，过期 surface 拒绝。操作状态目标为 `pending → succeeded | failed | needs_reconcile`。领域幂等键为 `caseId + operationType`，`tickets.case_id` 唯一约束兜底；请求 `actionId` 用于识别同请求重放，缺失时 SDK 退回时间戳与 context 等字段组合，均不代替领域幂等。备注不参与领域幂等键。Host 先提交工单/案件/操作/审计事务，再编译 patch；SSE 或 patch 失败不回滚已提交事务，真实结果由案件及操作查询确认。
 

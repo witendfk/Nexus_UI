@@ -52,18 +52,18 @@ OrderOps 位于 `examples/orderops/`，包含 `packages/contracts`、`host-serve
 
 | 包 | 当前模块 | 目标模块 / 阶段 |
 | --- | --- | --- |
-| `contracts` | `CaseSnapshot`、只读上下文、分析结果、建单输入 schema | M4 增加退款契约，版本化字段变更 |
-| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Catalog、Nexus 装配 | M2 Agent 生成源和 surface 关联；M3 建单事务、操作查询 |
-| `agent-server` | 工作区 T3.3 `/rpc`、Catalog Contract 缓存、fixture 消息源 | M2 分析、证据校验、确定性 A2UI 编译与模型适配 |
-| `web` | 队列、详情、SSE/action transport、基础 Provider | M2 业务 renderMap；M3 提交态和断线恢复 |
+| `contracts` | `CaseSnapshot`、只读上下文、分析结果、建单输入 schema、**Catalog v1 定义**（Host 发布 / Agent 编译共用） | M4 增加退款契约，版本化字段变更 |
+| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（玩具 adapter + 回显 patch） | M3 建单事务、操作查询 |
+| `agent-server` | `/rpc`、Catalog Contract 缓存、只读快照客户端、分析引擎（deterministic/model）、A2UI 编译器 | T3.6 被 Host 真实调用；模型适配冒烟 |
+| `web` | 队列、详情、SSE/action transport、基础 Provider | T3.7 业务 renderMap；M3 提交态和断线恢复 |
 
 ## 2. 当前运行路径
 
 - M0/M1：Host 启动时迁移 SQLite、导入 fixture、扫描停滞，暴露队列、详情和只读上下文。Web 可筛选、打开详情并刷新恢复。
 - Host 的 `nexus/adapter.ts` **目前仍是玩具生成源与回显 patch**；它验证 guard/SSE/action 接线，不证明 Agent 分析或领域建单已完成。
-- Catalog v1 已声明 `Column`、`Text`、`TextField`、`Button`、`OrderSummary`、`LogisticsTimeline` 和 `createTicket`。Agent `/rpc` 与 contract hash 缓存正在工作区开发，不能据此宣告 M2 完成。
-- `POST /api/cases/:id/analyze` 当前将路径参数直接交给玩具 adapter，尚未核对案件是否存在、状态是否允许分析；`createAgentRouter` 的通用 `POST /api/a2ui/generate` 也仍挂载。M2 接入外部 Agent 前须封闭这两条入口的案件约束，不能仅依赖注释声称安全。
-- Catalog 的 schema/policy 能要求 TextField 使用动态绑定，但现有声明不能直接约束绑定路径为 `/draft/note`；M3 的自定义 context resolver/handler 必须执行路径及字段白名单。
+- Catalog v1 声明六组件与 `createTicket`（定义在 `@orderops/contracts`）。Agent 侧分析管线已完成 T3.4/T3.5：`/rpc` → 只读快照 → 分析（deterministic 默认 / model 待冒烟）→ 确定性编译六组件 surface；Host adapter 尚未连到 Agent `/rpc`，不能据此宣告 M2 完成。
+- `POST /api/cases/:id/analyze` 的案件约束已封口（T3.3b：未知 404、状态 409、未接线 503）；通用 `POST /api/a2ui/generate` 已在业务宿主下线。M2 接入外部 Agent 时由 T3.6 把 analyze 切换到 Agent RPC。
+- Catalog 的 schema/policy 能要求 TextField 使用动态绑定，但现有声明不能直接约束绑定路径为 `/draft/note`；M3 的自定义 context resolver/handler 必须执行路径及字段白名单（agent 编译器与 prompt contract 已固定为 `/draft/note`）。
 
 ## 3. 目标生成路径（M2）
 
@@ -96,7 +96,7 @@ sequenceDiagram
     Host-->>Web: SSE done；失败时 error
 ```
 
-图为 M2 **目标**。当前玩具生成源不读取 Agent 快照；Agent `/rpc` 工作区代码仅是 fixture 输出，尚未连到 Host adapter。
+图为 M2 目标。Agent 侧分析管线（快照 → 分析 → 编译）已完成并有 guard 等价测试；Host adapter 仍是玩具生成源，尚未连到 Agent `/rpc`（T3.6 切换）。
 
 ## 4. 目标执行路径（M3）
 

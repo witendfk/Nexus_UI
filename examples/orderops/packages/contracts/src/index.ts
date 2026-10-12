@@ -35,3 +35,4 @@ export type {
 } from './analysis';
 export { CreateTicketInputSchema } from './ticket';
 export type { CreateTicketInput } from './ticket';
+export { ORDEROPS_CATALOG, ORDEROPS_CATALOG_ID } from './catalog';

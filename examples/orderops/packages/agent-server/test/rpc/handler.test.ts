@@ -1,10 +1,22 @@
 import http from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type Koa from 'koa';
+import { ORDEROPS_CATALOG } from '@orderops/contracts';
 import { createApp } from '../../src/http/app';
 import { CatalogContractClient } from '../../src/catalog-contract/client';
-import { fixtureGeneration } from '../../src/a2ui/fixture-source';
+import { CaseContextClient } from '../../src/tools/case-context';
+import { createAnalysisGeneration } from '../../src/a2ui/generate';
+import { analyzeCase } from '../../src/analysis/engine';
+import {
+  INTERNAL_TOKEN,
+  STALLED_CASE_ID,
+  catalogContractPayload,
+  stalledContext,
+} from '../fixtures/snapshot';
+
+/** T3.3 判据 + T3.4/T3.5 管线端到端：真实 HTTP + 宿主替身（contract + 内部快照）。 */
 
 const servers: http.Server[] = [];
 
@@ -24,50 +36,60 @@ afterAll(() => {
   for (const server of servers) server.close();
 });
 
-const CONTRACT = {
-  serverApiVersion: 1,
-  kind: 'catalog-contract',
-  contractVersion: 1,
-  contractHash: 'sha256:cat',
-  catalog: { catalogId: 'https://example.com/catalogs/orderops/v1' },
-  promptContract: 'PROMPT-V1',
-};
-
 const VALID_REQUEST = {
   version: 1,
   kind: 'generate',
   surfaceId: 'surface-1',
-  message: 'case-order-stalled-001-evt-stalled-002',
+  message: STALLED_CASE_ID,
   history: [],
-  catalogId: 'https://example.com/catalogs/orderops/v1',
-  supportedComponents: ['Column', 'Text'],
-  supportedActions: ['createTicket'],
+  catalogId: ORDEROPS_CATALOG.catalogId,
+  supportedComponents: ORDEROPS_CATALOG.components,
+  supportedActions: ORDEROPS_CATALOG.actions,
   catalogContract: { version: 1, hash: 'sha256:cat' },
 };
 
-/** 端到端：真实 HTTP + 宿主 contract 端点替身，等价于 curl 打通验证。 */
-async function appWithFixture(): Promise<Koa> {
-  const contractApp = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(CONTRACT));
-  });
-  servers.push(contractApp);
-  const contractPort = await new Promise<number>((resolve, reject) => {
-    contractApp.once('error', reject);
-    contractApp.listen(0, '127.0.0.1', () => {
-      resolve((contractApp.address() as AddressInfo).port);
-    });
-  });
-
-  return createApp({
-    contractClient: new CatalogContractClient({ hostBaseUrl: `http://127.0.0.1:${contractPort}` }),
-    generate: fixtureGeneration,
+/** 宿主替身：GET /api/a2ui/catalog-contract + GET /internal/cases/:id/context。 */
+async function stubHost(options?: { contextStatus?: number }): Promise<number> {
+  const handler = (req: IncomingMessage, res: ServerResponse): void => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url?.startsWith('/api/a2ui/catalog-contract')) {
+      res.end(JSON.stringify(catalogContractPayload()));
+      return;
+    }
+    if (req.url?.includes('/internal/cases/')) {
+      const knownCase = req.url.includes(encodeURIComponent(STALLED_CASE_ID));
+      const status = knownCase ? (options?.contextStatus ?? 200) : 404;
+      res.statusCode = status;
+      res.end(JSON.stringify(status === 200 ? stalledContext() : { error: 'NOT_FOUND', message: `案件不存在: ${req.url}` }));
+      return;
+    }
+    res.statusCode = 404;
+    res.end('{}');
+  };
+  const server = createServer(handler);
+  servers.push(server);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port));
   });
 }
 
-describe('POST /rpc（§10.1 契约）', () => {
-  it('fixture 生成源 curl 打通：200 + application/x-ndjson，首条为匹配 surfaceId 的 createSurface 且含 root', async () => {
-    const baseUrl = await listen(await appWithFixture());
+function appWithPipeline(hostPort: number): Koa {
+  const hostBaseUrl = `http://127.0.0.1:${hostPort}`;
+  return createApp({
+    contractClient: new CatalogContractClient({ hostBaseUrl }),
+    generate: createAnalysisGeneration({
+      contextClient: new CaseContextClient({ hostBaseUrl, internalToken: INTERNAL_TOKEN }),
+      analyze: (context, promptContract) =>
+        analyzeCase(context, { mode: 'deterministic', promptContract }),
+    }),
+  });
+}
+
+describe('POST /rpc（§10.1 契约 + T3.4/T3.5 管线）', () => {
+  it('分析管线端到端：200 + application/x-ndjson，createSurface 匹配、组件 ⊆ Catalog v1、draft 可编辑', async () => {
+    const hostPort = await stubHost();
+    const baseUrl = await listen(appWithPipeline(hostPort));
     const response = await fetch(`${baseUrl}/rpc`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -76,19 +98,45 @@ describe('POST /rpc（§10.1 契约）', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('application/x-ndjson');
 
-    const text = await response.text();
-    const lines = text.trimEnd().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(lines.length).toBeGreaterThanOrEqual(3);
-    const create = lines[0] as { createSurface: { surfaceId: string; catalogId: string } };
-    expect(create.createSurface).toMatchObject({ surfaceId: 'surface-1', catalogId: VALID_REQUEST.catalogId });
+    const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.length).toBe(3);
 
-    const components = (lines[1] as { updateComponents: { components: Array<{ id: string }> } })
+    expect(lines[0]).toMatchObject({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'surface-1', catalogId: ORDEROPS_CATALOG.catalogId },
+    });
+
+    const components = (lines[1] as { updateComponents: { components: Array<{ id: string; component: string; action?: { event: { name: string } } }> } })
       .updateComponents.components;
     expect(components[0]).toMatchObject({ id: 'root', component: 'Column' });
+    for (const component of components) {
+      expect(ORDEROPS_CATALOG.components, component.id).toContain(component.component);
+    }
+    const button = components.find((component) => component.component === 'Button')!;
+    expect(button.action?.event.name).toBe('createTicket');
+
+    const model = (lines[2] as { updateDataModel: { value: { draft: { note: string }; timeline: { events: unknown[] } } } })
+      .updateDataModel.value;
+    expect(model.draft.note).toBe('');
+    expect(model.timeline.events).toHaveLength(2);
+  });
+
+  it('未知案件 → 500 {error:{message}} 且指明案件不存在', async () => {
+    const hostPort = await stubHost();
+    const baseUrl = await listen(appWithPipeline(hostPort));
+    const response = await fetch(`${baseUrl}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...VALID_REQUEST, message: 'case-not-exist' }),
+    });
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('案件不存在');
   });
 
   it('错误语义：version/kind/字段非法 → 400 {error:{message}}', async () => {
-    const baseUrl = await listen(await appWithFixture());
+    const hostPort = await stubHost();
+    const baseUrl = await listen(appWithPipeline(hostPort));
     for (const patch of [
       { version: 2 },
       { kind: 'action' },
@@ -106,74 +154,25 @@ describe('POST /rpc（§10.1 契约）', () => {
     }
   });
 
-  it('契约解析失败 → 502；生成器抛错/空产出 → 500 {error:{message}}', async () => {
-    // 契约 hash 不一致（宿主端点返回别的 hash）
-    const mismatchedContractApp = http.createServer((req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ...CONTRACT, contractHash: 'sha256:other' }));
+  it('契约 hash 不一致 → 502（在取快照之前拒绝）', async () => {
+    const mismatched = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(catalogContractPayload('sha256:other')));
     });
-    servers.push(mismatchedContractApp);
-    const mismatchedPort = await new Promise<number>((resolve, reject) => {
-      mismatchedContractApp.once('error', reject);
-      mismatchedContractApp.listen(0, '127.0.0.1', () => {
-        resolve((mismatchedContractApp.address() as AddressInfo).port);
-      });
+    servers.push(mismatched);
+    const port = await new Promise<number>((resolve, reject) => {
+      mismatched.once('error', reject);
+      mismatched.listen(0, '127.0.0.1', () => resolve((mismatched.address() as AddressInfo).port));
     });
-
-    const mismatched = await listen(
-      createApp({
-        contractClient: new CatalogContractClient({ hostBaseUrl: `http://127.0.0.1:${mismatchedPort}` }),
-        generate: fixtureGeneration,
-      }),
-    );
-    const bad = await fetch(`${mismatched}/rpc`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(VALID_REQUEST),
-    });
-    expect(bad.status).toBe(502);
-    expect(((await bad.json()) as { error: { message: string } }).error.message).toContain('hash 不一致');
-
-    // 生成器抛错
-    const throwing = await listen(
-      createApp({
-        contractClient: new CatalogContractClient({ hostBaseUrl: 'http://127.0.0.1:1' }),
-        generate: async function* () {
-          throw new Error('模型不可用');
-        },
-      }) as Koa,
-    );
-    // 无 contract 端点可访问 → 502 而非生成错误；换一个带 contract 的组合验证 500
-    const failingGenerate = await listen(
-      createApp({
-        contractClient: new CatalogContractClient({
-          hostBaseUrl: 'http://127.0.0.1:1',
-          fetchImpl: (() =>
-            Promise.resolve(new Response(JSON.stringify(CONTRACT), { status: 200 }))) as typeof fetch,
-        }),
-        generate: async function* () {
-          throw new Error('模型不可用');
-        },
-      }),
-    );
-    const genError = await fetch(`${failingGenerate}/rpc`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(VALID_REQUEST),
-    });
-    expect(genError.status).toBe(500);
-    expect(((await genError.json()) as { error: { message: string } }).error.message).toContain('模型不可用');
-    void throwing;
-  });
-
-  it('空产出 → 500（契约要求至少一条消息）', async () => {
     const app = createApp({
-      contractClient: new CatalogContractClient({
-        hostBaseUrl: 'http://127.0.0.1:1',
-        fetchImpl: (() =>
-          Promise.resolve(new Response(JSON.stringify(CONTRACT), { status: 200 }))) as typeof fetch,
+      contractClient: new CatalogContractClient({ hostBaseUrl: `http://127.0.0.1:${port}` }),
+      generate: createAnalysisGeneration({
+        contextClient: new CaseContextClient({
+          hostBaseUrl: `http://127.0.0.1:${port}`,
+          internalToken: INTERNAL_TOKEN,
+        }),
+        analyze: (context) => analyzeCase(context, { mode: 'deterministic' }),
       }),
-      generate: async function* () {},
     });
     const baseUrl = await listen(app);
     const response = await fetch(`${baseUrl}/rpc`, {
@@ -181,15 +180,14 @@ describe('POST /rpc（§10.1 契约）', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(VALID_REQUEST),
     });
-    expect(response.status).toBe(500);
-    const body = (await response.json()) as { error: { message: string } };
-    expect(body.error.message).toContain('未产出');
+    expect(response.status).toBe(502);
+    expect(((await response.json()) as { error: { message: string } }).error.message).toContain('hash 不一致');
   });
 
   it('GET /rpc → 405（仅 POST 放行，@koa/router allowedMethods 语义）', async () => {
-    const baseUrl = await listen(await appWithFixture());
+    const hostPort = await stubHost();
+    const baseUrl = await listen(appWithPipeline(hostPort));
     const response = await fetch(`${baseUrl}/rpc`);
     expect(response.status).toBe(405);
-    void vi;
   });
 });

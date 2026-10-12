@@ -78,6 +78,9 @@ importers:
         specifier: ^2.16.4
         version: 2.16.4
     devDependencies:
+      '@nexus-ui/core':
+        specifier: workspace:*
+        version: link:../../../../packages/nexus-core
       '@types/koa':
         specifier: ^2.15.2
         version: 2.15.2
@@ -96,6 +99,9 @@ importers:
 
   examples/orderops/packages/contracts:
     dependencies:
+      '@nexus-ui/core':
+        specifier: workspace:*
+        version: link:../../../../packages/nexus-core
       zod:
         specifier: ^3.25.76
         version: 3.25.76

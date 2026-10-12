@@ -6,9 +6,9 @@
 
 ## 当前结论
 
-**主产品是 Nexus SDK，当前验证任务是 OrderOps M2 → M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0 接入穿刺、M1 案件事实已完成。OrderOps Host 当前仍用玩具生成源和回显 patch（T3.6 切换）；T3.3 Agent RPC / Catalog Contract 缓存与 T3.3b 案件入口封口已于 2026-10-10 完成验证（尚在本轮提交中），不能把 M2 或人工建单写成已完成。
+**主产品是 Nexus SDK，当前验证任务是 OrderOps M2 → M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0 接入穿刺、M1 案件事实已完成。OrderOps 侧 T3.1–T3.5 已完成：Agent 分析管线（只读快照 → deterministic/model 分析 → 确定性 A2UI 编译）落地并通过 guard 等价校验；Host adapter 仍为玩具生成源与回显 patch（T3.6 切换）。T3.4 的真实模型冒烟待 API 凭证，不能据此宣称真实模型路径已验收。
 
-**下一步**：T3.3 与 T3.3b 已于 2026-10-10 收口（Agent `/rpc` 契约 + Contract hash 缓存 + 案件入口封口，证据见下方快照）；Host adapter 切换留到 T3.6。后续按 T3.4/T3.5 → T3.6/T3.7 → M3 → 仓外独立宿主 → M4 推进。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
+**下一步**：T3.4/T3.5 已于 2026-10-11 完成（分析引擎 + A2UI 编译器，Catalog 定义随之移入 contracts）；真实模型冒烟在拿到 API 凭证后单独跑。下一步 **T3.6/T3.7**：Host adapter 切换外部 Agent 源 + `surface_bindings` 落库，Web 业务 renderMap 与终态处理。之后 M3 → 仓外独立宿主 → M4。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；PRD P0 是这些阶段累积后的验收结果，不是当前一次性施工范围。未经对应端到端验证，不把下一段能力标为完成。
 
 | 阶段 | 状态 | 下一门禁 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | Nexus conformance | 已完成基线（`261ea43`）：9 份用例，33 pass / 47 已决策偏差 / 0 fail | 行为改变时更新 JSON 基线和 SPEC |
 | Nexus SDK 生产级设计门禁 | 进行中；当前三包根入口与独立 Demo 已有证据，完整门禁未通过 | 见下方 SDK 队列；不能以 OrderOps 演示代替 |
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
-| OrderOps M2 | 进行中；T3.1、T3.2、T3.3、T3.3b 完成，T3.4/T3.5 待开工 | 真实模型分析、证据校验和受控渲染 |
+| OrderOps M2 | 进行中；T3.1–T3.5 完成（T3.4 真实模型冒烟待凭证），T3.6/T3.7 待开工 | 真实模型分析、证据校验和受控渲染 |
 | OrderOps M3 | 未开始 | 人工确认、领域事务及失败恢复 |
 | OrderOps M4 | 待 M3 收口 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
@@ -53,8 +53,8 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 | --- | --- | --- |
 | T3.3 | ✅ 已完成（2026-10-10，`6d1d7bc`）：Agent `/rpc` NDJSON 与 Catalog Contract hash 缓存；测试 Host 验证 RPC 契约——fixture 打通、非 2xx + `{error:{message}}`、hash 不一致 502、空产出 500、GET 405 | 正式 Host adapter 切换属于 T3.6 |
 | T3.3b | ✅ 已完成（2026-10-10，`6d1d7bc`）：封口案件生成入口——analyze 经 `admitAnalyze` 核对案件存在/状态；通用 `/api/a2ui/generate` 业务宿主下线 | 无效/不可分析 caseId 均被拒；自由 message 不能经任一入口创建 surface；8 条证伪测试全绿 |
-| T3.4 | 确定性分析默认模式 + 真实模型模式；五字段 schema、证据 ID ∈ 快照、失败重试/不足证据 | 非法模型输出被拒并有明确失败结局；真实模型单独冒烟 |
-| T3.5 | 分析结果由代码编译 `createSurface` + `updateComponents` + `updateDataModel` | 稳定快照；root、证据链接和 Catalog 通过 guard |
+| T3.4 | ✅ 已完成（2026-10-11）：确定性默认 + 真实模型模式；strict schema、证据 ID ⊆ 快照、重试耗尽 → 不足证据（越界）或明确失败（结构非法） | 非法输出证伪测试全绿（引擎 8 例）；真实模型冒烟待 `ORDEROPS_AGENT_MODE=model` 凭证后单独跑 |
+| T3.5 | ✅ 已完成（2026-10-11）：分析结果由确定性代码编译 createSurface + updateComponents + updateDataModel；证据不足编译不可执行面（无输入/按钮） | protocol/profile/catalog guard 等价校验全绿（9 例）；同输入编译逐字节一致；组件/action 全在 Catalog v1 声明内 |
 | T3.6 | Host adapter 改外部 Agent 源；提交后写 `surface_bindings` | 真实模型 surface 可渲染；失败流无可执行快照（案件入口约束已于 T3.3b 闭合） |
 | T3.7 | Web 业务 renderMap 与 transport 终态处理 | 证据可回查；`done` 前禁用 action，SSE `error` 与网络失败可区分 |
 
@@ -83,6 +83,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-10，T3.3 + T3.3b 收口）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 90 / React 32 / playground 9 / demo 1；根 typecheck、lint 通过。本轮工作区同时含：T3.3 实现与其收口修复（两处 type 错误、空产出用例补 `hostBaseUrl`、GET `/rpc` 期望对齐 405——`allowedMethods` 标准语义）；React 标准组件保真度修复（Icon 覆盖官方 v0.9 `basic_catalog` 全部 59 个 `name` 枚举并双向锁定测试、Text 消费 h4/h5、Button 消费 default/primary/borderless variant）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-11，T3.4/T3.5 完成）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 116 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。Catalog v1 定义移入 `@orderops/contracts`（host-server 再导出，消费方不变）；agent-server 新增分析引擎（deterministic/model）、A2UI 编译器、case-context 客户端；fixture 生成源按其头部声明删除。T3.4 真实模型冒烟待凭证。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。
