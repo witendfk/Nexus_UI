@@ -9,6 +9,7 @@ import { createApp } from '../../src/http/app';
 import { openDatabase, type SqliteDb } from '../../src/db/client';
 import { detectStalledCases } from '../../src/cases/detect';
 import { seedFixtures } from '../../src/fixtures/seed';
+import { stubAgentServer, type StubAgent } from './agent-stub';
 
 /** T3.3b 判据（docs/tasks/CURRENT.md）：无效/不可分析 caseId 均被拒；自由 message
  * 不能经任一入口创建 surface；每类拒绝都有触发该失败的自动化用例。 */
@@ -18,6 +19,7 @@ const SEEDED_CASE_ID = 'case-order-stalled-001-evt-stalled-002';
 
 const servers: http.Server[] = [];
 const dbs: SqliteDb[] = [];
+const agents: StubAgent[] = [];
 
 function listen(app: Koa): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -58,6 +60,8 @@ afterAll(() => {
 afterEach(() => {
   for (const db of dbs) db.close();
   dbs.length = 0;
+  for (const agent of agents) agent.close();
+  agents.length = 0;
 });
 
 it('未知 caseId → 404，不产生 surface 流', async () => {
@@ -84,7 +88,10 @@ it('ticket_created / dismissed 状态 → 409 拒绝分析', async () => {
 });
 
 it('open 案件仍可正常分析（封口不误伤合法入口）', async () => {
-  const baseUrl = await listen(createApp({ db: seededDb() }));
+  const db = seededDb();
+  const agent = await stubAgentServer();
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
   const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
     method: 'POST',
   });

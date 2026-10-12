@@ -53,17 +53,18 @@ OrderOps 位于 `examples/orderops/`，包含 `packages/contracts`、`host-serve
 | 包 | 当前模块 | 目标模块 / 阶段 |
 | --- | --- | --- |
 | `contracts` | `CaseSnapshot`、只读上下文、分析结果、建单输入 schema、**Catalog v1 定义**（Host 发布 / Agent 编译共用） | M4 增加退款契约，版本化字段变更 |
-| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（玩具 adapter + 回显 patch） | M3 建单事务、操作查询 |
-| `agent-server` | `/rpc`、Catalog Contract 缓存、只读快照客户端、分析引擎（deterministic/model）、A2UI 编译器 | T3.6 被 Host 真实调用；模型适配冒烟 |
-| `web` | 队列、详情、SSE/action transport、基础 Provider | T3.7 业务 renderMap；M3 提交态和断线恢复 |
+| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（外部 Agent 生成源 + `surface_bindings`；action 仍穿刺 patch） | M3 建单事务、操作查询 |
+| `agent-server` | `/rpc`、Catalog Contract 缓存、只读快照客户端、分析引擎（deterministic/model）、A2UI 编译器 | 模型适配真实冒烟（凭证就绪后） |
+| `web` | 队列、详情、业务 renderMap（证据锚点回查）、SSE 终态门控 | M3 提交态和断线恢复 |
 
 ## 2. 当前运行路径
 
 - M0/M1：Host 启动时迁移 SQLite、导入 fixture、扫描停滞，暴露队列、详情和只读上下文。Web 可筛选、打开详情并刷新恢复。
-- Host 的 `nexus/adapter.ts` **目前仍是玩具生成源与回显 patch**；它验证 guard/SSE/action 接线，不证明 Agent 分析或领域建单已完成。
-- Catalog v1 声明六组件与 `createTicket`（定义在 `@orderops/contracts`）。Agent 侧分析管线已完成 T3.4/T3.5：`/rpc` → 只读快照 → 分析（deterministic 默认 / model 待冒烟）→ 确定性编译六组件 surface；Host adapter 尚未连到 Agent `/rpc`，不能据此宣告 M2 完成。
-- `POST /api/cases/:id/analyze` 的案件约束已封口（T3.3b：未知 404、状态 409、未接线 503）；通用 `POST /api/a2ui/generate` 已在业务宿主下线。M2 接入外部 Agent 时由 T3.6 把 analyze 切换到 Agent RPC。
+- **T3.6 起 Host adapter 生成走外部 Agent RPC**（`ORDEROPS_AGENT_URL`，缺省 120s 超时；未配置时 analyze 显式 503 不静默降级），Nexus 快照提交后经 commit 钩子写 `surface_bindings`；action 回流仍是穿刺 patch（T4.1 接真实建单事务）。
+- Catalog v1 声明六组件与 `createTicket`（定义在 `@orderops/contracts`）。Agent 侧分析管线 T3.4/T3.5 完成：`/rpc` → 只读快照 → 分析（deterministic 默认 / model 待冒烟）→ 确定性编译六组件 surface。真实模型冒烟通过前不宣告 M2 完成。
+- `POST /api/cases/:id/analyze` 的案件约束已封口（T3.3b：未知 404、状态 409、未接线/未配置 503）；通用 `POST /api/a2ui/generate` 已在业务宿主下线。
 - Catalog 的 schema/policy 能要求 TextField 使用动态绑定，但现有声明不能直接约束绑定路径为 `/draft/note`；M3 的自定义 context resolver/handler 必须执行路径及字段白名单（agent 编译器与 prompt contract 已固定为 `/draft/note`）。
+- Web（T3.7）以业务 renderMap 渲染 surface（业务组件与标准组件显式合并），证据 id 为页内锚点；`done` 前丢弃 action 事件，SSE `error` 与网络失败在 transport 区分。
 
 ## 3. 目标生成路径（M2）
 
@@ -96,7 +97,7 @@ sequenceDiagram
     Host-->>Web: SSE done；失败时 error
 ```
 
-图为 M2 目标。Agent 侧分析管线（快照 → 分析 → 编译）已完成并有 guard 等价测试；Host adapter 仍是玩具生成源，尚未连到 Agent `/rpc`（T3.6 切换）。
+图为 M2 目标，**deterministic 管线已端到端接通**（集成测试覆盖 analyze → RPC → guard → SSE → 绑定落库）；真实模型冒烟待凭证，Host 侧领域建单事务属 M3/T4.1。
 
 ## 4. 目标执行路径（M3）
 

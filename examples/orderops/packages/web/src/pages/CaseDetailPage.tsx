@@ -1,9 +1,10 @@
 import type { ActionEvent } from '@nexus-ui/core';
 import { useA2UI } from '@nexus-ui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { CaseDetailPayload } from '../api/cases';
 import { CaseApiError, fetchCaseDetail } from '../api/cases';
+import { formatAmount } from '../format';
 import { analyzeCase, dispatchAction } from '../nexus/transport';
 import { useActionBridge } from '../App';
 
@@ -13,15 +14,21 @@ interface CaseSurfaceProps {
   caseId: string;
 }
 
-/** Agent 分析区：生成受控 surface 并承接 action 回流（M2 将替换为业务 Catalog 渲染）。 */
+/**
+ * Agent 分析区（T3.7）：业务 renderMap 渲染 surface；`done` 前丢弃 action 事件
+ * （SPEC §3：流未提交前不存在可执行快照，点击不得外发）；SSE error 与网络失败
+ * 由 transport 区分后统一展示。
+ */
 function CaseSurface({ caseId }: CaseSurfaceProps) {
   const runtime = useA2UI();
   const actionHandlerRef = useActionBridge();
+  const streamingRef = useRef(false);
   const [status, setStatus] = useState<SurfaceStatus>('idle');
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     actionHandlerRef.current = (event: ActionEvent) => {
+      if (streamingRef.current) return;
       void dispatchAction(runtime, event).then((outcome) => {
         if (!outcome.ok) {
           setStatus('error');
@@ -32,14 +39,19 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
   }, [runtime, actionHandlerRef]);
 
   const analyze = useCallback(async () => {
+    streamingRef.current = true;
     setStatus('streaming');
     setError(undefined);
-    const outcome = await analyzeCase(runtime, caseId);
-    if (outcome.ok) {
-      setStatus('ready');
-    } else {
-      setStatus('error');
-      setError(outcome.error);
+    try {
+      const outcome = await analyzeCase(runtime, caseId);
+      if (outcome.ok) {
+        setStatus('ready');
+      } else {
+        setStatus('error');
+        setError(outcome.error);
+      }
+    } finally {
+      streamingRef.current = false;
     }
   }, [runtime, caseId]);
 
@@ -49,14 +61,10 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
       <button type="button" onClick={() => void analyze()} disabled={status === 'streaming'}>
         {status === 'streaming' ? '生成中…' : '生成审核 surface'}
       </button>
+      {status === 'streaming' && <p aria-live="polite">生成中，操作按钮暂不可用…</p>}
       {status === 'error' && <p role="alert">生成失败：{error}</p>}
     </section>
   );
-}
-
-/** 金额展示：contracts 约定整数最小货币单位，这里按两位小数呈现（当前业务币种均为两位精度）。 */
-function formatAmount(amountMinor: number, currency: string): string {
-  return `${currency} ${(amountMinor / 100).toFixed(2)}`;
 }
 
 /** 案件详情（T2.6）：订单摘要、物流时间线、触发原因；路由参数驱动，刷新后状态一致。 */
@@ -143,7 +151,7 @@ export function CaseDetailPage() {
         <h3>物流时间线</h3>
         <ol>
           {events.map((event) => (
-            <li key={event.id}>
+            <li key={event.id} id={event.id}>
               {event.occurredAt} · {event.status} · 来源 {event.source} · {event.id}
             </li>
           ))}

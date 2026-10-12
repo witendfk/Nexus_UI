@@ -113,3 +113,50 @@ export function getCaseDetail(db: SqliteDb, caseId: string): CaseDetail | null {
     events: eventRows.map(mapLogisticsEvent),
   };
 }
+
+/** 案件当前版本（T3.6 surface_bindings 用）；案件不存在返回 null。 */
+export function getCaseVersion(db: SqliteDb, caseId: string): number | null {
+  const row = db.prepare('SELECT version FROM anomaly_cases WHERE id = ?').get(caseId) as
+    | { version: number }
+    | undefined;
+  return row === undefined ? null : row.version;
+}
+
+export interface SurfaceBinding {
+  surfaceId: string;
+  caseId: string;
+  caseVersion: number;
+  catalogHash: string;
+  createdAt: string;
+}
+
+/**
+ * 记录 surface ↔ case 绑定（T3.6，docs/ARCHITECTURE.md §3）：M3 的本地 handler
+ * 据此以服务端关联决定 action 业务对象。surface_id 主键——每次分析生成新 surface，
+ * 重复插入同 surface 是程序错误，让约束抛错而不是静默覆盖。
+ */
+export function insertSurfaceBinding(db: SqliteDb, binding: SurfaceBinding): void {
+  db.prepare(
+    `INSERT INTO surface_bindings (surface_id, case_id, case_version, catalog_hash, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(binding.surfaceId, binding.caseId, binding.caseVersion, binding.catalogHash, binding.createdAt);
+}
+
+/** 读取绑定（测试与 T4.1 handler 用）；不存在返回 null。 */
+export function getSurfaceBinding(db: SqliteDb, surfaceId: string): SurfaceBinding | null {
+  const row = db
+    .prepare(
+      'SELECT surface_id, case_id, case_version, catalog_hash, created_at FROM surface_bindings WHERE surface_id = ?',
+    )
+    .get(surfaceId) as
+    | { surface_id: string; case_id: string; case_version: number; catalog_hash: string; created_at: string }
+    | undefined;
+  if (row === undefined) return null;
+  return {
+    surfaceId: row.surface_id,
+    caseId: row.case_id,
+    caseVersion: row.case_version,
+    catalogHash: row.catalog_hash,
+    createdAt: row.created_at,
+  };
+}

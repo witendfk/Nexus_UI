@@ -1,9 +1,13 @@
 import type { ActionEvent } from '@nexus-ui/core';
-import { A2UIProvider } from '@nexus-ui/react';
+import { A2UIProvider, standardRenderMap } from '@nexus-ui/react';
 import { createContext, useContext, useRef, type MutableRefObject } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { CaseDetailPage } from './pages/CaseDetailPage';
 import { QueuePage } from './pages/QueuePage';
+import { businessRenderMap } from './nexus/renderMap';
+
+/** 业务组件覆盖标准组件，其余 15 个标准组件保持默认（renderMap 是替换语义，须显式合并）。 */
+const orderopsRenderMap = { ...standardRenderMap, ...businessRenderMap };
 
 /**
  * action 桥：Provider.onAction 在 context 之外，持 runtime 的页面组件经此
@@ -24,7 +28,7 @@ export function useActionBridge(): MutableRefObject<(event: ActionEvent) => void
 export function App() {
   const actionHandler = useRef<(event: ActionEvent) => void>(() => {});
   return (
-    <A2UIProvider onAction={(event) => actionHandler.current(event)}>
+    <A2UIProvider renderMap={orderopsRenderMap} onAction={(event) => actionHandler.current(event)}>
       <ActionBridgeContext.Provider value={actionHandler}>
         <main>
           <h1>OrderOps Copilot</h1>
