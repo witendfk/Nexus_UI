@@ -9,7 +9,7 @@ import type { ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { HOST_SERVER_VERSION } from '../index';
 import { createAgentAdapter } from '../nexus/adapter';
 import { ORDEROPS_CATALOG } from '../nexus/catalog';
-import { getCaseVersion, insertSurfaceBinding } from '../cases/repository';
+import { getCaseVersion, getActionAttemptByActionId, insertSurfaceBinding } from '../cases/repository';
 import { admitAnalyze, ANALYZABLE_CASE_STATUSES } from '../cases/analyze-guard';
 import { createCasesRouter } from './cases';
 import { createInternalRouter } from '../tools/read-api';
@@ -45,6 +45,31 @@ export function createApp(options: CreateAppOptions = {}): Koa {
   const casesRouter = createCasesRouter(options.db);
   own.use(casesRouter.routes());
   own.use(casesRouter.allowedMethods());
+
+  // T4.2 断线恢复入口：按客户端 actionId 查操作终态（事务先于流，SSE 中断后
+  // 以此处为准，不得依据 SDK run 状态重试业务动作）。
+  own.get('/api/actions/:actionId', (ctx) => {
+    if (options.db === undefined) {
+      ctx.status = 503;
+      ctx.body = { error: 'SERVICE_UNAVAILABLE', message: '案件存储未接线' };
+      return;
+    }
+    const attempt = getActionAttemptByActionId(options.db, ctx.params.actionId);
+    if (attempt === null) {
+      ctx.status = 404;
+      ctx.body = { error: 'NOT_FOUND', message: `未知操作: ${ctx.params.actionId}` };
+      return;
+    }
+    ctx.body = {
+      actionId: attempt.actionId,
+      operation: attempt.operation,
+      caseId: attempt.caseId,
+      status: attempt.status,
+      ...(attempt.resultId === null ? {} : { resultId: attempt.resultId }),
+      ...(attempt.error === null ? {} : { error: attempt.error }),
+      createdAt: attempt.createdAt,
+    };
+  });
 
   const catalogHash = createCatalogContractHash(ORDEROPS_CATALOG);
 

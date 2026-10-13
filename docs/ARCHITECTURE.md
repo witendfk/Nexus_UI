@@ -124,7 +124,7 @@ sequenceDiagram
     Web->>Host: 断线/刷新时查询案件或 action 终态
 ```
 
-图为 M3 **目标**，其中 **T4.1 领域事务已实现**（同一请求的 actionId 由 Nexus ledger 处理传输重放；两个不同 actionId 由 `tickets.case_id` 唯一约束与先于版本检查的重复检查阻止重复建单）。T4.2 的工单号 patch 与 `GET /api/actions/:actionId` 查询恢复待做；"事务成功但 patch 失败"反例（D5）由 T4.4 锁定。
+图为 M3 **目标**，其中 **T4.1/T4.2 已实现**：同一请求的 actionId 由 Nexus ledger 处理传输重放；两个不同 actionId 由 `tickets.case_id` 唯一约束与先于版本检查的重复检查阻止重复建单；建单 patch 在 `/result` 定点写工单号（官方可选 `path` 语义），`GET /api/actions/:actionId` 提供断线恢复查询，客户端中断流后事务不回滚有证伪测试。T4.3 前端恢复接线与 T4.4 的"事务成功但 patch 失败"反例（D5）待做。
 
 ## 5. 数据所有权与失败边界
 

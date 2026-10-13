@@ -88,8 +88,8 @@ Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并�
 | `GET /api/cases?status=&severity=&q=`、`GET /api/cases/:id` | M1 已实现；过滤/搜索、事实与事件时间线可回查，非法枚举 400 |
 | `GET /internal/cases/:id/context` | M2 T3.1 已实现；Bearer 内部 token fail-closed，出口校验 schema，最近 200 事件升序 |
 | `POST /api/cases/:id/analyze` | T3.6 已接外部 Agent RPC：analyze 前核对案件（404/409/503），Nexus 快照提交后、done 前写 `surface_bindings`；`ORDEROPS_AGENT_URL` 未配置时显式 503 |
-| `POST /api/a2ui/event` | T4.1 已接本地领域事务：resolver 限定 `note`（contracts strict 校验，伪造字段拒绝），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；重复检查先于版本检查（双击答"已建单"）；patch 仅禁用按钮，工单号展示属 T4.2 |
-| `GET /api/actions/:actionId` | M3 待实现；操作终态与断线恢复 |
+| `POST /api/a2ui/event` | T4.1/T4.2 已接本地领域事务：resolver 限定 `note`（contracts strict 校验，伪造字段拒绝），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；重复检查先于版本检查（双击答"已建单"）；成功 patch = 禁用按钮 + `/result` 定点写工单号（官方可选 `path` 语义） |
+| `GET /api/actions/:actionId` | T4.2 已实现：按客户端 actionId 返回操作终态（succeeded/failed + resultId/error/createdAt），未知 404，存储未接线 503 |
 | Agent `POST /rpc`、`GET /health` | 已完成（T3.3–T3.5）：`message` 规范化为 caseId → 只读快照 → 分析（deterministic 默认；model 经 `ORDEROPS_AGENT_MODE` + `ORDEROPS_MODEL_*` 配置，真实冒烟待凭证）→ 确定性编译六组件 surface；仅 Host 可达，无浏览器面 |
 
 M3 案件状态目标为 `open → in_review → ticket_created`，另可 `dismissed`；状态变更加 `case_version`，过期 surface 拒绝。操作状态目标为 `pending → succeeded | failed | needs_reconcile`。领域幂等键为 `caseId + operationType`，`tickets.case_id` 唯一约束兜底；请求 `actionId` 用于识别同请求重放，缺失时 SDK 退回时间戳与 context 等字段组合，均不代替领域幂等。备注不参与领域幂等键。Host 先提交工单/案件/操作/审计事务，再编译 patch；SSE 或 patch 失败不回滚已提交事务，真实结果由案件及操作查询确认。

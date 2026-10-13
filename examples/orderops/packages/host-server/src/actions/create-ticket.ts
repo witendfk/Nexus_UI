@@ -62,9 +62,9 @@ function recordAttempt(
   db: SqliteDb,
   input: { caseId: string; surfaceId: string; requestId?: string; status: string; resultId?: string; error?: string; now: string },
 ): void {
-  const requestKey = input.requestId
-    ? [input.surfaceId, 'createTicket', input.requestId].join('\u0000')
-    : null;
+  // request_key 即客户端 actionId：既是重放识别键（唯一索引），也是
+  // GET /api/actions/:actionId 的查询键（T4.2）。UUID 全局唯一，无需拼接。
+  const requestKey = input.requestId ?? null;
   try {
     db.prepare(
       `INSERT INTO action_attempts (id, case_id, operation, request_key, status, result_id, error, created_at)

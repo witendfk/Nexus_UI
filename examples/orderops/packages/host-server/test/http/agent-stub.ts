@@ -43,9 +43,21 @@ export function stubAgentServer(options?: {
               {
                 id: 'root',
                 component: 'Column',
-                children: ['case-title', 'note', 'submit-ticket-label', 'submit-ticket'],
+                children: [
+                  'case-title',
+                  'ticket-result',
+                  'note',
+                  'submit-ticket-label',
+                  'submit-ticket',
+                ],
               },
               { id: 'case-title', component: 'Text', text: { path: '/title' }, variant: 'h3' },
+              {
+                id: 'ticket-result',
+                component: 'Text',
+                text: { path: '/result/ticketText' },
+                variant: 'body',
+              },
               {
                 id: 'note',
                 component: 'TextField',
@@ -76,6 +88,7 @@ export function stubAgentServer(options?: {
               title: '物流异常分析：案件 stub',
               noteLabel: '处理备注',
               submitButtonLabel: '确认建单',
+              result: { ticketText: '确认后此处显示工单号。' },
               draft: { note: '' },
             },
           },

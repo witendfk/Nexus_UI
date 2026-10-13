@@ -101,14 +101,19 @@ describe('compileAnalysisSurface（成功分析）', () => {
     expect(analysis.evidenceText).toContain('evt-stalled-002');
   });
 
-  it('可执行面：TextField 绑定 /draft/note，Button 挂唯一 action', () => {
+  it('可执行面：TextField 绑定 /draft/note，Button 挂唯一 action，工单号槽位就位', () => {
     const components = (messages[1!] as { updateComponents: { components: Array<Record<string, unknown>> } })
       .updateComponents.components;
     const note = components.find((c) => c.id === 'note')!;
     expect(note.value).toEqual({ path: '/draft/note' });
-    const draft = (messages[2!] as unknown as { updateDataModel: { value: { draft: { note: string } } } })
-      .updateDataModel.value.draft;
-    expect(draft.note).toBe('');
+    const root = components.find((c) => c.id === 'root') as { children: string[] };
+    expect(root.children).toContain('ticket-result');
+    const slot = components.find((c) => c.id === 'ticket-result')!;
+    expect(slot.text).toEqual({ path: '/result/ticketText' });
+    const draft = (messages[2!] as unknown as { updateDataModel: { value: { draft: { note: string }; result: { ticketText: string } } } })
+      .updateDataModel.value;
+    expect(draft.draft.note).toBe('');
+    expect(draft.result.ticketText).toContain('工单号');
   });
 
   it('全消息过 guard 等价校验（protocol → profile → catalog schema/policy）', () => {

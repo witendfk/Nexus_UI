@@ -40,14 +40,20 @@ export function createAgentAdapter(options: CreateAgentAdapterOptions = {}): Age
         requestId: action.actionId,
       });
       if (!outcome.ok) throw new Error(outcome.message);
-      return disableSubmitPatch(action.surfaceId);
+      return ticketCreatedPatch(action.surfaceId, outcome.ticketId);
     });
   }
   return adapter;
 }
 
-/** 建单成功后的确定性 patch：禁用提交按钮（工单号展示 patch 属 T4.2）。 */
-async function* disableSubmitPatch(surfaceId: string): AsyncGenerator<unknown, void, void> {
+/**
+ * 建单成功的确定性 patch（T4.2）：禁用提交按钮 + 在 /result 定点写工单号
+ * （官方 UpdateDataModel 的可选 path 语义，定点合并不清空 draft 等其余字段）。
+ */
+async function* ticketCreatedPatch(
+  surfaceId: string,
+  ticketId: string,
+): AsyncGenerator<unknown, void, void> {
   yield {
     version: 'v0.9',
     updateComponents: {
@@ -66,6 +72,14 @@ async function* disableSubmitPatch(surfaceId: string): AsyncGenerator<unknown, v
           },
         },
       ],
+    },
+  };
+  yield {
+    version: 'v0.9',
+    updateDataModel: {
+      surfaceId,
+      path: '/result',
+      value: { ticketText: `工单号：${ticketId}`, ticketId },
     },
   };
 }

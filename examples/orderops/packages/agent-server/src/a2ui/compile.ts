@@ -109,6 +109,7 @@ export function compileAnalysisSurface(input: CompileSurfaceInput): A2uiMessage[
               'analysis-recommendation',
               'analysis-uncertainties',
               'analysis-evidence',
+              'ticket-result',
               'note',
               'submit-ticket-label',
               'submit-ticket',
@@ -138,6 +139,12 @@ export function compileAnalysisSurface(input: CompileSurfaceInput): A2uiMessage[
             text: { path: '/analysis/uncertaintyText' },
           },
           { id: 'analysis-evidence', component: 'Text', text: { path: '/analysis/evidenceText' } },
+          {
+            id: 'ticket-result',
+            component: 'Text',
+            text: { path: '/result/ticketText' },
+            variant: 'body',
+          },
           { id: 'note', component: 'TextField', label: { path: '/noteLabel' }, value: { path: '/draft/note' }, variant: 'longText' },
           { id: 'submit-ticket-label', component: 'Text', text: { path: '/submitButtonLabel' } },
           {
@@ -180,6 +187,8 @@ export function compileAnalysisSurface(input: CompileSurfaceInput): A2uiMessage[
           },
           noteLabel: '处理备注',
           submitButtonLabel: '确认建单',
+          // T4.2：建单成功后由宿主 patch 在 /result 定点写入工单号（不整表替换）。
+          result: { ticketText: '确认后此处显示工单号。' },
           draft: { note: '' },
         },
       },

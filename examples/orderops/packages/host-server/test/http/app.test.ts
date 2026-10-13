@@ -156,7 +156,7 @@ it('Agent RPC 失败 → SSE error 收尾，且不留 surface_bindings', async (
   expect(caseRows).toHaveLength(0);
 });
 
-it('action 回流触发真实建单事务：备注落库、案件推进、patch 禁用按钮', async () => {
+it('action 回流触发真实建单事务：备注落库、案件推进、patch 展示工单号并禁用按钮', async () => {
   const { baseUrl, db } = await appWithAgent();
 
   const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
@@ -186,15 +186,101 @@ it('action 回流触发真实建单事务：备注落库、案件推进、patch 
 
   const actionEvents = parseSse(await actionResponse.text());
   expect(actionEvents.at(-1)?.event).toBe('done');
-  const patch = actionEvents.find((entry) => entry.event === 'message')
-    ?.data as { updateComponents: { components: Array<{ id: string; disabled?: boolean }> } };
-  expect(patch.updateComponents.components[0]).toMatchObject({ id: 'submit-ticket', disabled: true });
+  // T4.2 判据：patch = 禁用按钮 + /result 定点写工单号（不清空 draft）
+  const patches = actionEvents.filter((entry) => entry.event === 'message').map((entry) => entry.data) as Array<
+    { updateComponents?: { components: Array<{ id: string; disabled?: boolean }> }; updateDataModel?: { path?: string; value: { ticketText?: string; ticketId?: string; draft?: unknown } } }
+  >;
+  expect(patches).toHaveLength(2);
+  expect(patches[0]?.updateComponents?.components[0]).toMatchObject({ id: 'submit-ticket', disabled: true });
+  expect(patches[1]?.updateDataModel?.path).toBe('/result');
+  const ticketRow = db.prepare('SELECT id, note FROM tickets').get() as { id: string; note: string };
+  expect(patches[1]?.updateDataModel?.value.ticketId).toBe(ticketRow.id);
+  expect(patches[1]?.updateDataModel?.value.ticketText).toBe(`工单号：${ticketRow.id}`);
+  expect(patches[1]?.updateDataModel?.value.draft).toBeUndefined();
 
-  // T4.1：领域事务生效——浏览器最新备注落库，案件推进
-  const ticket = db.prepare('SELECT case_id, note, status FROM tickets').get() as { case_id: string; note: string; status: string };
-  expect(ticket).toMatchObject({ case_id: SEEDED_CASE_ID, note: '穿刺备注', status: 'created' });
+  // 案件推进 + 备注落库
   const c = db.prepare('SELECT status, version FROM anomaly_cases WHERE id = ?').get(SEEDED_CASE_ID) as { status: string; version: number };
   expect(c).toEqual({ status: 'ticket_created', version: 2 });
+  expect(ticketRow.note).toBe('穿刺备注');
+});
+
+it('GET /api/actions/:actionId 返回操作终态；未知 actionId 404', async () => {
+  const { baseUrl, db } = await appWithAgent();
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
+  const generateEvents = parseSse(await generateResponse.text());
+  const surfaceId = (generateEvents.find((entry) => entry.event === 'message')?.data as { createSurface: { surfaceId: string } }).createSurface.surfaceId;
+
+  await fetch(`${baseUrl}/api/a2ui/event`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      version: 'v0.9',
+      action: {
+        name: 'createTicket',
+        surfaceId,
+        sourceComponentId: 'submit-ticket',
+        timestamp: new Date().toISOString(),
+        actionId: 'query-action-1',
+        context: { note: '查询用' },
+      },
+    }),
+  });
+
+  const found = await fetch(`${baseUrl}/api/actions/query-action-1`);
+  expect(found.status).toBe(200);
+  expect(await found.json()).toMatchObject({
+    actionId: 'query-action-1',
+    operation: 'createTicket',
+    caseId: SEEDED_CASE_ID,
+    status: 'succeeded',
+    resultId: (db.prepare('SELECT id FROM tickets').get() as { id: string }).id,
+  });
+
+  const missing = await fetch(`${baseUrl}/api/actions/no-such-action`);
+  expect(missing.status).toBe(404);
+});
+
+it('客户端中断不回滚已提交事务：abort 后按 actionId 查到 succeeded 终态', async () => {
+  const { baseUrl, db } = await appWithAgent();
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
+  const generateEvents = parseSse(await generateResponse.text());
+  const surfaceId = (generateEvents.find((entry) => entry.event === 'message')?.data as { createSurface: { surfaceId: string } }).createSurface.surfaceId;
+
+  // 等响应头到达（此刻 handler/事务已在 prepareAction 执行完），随后中断流：
+  // SSE 未读完，事务不得回滚。
+  const controller = new AbortController();
+  const responsePromise = fetch(`${baseUrl}/api/a2ui/event`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      version: 'v0.9',
+      action: {
+        name: 'createTicket',
+        surfaceId,
+        sourceComponentId: 'submit-ticket',
+        timestamp: new Date().toISOString(),
+        actionId: 'abort-action-1',
+        context: { note: '中断也不回滚' },
+      },
+    }),
+    signal: controller.signal,
+  });
+  const actionResponse = await responsePromise;
+  expect(actionResponse.status).toBe(200);
+  controller.abort();
+  await actionResponse.text().catch(() => '');
+
+  // 轮询查询端点直至终态可见（事务与流解耦的最终一致窗口）
+  let attempt: { status: string } | null = null;
+  for (let i = 0; i < 20 && attempt === null; i += 1) {
+    const found = await fetch(`${baseUrl}/api/actions/abort-action-1`);
+    if (found.status === 200) attempt = (await found.json()) as { status: string };
+    else await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(attempt?.status).toBe('succeeded');
+  const tickets = db.prepare('SELECT note FROM tickets').all() as Array<{ note: string }>;
+  expect(tickets).toHaveLength(1);
+  expect(tickets[0]?.note).toBe('中断也不回滚');
 });
 
 it('双击建单（不同 actionId 的第二个请求）→ 400 拒绝，不产生第二张工单', async () => {

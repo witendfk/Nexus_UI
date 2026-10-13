@@ -160,3 +160,35 @@ export function getSurfaceBinding(db: SqliteDb, surfaceId: string): SurfaceBindi
     createdAt: row.created_at,
   };
 }
+
+export interface ActionAttempt {
+  actionId: string;
+  caseId: string;
+  operation: string;
+  status: string;
+  resultId: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+/** 按客户端 actionId 查操作终态（T4.2 断线恢复入口）；不存在返回 null。 */
+export function getActionAttemptByActionId(db: SqliteDb, actionId: string): ActionAttempt | null {
+  const row = db
+    .prepare(
+      `SELECT request_key, case_id, operation, status, result_id, error, created_at
+       FROM action_attempts WHERE request_key = ?`,
+    )
+    .get(actionId) as
+    | { request_key: string; case_id: string; operation: string; status: string; result_id: string | null; error: string | null; created_at: string }
+    | undefined;
+  if (row === undefined) return null;
+  return {
+    actionId: row.request_key,
+    caseId: row.case_id,
+    operation: row.operation,
+    status: row.status,
+    resultId: row.result_id,
+    error: row.error,
+    createdAt: row.created_at,
+  };
+}
