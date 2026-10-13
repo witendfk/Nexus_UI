@@ -5,41 +5,72 @@ import { Link, useParams } from 'react-router-dom';
 import type { CaseDetailPayload } from '../api/cases';
 import { CaseApiError, fetchCaseDetail } from '../api/cases';
 import { formatAmount } from '../format';
-import { analyzeCase, dispatchAction } from '../nexus/transport';
+import { analyzeCase, dispatchAction, fetchActionStatus } from '../nexus/transport';
 import { useActionBridge } from '../App';
 
-type SurfaceStatus = 'idle' | 'streaming' | 'ready' | 'error';
+type SurfaceStatus = 'idle' | 'streaming' | 'ready' | 'submitting' | 'error' | 'recovered';
 
 interface CaseSurfaceProps {
   caseId: string;
 }
 
 /**
- * Agent 分析区（T3.7）：业务 renderMap 渲染 surface；`done` 前丢弃 action 事件
- * （SPEC §3：流未提交前不存在可执行快照，点击不得外发）；SSE error 与网络失败
- * 由 transport 区分后统一展示。
+ * Agent 分析与提交区（T4.3）：生成受控 surface、提交 action，并对三种结局
+ * 显式表态——成功（patch 渲染工单号）、可确认失败（允许重试）、结果未知
+ * （以 Host 查询为准；查询不可用时锁定重发，docs/DESIGN.md D5）。
+ * `done` 前丢弃 action 事件；流提交中同样不重入。
  */
 function CaseSurface({ caseId }: CaseSurfaceProps) {
   const runtime = useA2UI();
   const actionHandlerRef = useActionBridge();
   const streamingRef = useRef(false);
+  const submittingRef = useRef(false);
+  /** 结果未知（查询不可用）时锁住重发，直到重新分析。 */
+  const unknownResultRef = useRef(false);
   const [status, setStatus] = useState<SurfaceStatus>('idle');
   const [error, setError] = useState<string>();
+  const [resultText, setResultText] = useState<string>();
 
   useEffect(() => {
     actionHandlerRef.current = (event: ActionEvent) => {
-      if (streamingRef.current) return;
-      void dispatchAction(runtime, event).then((outcome) => {
-        if (!outcome.ok) {
+      if (streamingRef.current || submittingRef.current || unknownResultRef.current) return;
+      const actionId = crypto.randomUUID();
+      submittingRef.current = true;
+      setStatus('submitting');
+      setError(undefined);
+      void dispatchAction(runtime, event, actionId).then((outcome) => {
+        if (outcome.ok) {
+          submittingRef.current = false;
+          setStatus('ready');
+          return;
+        }
+        // 流失败 ≠ 业务失败：以 Host 终态查询为准（不盲目重发）。
+        void fetchActionStatus(actionId).then((query) => {
+          submittingRef.current = false;
+          if (query.kind === 'found' && query.payload.status === 'succeeded') {
+            unknownResultRef.current = true;
+            setResultText(
+              `工单号：${query.payload.resultId ?? actionId}（Host 确认，界面流未完成）`,
+            );
+            setStatus('recovered');
+            return;
+          }
+          if (query.kind === 'unavailable') {
+            unknownResultRef.current = true;
+            setStatus('error');
+            setError(`提交结果未知（${outcome.error}）；请稍后刷新查询，确认前请勿重复提交。`);
+            return;
+          }
           setStatus('error');
           setError(outcome.error);
-        }
+        });
       });
     };
   }, [runtime, actionHandlerRef]);
 
   const analyze = useCallback(async () => {
     streamingRef.current = true;
+    unknownResultRef.current = false;
     setStatus('streaming');
     setError(undefined);
     try {
@@ -58,11 +89,17 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
   return (
     <section aria-label="agent 分析区">
       <h3>Agent 分析</h3>
-      <button type="button" onClick={() => void analyze()} disabled={status === 'streaming'}>
+      <button type="button" onClick={() => void analyze()} disabled={status === 'streaming' || status === 'submitting'}>
         {status === 'streaming' ? '生成中…' : '生成审核 surface'}
       </button>
       {status === 'streaming' && <p aria-live="polite">生成中，操作按钮暂不可用…</p>}
-      {status === 'error' && <p role="alert">生成失败：{error}</p>}
+      {status === 'submitting' && <p aria-live="polite">提交中，请勿重复操作…</p>}
+      {status === 'recovered' && (
+        <p role="status" aria-live="polite">
+          {resultText}
+        </p>
+      )}
+      {status === 'error' && <p role="alert">失败：{error}</p>}
     </section>
   );
 }
@@ -111,6 +148,8 @@ export function CaseDetailPage() {
     caseSummary.lastEventId === null
       ? undefined
       : events.find((event) => event.id === caseSummary.lastEventId);
+  // T4.3 刷新恢复：终态案件不再提供分析入口（Host 侧 analyze 也会 409），与 Host 状态一致。
+  const analyzable = caseSummary.status === 'open' || caseSummary.status === 'in_review';
 
   return (
     <article>
@@ -158,7 +197,16 @@ export function CaseDetailPage() {
         </ol>
       </section>
 
-      <CaseSurface caseId={caseSummary.id} />
+      {analyzable ? (
+        <CaseSurface caseId={caseSummary.id} />
+      ) : (
+        <section aria-label="处理状态">
+          <h3>处理状态</h3>
+          <p role="status">
+            案件当前状态「{caseSummary.status}」，已关闭分析入口；以 Host 记录为准。
+          </p>
+        </section>
+      )}
     </article>
   );
 }

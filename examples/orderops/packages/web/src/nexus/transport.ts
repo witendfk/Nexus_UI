@@ -99,11 +99,45 @@ function newActionId(): string {
   return crypto.randomUUID();
 }
 
-/** action 回流：core 不生成 timestamp/actionId，由 transport 补齐后 POST 给 Host。 */
+export interface ActionStatusPayload {
+  actionId: string;
+  operation: string;
+  caseId: string;
+  status: 'succeeded' | 'failed';
+  resultId?: string;
+  error?: string;
+  createdAt: string;
+}
+
+export type ActionStatusQuery =
+  | { kind: 'found'; payload: ActionStatusPayload }
+  | { kind: 'not-found' }
+  | { kind: 'unavailable' };
+
+/**
+ * D5 恢复路径（docs/DESIGN.md D5）：action 流失败后按 actionId 问 Host 终态。
+ * 网络不可用与 404 必须分开——前者是"结果未知"（不得据此重发业务动作），
+ * 后者才是 Host 无此请求记录。
+ */
+export async function fetchActionStatus(actionId: string): Promise<ActionStatusQuery> {
+  try {
+    const response = await fetch(`/api/actions/${encodeURIComponent(actionId)}`);
+    if (response.status === 404) return { kind: 'not-found' };
+    if (!response.ok) return { kind: 'unavailable' };
+    const payload = (await response.json()) as ActionStatusPayload;
+    return { kind: 'found', payload };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/** action 回流：core 不生成 timestamp/actionId，由 transport 补齐后 POST 给 Host；
+ *  actionId 由调用方传入以便失败后按它查询终态（T4.3）。 */
 export async function dispatchAction(
   runtime: A2UIRuntime,
   event: ActionEvent,
-): Promise<StreamOutcome> {
+  actionId: string = newActionId(),
+): Promise<StreamOutcome & { actionId: string }> {
   try {
     const response = await fetch('/api/a2ui/event', {
       method: 'POST',
@@ -113,12 +147,13 @@ export async function dispatchAction(
         action: {
           ...event,
           timestamp: new Date().toISOString(),
-          actionId: newActionId(),
+          actionId,
         },
       }),
     });
-    return await streamIntoRuntime(response, runtime);
+    const outcome = await streamIntoRuntime(response, runtime);
+    return { ...outcome, actionId };
   } catch (error) {
-    return toNetworkErrorOutcome(error);
+    return { ...toNetworkErrorOutcome(error), actionId };
   }
 }

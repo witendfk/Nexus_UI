@@ -192,3 +192,127 @@ it('生成请求网络失败时进入 error 态且按钮恢复可点', async () 
   const button = screen.getByRole('button', { name: '生成审核 surface' }) as HTMLButtonElement;
   expect(button.disabled).toBe(false);
 });
+
+/** T4.3 判据（docs/tasks/CURRENT.md）：断线/刷新后与 Host 状态一致，不盲目重发。 */
+
+const actionErrorEvents = [
+  {
+    event: 'error',
+    data: { code: 'AGENT_STREAM_ERROR', message: '连接中断，patch 未送达' },
+  },
+];
+
+async function openCaseWithSurface(): Promise<void> {
+  render(
+    <MemoryRouter initialEntries={['/cases/case-1']}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText('订单摘要');
+  fireEvent.click(screen.getByRole('button', { name: '生成审核 surface' }));
+  await screen.findByText('穿刺玩具案件');
+}
+
+function postedActionIds(): string[] {
+  return fetchMock.mock.calls
+    .filter((call) => String(call[0]).endsWith('/api/a2ui/event'))
+    .map((call) => (JSON.parse(String(call[1]?.body)) as { action: { actionId: string } }).action.actionId);
+}
+
+it('action 流失败但 Host 确认成功 → 展示工单号（D5 恢复），不重发业务动作', async () => {
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes('/analyze')) return Promise.resolve(sseResponse(generateEvents));
+    if (url.endsWith('/api/a2ui/event')) return Promise.resolve(sseResponse(actionErrorEvents));
+    if (url.includes('/api/actions/')) {
+      const actionId = decodeURIComponent(url.split('/api/actions/')[1] ?? '');
+      return Promise.resolve(
+        jsonResponse({
+          actionId,
+          operation: 'createTicket',
+          caseId: 'case-1',
+          status: 'succeeded',
+          resultId: 'ticket-77',
+          createdAt: '2026-09-30T12:00:00.000Z',
+        }),
+      );
+    }
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    return Promise.reject(new Error(`意外的请求：${url}`));
+  });
+  await openCaseWithSurface();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ping' }));
+  const statusEl = await screen.findByRole('status');
+  expect(statusEl.textContent).toContain('ticket-77');
+  expect(statusEl.textContent).toContain('Host 确认');
+
+  // 查询用的 actionId 与提交一致（按同一请求恢复）
+  const [postedId] = postedActionIds();
+  expect(fetchMock.mock.calls.some((call) => String(call[0]).includes(`/api/actions/${postedId}`))).toBe(true);
+
+  // Host 已确认成功：再点击 surface 按钮也不得重发
+  fireEvent.click(screen.getByRole('button', { name: 'Ping' }));
+  expect(postedActionIds()).toHaveLength(1);
+});
+
+it('action 失败且查询不可用 → 结果未知：锁定重发并明确提示，而非误报失败', async () => {
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes('/analyze')) return Promise.resolve(sseResponse(generateEvents));
+    if (url.endsWith('/api/a2ui/event')) return Promise.resolve(sseResponse(actionErrorEvents));
+    if (url.includes('/api/actions/')) return Promise.reject(new TypeError('network down'));
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    return Promise.reject(new Error(`意外的请求：${url}`));
+  });
+  await openCaseWithSurface();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ping' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('结果未知');
+  expect(alert.textContent).toContain('勿重复提交');
+
+  // 结果未知期间不得重发业务动作
+  fireEvent.click(screen.getByRole('button', { name: 'Ping' }));
+  expect(postedActionIds()).toHaveLength(1);
+});
+
+it('action 失败且 Host 无记录（404）→ 确认可重试', async () => {
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes('/analyze')) return Promise.resolve(sseResponse(generateEvents));
+    if (url.endsWith('/api/a2ui/event')) return Promise.resolve(sseResponse(actionErrorEvents));
+    if (url.includes('/api/actions/')) return Promise.resolve({ ok: false, status: 404 } as unknown as Response);
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    return Promise.reject(new Error(`意外的请求：${url}`));
+  });
+  await openCaseWithSurface();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ping' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('连接中断，patch 未送达');
+  expect(alert.textContent).not.toContain('结果未知');
+});
+
+it('刷新恢复：ticket_created 案件不再提供分析入口，也不发起 analyze 请求', async () => {
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes('/api/cases/')) {
+      return Promise.resolve(
+        jsonResponse({ ...DETAIL_PAYLOAD, case: { ...DETAIL_PAYLOAD.case, status: 'ticket_created' } }),
+      );
+    }
+    if (url.includes('/analyze')) return Promise.reject(new Error('终态案件不得发起分析'));
+    if (url.includes('/api/cases')) return Promise.resolve(jsonResponse({ cases: [] }));
+    return Promise.reject(new Error(`意外的请求：${url}`));
+  });
+  render(
+    <MemoryRouter initialEntries={['/cases/case-1']}>
+      <App />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText(/已关闭分析入口/)).toBeDefined();
+  expect(screen.queryByRole('button', { name: '生成审核 surface' })).toBeNull();
+  expect(fetchMock.mock.calls.filter((call) => String(call[0]).includes('/analyze'))).toHaveLength(0);
+});
