@@ -8,6 +8,7 @@ import { createApp } from '../../src/http/app';
 import { CatalogContractClient } from '../../src/catalog-contract/client';
 import { CaseContextClient } from '../../src/tools/case-context';
 import { createAnalysisGeneration } from '../../src/a2ui/generate';
+import type { RpcGenerateInput } from '../../src/rpc/handler';
 import { analyzeCase } from '../../src/analysis/engine';
 import { ModelClient } from '../../src/analysis/model-client';
 import {
@@ -101,26 +102,47 @@ describe('POST /rpc（§10.1 契约 + T3.4/T3.5 管线）', () => {
     expect(response.headers.get('content-type')).toContain('application/x-ndjson');
 
     const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(lines.length).toBe(3);
-
+    // V1 分阶段产出：createSurface + 多次交错 components/data
+    expect(lines.length).toBeGreaterThanOrEqual(11);
     expect(lines[0]).toMatchObject({
       version: 'v0.9',
       createSurface: { surfaceId: 'surface-1', catalogId: ORDEROPS_CATALOG.catalogId },
     });
 
-    const components = (lines[1] as { updateComponents: { components: Array<{ id: string; component: string; action?: { event: { name: string } } }> } })
-      .updateComponents.components;
-    expect(components[0]).toMatchObject({ id: 'root', component: 'Column' });
-    for (const component of components) {
+    const allComponents = lines.flatMap((line) =>
+      'updateComponents' in line
+        ? (line.updateComponents as { components: Array<{ id: string; component: string; action?: { event: { name: string } } }> }).components
+        : [],
+    );
+    expect(allComponents[0]).toMatchObject({ id: 'root', component: 'Column' });
+    for (const component of allComponents) {
       expect(ORDEROPS_CATALOG.components, component.id).toContain(component.component);
     }
-    const button = components.find((component) => component.component === 'Button')!;
+    const button = allComponents.find((component) => component.component === 'Button')!;
     expect(button.action?.event.name).toBe('createTicket');
 
-    const model = (lines[2] as { updateDataModel: { value: { draft: { note: string }; timeline: { events: unknown[] } } } })
-      .updateDataModel.value;
-    expect(model.draft.note).toBe('');
-    expect(model.timeline.events).toHaveLength(2);
+    const merged = lines.reduce<Record<string, unknown>>((model, line) => {
+      if ('updateDataModel' in line) {
+        const { path, value } = line.updateDataModel as { path?: string; value?: unknown };
+        if (value === undefined) return model;
+        if (typeof path !== 'string' || path === '' || path === '/') {
+          return { ...model, ...(value as Record<string, unknown>) };
+        }
+        const keys = path.split('/').filter(Boolean);
+        let cursor: Record<string, unknown> = model;
+        for (let i = 0; i < keys.length - 1; i += 1) {
+          const key = keys[i]!;
+          if (cursor[key] === undefined || typeof cursor[key] !== 'object') cursor[key] = {};
+          cursor = cursor[key] as Record<string, unknown>;
+        }
+        cursor[keys[keys.length - 1]!] = value;
+      }
+      return model;
+    }, {});
+    const draft = merged.draft as { note: string };
+    expect(draft.note).toBe('');
+    const timeline = merged.timeline as { events: unknown[] };
+    expect(timeline.events).toHaveLength(2);
   });
 
   it('未知案件 → 500 {error:{message}} 且指明案件不存在', async () => {
@@ -191,6 +213,42 @@ describe('POST /rpc（§10.1 契约 + T3.4/T3.5 管线）', () => {
     const baseUrl = await listen(appWithPipeline(hostPort));
     const response = await fetch(`${baseUrl}/rpc`);
     expect(response.status).toBe(405);
+  });
+
+  it('S1 取消传播：宿主在生成期间断开 → 生成器 finally 触发，不再产出响应', async () => {
+    const hostPort = await stubHost();
+    const hostBaseUrl = `http://127.0.0.1:${hostPort}`;
+    let finallyRan = false;
+    async function* slowGenerate(input: RpcGenerateInput): AsyncGenerator<unknown, void, void> {
+      try {
+        yield { version: 'v0.9', createSurface: { surfaceId: input.surfaceId, catalogId: input.catalogId } };
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        yield { version: 'v0.9', updateDataModel: { surfaceId: input.surfaceId, value: { late: true } } };
+      } finally {
+        finallyRan = true;
+      }
+    }
+    const baseUrl = await listen(
+      createApp({
+        contractClient: new CatalogContractClient({ hostBaseUrl }),
+        generate: slowGenerate,
+      }),
+    );
+
+    const controller = new AbortController();
+    const pending = fetch(`${baseUrl}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_REQUEST),
+      signal: controller.signal,
+    }).catch(() => undefined);
+    // 首条已缓冲，生成器悬停期间宿主断开
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    controller.abort();
+    await pending;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    expect(finallyRan).toBe(true);
   });
 
   it('T4.4 样本④编造事件 ID：模型引用快照外证据 → 200 但为不可执行面（无输入/按钮，缺信息明示）', async () => {

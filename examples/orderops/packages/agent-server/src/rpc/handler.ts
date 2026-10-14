@@ -150,19 +150,32 @@ export function createRpcRouter(options: CreateRpcRouterOptions): Router {
     }
 
     const messages: unknown[] = [];
+    // S1 取消传播：宿主在生成期间断开（连接终止）时停止缓冲——中断 for-await
+    // 会触发生成器的 return/finally（模型流在当前 await 后停止，结果被丢弃）。
+    // 注意：正在飞行中的单次模型调用不被强杀（其自身有超时），只是结果不再产出。
+    let clientGone = false;
+    const onGone = (): void => {
+      clientGone = true;
+    };
+    ctx.res.once('close', onGone);
     try {
-      for await (const message of options.generate({
-        surfaceId: body.surfaceId,
-        message: body.message,
-        catalogId: body.catalogId,
-        supportedComponents: body.supportedComponents,
-        supportedActions: body.supportedActions,
-        catalog,
-        promptContract,
-        contractHash: body.catalogContract.hash,
-        history: body.history,
-      })) {
-        messages.push(message);
+      try {
+        for await (const message of options.generate({
+          surfaceId: body.surfaceId,
+          message: body.message,
+          catalogId: body.catalogId,
+          supportedComponents: body.supportedComponents,
+          supportedActions: body.supportedActions,
+          catalog,
+          promptContract,
+          contractHash: body.catalogContract.hash,
+          history: body.history,
+        })) {
+          if (clientGone) break;
+          messages.push(message);
+        }
+      } finally {
+        ctx.res.off('close', onGone);
       }
     } catch (error) {
       ctx.status = 500;
@@ -171,6 +184,7 @@ export function createRpcRouter(options: CreateRpcRouterOptions): Router {
       };
       return;
     }
+    if (clientGone) return;
 
     if (messages.length === 0) {
       ctx.status = 500;

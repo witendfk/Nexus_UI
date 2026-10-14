@@ -18,10 +18,12 @@ function parseBlock(block: string): SseBlock | undefined {
   return { event: event ?? 'message', data: JSON.parse(dataLine) };
 }
 
-/** 把 Host 的 SSE 流逐条喂给 runtime；`done` 前禁用业务 action 由消费方保证。 */
+/** 把 Host 的 SSE 流逐条喂给 runtime；`done` 前禁用业务 action 由消费方保证。
+ *  onMessage 在每条 A2UI 消息喂入后回调（V1 生成进度提示）。 */
 export async function streamIntoRuntime(
   response: Response,
   runtime: A2UIRuntime,
+  options: { onMessage?: (receivedCount: number) => void } = {},
 ): Promise<StreamOutcome> {
   if (!response.ok || !response.body) {
     return { ok: false, error: `请求失败：HTTP ${response.status}` };
@@ -33,11 +35,14 @@ export async function streamIntoRuntime(
   // 收到 done/error 事件才算流正常收尾；连接提前断开不得误报成功。
   let settled = false;
 
+  let received = 0;
   const handleBlock = (block: string): void => {
     const parsed = parseBlock(block);
     if (!parsed) return;
     if (parsed.event === 'message') {
       runtime.push(`${JSON.stringify(parsed.data)}\n`);
+      received += 1;
+      options.onMessage?.(received);
     } else if (parsed.event === 'done') {
       settled = true;
     } else if (parsed.event === 'error') {
@@ -84,12 +89,13 @@ function toNetworkErrorOutcome(error: unknown): StreamOutcome {
 export async function analyzeCase(
   runtime: A2UIRuntime,
   caseId: string,
+  onMessage?: (receivedCount: number) => void,
 ): Promise<StreamOutcome> {
   try {
     const response = await fetch(`/api/cases/${encodeURIComponent(caseId)}/analyze`, {
       method: 'POST',
     });
-    return await streamIntoRuntime(response, runtime);
+    return await streamIntoRuntime(response, runtime, { onMessage });
   } catch (error) {
     return toNetworkErrorOutcome(error);
   }

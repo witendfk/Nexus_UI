@@ -3,6 +3,7 @@ import Router from '@koa/router';
 import {
   createAgentRouter,
   createCatalogContractHash,
+  InMemoryAgentRunManager,
   sendAgentRun,
 } from '@nexus-ui/server';
 import type { ExternalAgentRpcConfig } from '@nexus-ui/server';
@@ -20,11 +21,17 @@ export interface CreateAppOptions {
   db?: SqliteDb;
   /** T3.6：Agent `/rpc` 装配；未提供时 analyze 显式 503（生成源未配置）。 */
   agentRpc?: ExternalAgentRpcConfig;
+  /** D8/V1 演示节奏：analyze 流每条消息间隔毫秒数（缺省 0 = 全速）。 */
+  demoPacingMs?: number;
 }
 
 export function createApp(options: CreateAppOptions = {}): Koa {
   const app = new Koa();
   const adapter = createAgentAdapter({ agentRpc: options.agentRpc, db: options.db });
+  // S1 可观察性：analyze 与 /api/a2ui/runs 共享同一 run manager，
+  // 生成流的成功/失败/取消状态可被宿主与前端查询（此前 analyze 的 run 落在
+  // 默认全局 manager，runs 端点看不到）。
+  const runManager = new InMemoryAgentRunManager();
   if (options.db !== undefined) {
     // 内部只读工具：鉴权在 router 内 fail-closed（ORDEROPS_INTERNAL_TOKEN）
     const internalRouter = createInternalRouter(options.db);
@@ -101,11 +108,24 @@ export function createApp(options: CreateAppOptions = {}): Koa {
       ctx.body = { error: 'SERVICE_UNAVAILABLE', message: 'Agent 生成源未配置' };
       return;
     }
-    const plan = await adapter.prepareGeneration({
-      message: caseId,
-      catalogId: ORDEROPS_CATALOG.catalogId,
-    });
+    // S1 取消传播（docs/DESIGN.md D6/PRD R1）：客户端断开时中止上游 Agent RPC，
+    // 而不是让 Agent 空转后丢弃结果；同一信号交给 sendAgentRun 收尾流。
+    const controller = new AbortController();
+    const abort = (): void => {
+      if (!ctx.res.writableEnded) controller.abort();
+    };
+    ctx.req.once('aborted', abort);
+    ctx.res.once('close', abort);
+    const plan = await adapter.prepareGeneration(
+      {
+        message: caseId,
+        catalogId: ORDEROPS_CATALOG.catalogId,
+      },
+      { signal: controller.signal },
+    );
     if (!plan.ok) {
+      ctx.req.off('aborted', abort);
+      ctx.res.off('close', abort);
       ctx.status = 400;
       ctx.body = { error: 'INVALID_REQUEST', message: plan.message };
       return;
@@ -116,6 +136,8 @@ export function createApp(options: CreateAppOptions = {}): Koa {
     const caseVersion = getCaseVersion(options.db, caseId);
     if (caseVersion === null) {
       // admission 已确认存在；防御并发删除，不进入流。
+      ctx.req.off('aborted', abort);
+      ctx.res.off('close', abort);
       ctx.status = 404;
       ctx.body = { error: 'NOT_FOUND', message: `案件不存在: ${caseId}` };
       return;
@@ -131,7 +153,16 @@ export function createApp(options: CreateAppOptions = {}): Koa {
         createdAt: new Date().toISOString(),
       });
     };
-    await sendAgentRun(ctx, plan.run, `${surfaceId}:analyze`, { streamDelayMs: 0 });
+    try {
+      await sendAgentRun(ctx, plan.run, `${surfaceId}:analyze`, {
+        streamDelayMs: options.demoPacingMs ?? 0,
+        manager: runManager,
+        signal: controller.signal,
+      });
+    } finally {
+      ctx.req.off('aborted', abort);
+      ctx.res.off('close', abort);
+    }
   });
 
   // T3.3b（docs/tasks/CURRENT.md）：业务宿主下线参考程序的自由 generate 路由，
@@ -151,6 +182,7 @@ export function createApp(options: CreateAppOptions = {}): Koa {
   const nexusRouter = createAgentRouter({
     adapter,
     catalogContracts: [ORDEROPS_CATALOG],
+    runManager,
     streamDelayMs: 0,
   });
 

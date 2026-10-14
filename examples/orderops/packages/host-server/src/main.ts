@@ -25,6 +25,6 @@ console.log(
   `stall detection: scanned ${detection.scanned} orders, created ${detection.createdCaseIds.length} cases`,
 );
 
-createApp({ db, agentRpc: config.agentRpc }).listen(config.port, '127.0.0.1', () => {
+createApp({ db, agentRpc: config.agentRpc, demoPacingMs: config.demoPacingMs }).listen(config.port, '127.0.0.1', () => {
   console.log(`@orderops/host-server listening on http://127.0.0.1:${config.port}`);
 });

@@ -107,7 +107,7 @@ it('agentRpc 未配置时 analyze 显式 503', async () => {
   expect(body.error).toBe('SERVICE_UNAVAILABLE');
 });
 
-it('analyze 经外部 Agent RPC 生成受控 surface，以 done 结束，并落 surface_bindings', async () => {
+it('analyze 经外部 Agent RPC 分阶段流式输出，以 done 结束，并落 surface_bindings', async () => {
   const { baseUrl, db, agent } = await appWithAgent();
   const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
     method: 'POST',
@@ -118,11 +118,21 @@ it('analyze 经外部 Agent RPC 生成受控 surface，以 done 结束，并落 
   const events = parseSse(await response.text());
   expect(events.at(-1)?.event).toBe('done');
 
-  const messages = events.filter((entry) => entry.event === 'message').map((entry) => entry.data);
-  expect(messages).toHaveLength(3);
+  const messages = events.filter((entry) => entry.event === 'message').map((entry) => entry.data) as Array<Record<string, unknown>>;
+  // V1 分阶段产出：createSurface + 多次交错 components/data（替身与编译器同形）
+  expect(messages.length).toBeGreaterThanOrEqual(5);
   const create = messages[0] as { createSurface: { surfaceId: string; catalogId: string } };
   expect(create.createSurface.catalogId).toBe(ORDEROPS_CATALOG_ID);
   const surfaceId = create.createSurface.surfaceId;
+
+  // 逐条渲染的可见证据：首个 updateComponents 只有骨架（root+标题），后续批次才出现执行区与按钮
+  const componentBatches = messages
+    .filter((message) => 'updateComponents' in message)
+    .map((message) => (message as { updateComponents: { components: Array<{ id: string }> } }).updateComponents.components
+      .map((component) => component.id));
+  expect(componentBatches[0]).toEqual(['root', 'case-title']);
+  expect(componentBatches.some((ids) => ids.includes('ticket-result'))).toBe(true);
+  expect(componentBatches.at(-1)).toContain('submit-ticket');
 
   // T3.6 判据：提交后写 surface_bindings（case_version 为分析时刻版本）。
   const binding = getSurfaceBinding(db, surfaceId);
@@ -135,6 +145,97 @@ it('analyze 经外部 Agent RPC 生成受控 surface，以 done 结束，并落 
   });
   // RPC 请求的 message 规范化为 caseId
   expect((agent.lastRequest as { message?: string }).message).toBe(SEEDED_CASE_ID);
+});
+
+it('S1 可观察性：analyze 的 run 状态（成功/失败）可经 /api/a2ui/runs 查询', async () => {
+  const { baseUrl } = await appWithAgent();
+  const doneResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
+  const doneEvents = parseSse(await doneResponse.text());
+  expect(doneEvents.at(-1)?.event).toBe('done');
+  const surfaceId = (doneEvents.find((entry) => entry.event === 'message')?.data as { createSurface: { surfaceId: string } })
+    .createSurface.surfaceId;
+
+  const runs = await fetch(`${baseUrl}/api/a2ui/runs?surfaceId=${encodeURIComponent(surfaceId)}`);
+  expect(runs.status).toBe(200);
+  const body = (await runs.json()) as { runs: Array<{ state: string; kind: string }> };
+  expect(body.runs.at(-1)?.state).toBe('succeeded');
+
+  // 失败流同样可观察
+  const failing = await stubAgentServer({ status: 500, errorBody: { error: { message: '模型不可用' } } });
+  agents.push(failing);
+  const failBaseUrl = await listen(createApp({ db: seededDb(), agentRpc: { endpoint: failing.url } }));
+  const failResponse = await fetch(`${failBaseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
+  const failEvents = parseSse(await failResponse.text());
+  expect(failEvents.at(-1)?.event).toBe('error');
+  const failSurfaceId = (failEvents.find((entry) => entry.event === 'message')?.data as { createSurface: { surfaceId: string } } | undefined)
+    ?.createSurface.surfaceId;
+  if (failSurfaceId !== undefined) {
+    const failRuns = await fetch(`${failBaseUrl}/api/a2ui/runs?surfaceId=${encodeURIComponent(failSurfaceId)}`);
+    const failBody = (await failRuns.json()) as { runs: Array<{ state: string }> };
+    expect(failBody.runs.at(-1)?.state).toBe('failed');
+  }
+});
+
+it('S1 取消传播：客户端断开 → 上游 stub 观测到连接中止，不落绑定', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer({ delayMs: 800 });
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
+
+  const controller = new AbortController();
+  const pending = fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+    signal: controller.signal,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  controller.abort();
+  await pending.catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // 取消传播到上游：宿主在生成期间断开了对 stub 的连接
+  expect(agent.sawClientClose).toBe(true);
+  expect(db.prepare('SELECT surface_id FROM surface_bindings').all()).toHaveLength(0);
+});
+
+it('S1 资源上限：Agent NDJSON 超过 2MB → SSE error 且无绑定', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer({ oversized: true });
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
+
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });
+  const events = parseSse(await response.text());
+  expect(events.at(-1)?.event).toBe('error');
+  expect(JSON.stringify(events.at(-1)?.data)).toContain('字节上限');
+  expect(db.prepare('SELECT surface_id FROM surface_bindings').all()).toHaveLength(0);
+});
+
+it('S1 重放：同一 actionId 的重复提交 → 400 重放拒绝', async () => {
+  const { baseUrl } = await appWithAgent();
+  const surfaceId = await analyzeForSurface(baseUrl);
+
+  const post = (): Promise<Response> =>
+    fetch(`${baseUrl}/api/a2ui/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        version: 'v0.9',
+        action: {
+          name: 'createTicket',
+          surfaceId,
+          sourceComponentId: 'submit-ticket',
+          timestamp: new Date().toISOString(),
+          actionId: 'replay-1',
+          context: { note: '重放识别' },
+        },
+      }),
+    });
+
+  expect((await post()).status).toBe(200);
+  const replay = await post();
+  expect(replay.status).toBe(400);
+  const body = (await replay.json()) as { message: string };
+  expect(body.message).toContain('重放');
 });
 
 it('Agent RPC 失败 → SSE error 收尾，且不留 surface_bindings', async () => {

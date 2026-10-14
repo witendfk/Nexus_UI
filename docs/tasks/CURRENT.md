@@ -28,7 +28,7 @@
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
 | OrderOps M2 | T3.1–T3.7 已完成；收口仅差真实模型冒烟（待凭证） | 真实模型单独特定冒烟通过即宣告 M2 |
 | OrderOps M3 | 代码任务完成（T4.1–T4.4，2026-10-13）；里程碑门禁 2/3：fresh clone ✅、代码评审 ✅（3 P2 修复）、真浏览器走查按 §5.3 演示判据执行（V1/V2 落地后） | 真浏览器全链走查（走查判据 = 演示节拍表） |
-| 演示与部署线（D8） | 已立项（2026-10-14）；V1–V5 见下表 | V1 流式可见化先行 |
+| 演示与部署线（D8） | V1 已完成（2026-10-14）；V2 对抗模式下一个 | V1 判据全过（见下表） |
 | OrderOps M4 | 待演示线 V1/V2 落地与 M3 关满后启动 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
 
@@ -36,7 +36,7 @@
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| V1 | 流式可见化：fixture 分阶段产出（生产代码的演示节奏参数）；Web 生成进度提示（已接收 n 条）+ 完成前输入/按钮禁用的视觉态；取消传播测试收尾（客户端断开 → 上游中止 + 生成器 finally） | 浏览器可见逐条渲染；done 前操作禁用可见；断开无半成品、上游被中止（证伪测试） |
+| V1 | ✅ 已完成（2026-10-14）：编译器分阶段产出（createSurface 后交错 components/data，数据按 path 定点写入）；`ORDEROPS_DEMO_PACING_MS` 演示节奏参数（默认 0，CI 全速）；Web 生成进度提示（已接收 n 条）+ 完成前操作禁用可见；S1 取消传播收尾（analyze 信号传入 prepareGeneration + agent /rpc 断开停止缓冲，双侧证伪） | host e2e 断言骨架批次→执行区批次的生长顺序；取消传播双侧证伪（stub sawClose + agent 生成器 finally）；guard 等价/稳定快照/编排 e2e 全绿 |
 | V2 | 对抗模式：fixture 越权变体（Catalog 外组件/伪造字段）+ Web 拒绝横幅（guard 原因定位到组件/字段） | 对抗开启时零渲染污染、横幅可读、其余内容照常（证伪测试 + 浏览器确认） |
 | V3 | SDK 观察面板：guard 拦截、消息计数、run 状态迁移的实时面板（数据源：共享 run manager / action_attempts / SSE 事件） | 面板与真实流量一致（可选增强，部署后完成） |
 | V4 | 走查判据固化：PRD §5.3 表为唯一走查清单，浏览器逐格执行 | M3 里程碑门禁"真浏览器走查"关闭 |
@@ -46,7 +46,7 @@
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| S1 | 收口运行时边界：取消传播、并发/重复 action、失败流清理、资源上限和结构化 diagnostics | 对真实触发条件有证伪测试；失败状态可被宿主观察和恢复，不把内存 ledger 当业务事务。**2026-10-14 部分顺路完成**：取消传播 host→agent 接线 + 共享 run manager（随 V1 收尾测试）；重放/超限 e2e 与剩余组合反例挂账本行 |
+| S1 | 收口运行时边界：取消传播、并发/重复 action、失败流清理、资源上限和结构化 diagnostics | 对真实触发条件有证伪测试；失败状态可被宿主观察和恢复，不把内存 ledger 当业务事务。**2026-10-14 取消传播已收口**（analyze 信号贯通 host→agent + 双侧证伪 + run 状态可查询）；重放/超限 e2e 与剩余组合反例挂账本行 |
 | S2 | 公开 API 与包产物：核对 core/react/server 根导出、类型、exports、依赖与兼容版本 | 当前改动产物在仓外干净宿主安装，仅用公开入口完成最小闭环；API 快照和兼容检查通过 |
 | S3 | 宿主接入能力：先用现有根入口完成独立宿主，再评估浏览器 API/组合层与非 Koa guard 的抽取 | 可替换 Agent/transport/Catalog/renderMap/handler；正常与非法流均走同一准入边界，记录重复接线量；仅在证据支持时新增公共 API 或包 |
 | S4 | conformance、React 交互与接入文档 | 支持子集和偏差有版本化基线；输入、action、错误提示和基本可访问性在浏览器验证；quickstart 覆盖坏输出 |
@@ -104,6 +104,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-13，M3 门禁 fresh clone + 代码评审完成）：fresh clone（临时目录，Node 24）install/typecheck/lint/test/build 五项全绿，orderops 142；随后评审修正 3 个 P2（`f7cd4d4`：resolver 按 action 分发 + 回退语义、审计行冲突降级 NULL 键、模型响应 2MB 上限），根 `pnpm test` 全绿——core 179 / orderops 146 / React 32 / playground 9 / demo 1。评审遗留 P3（agent app 静默不挂载 /rpc、read-api token 直读 env、randomUUID 需 secure context 的部署注记）不阻塞。真浏览器走查待做。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-14，V1 流式可见化完成）：根 `pnpm test` 全绿——core 179 / orderops 151 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。编译器分阶段产出（15 条左右交错消息）+ `ORDEROPS_DEMO_PACING_MS` 演示节奏 + Web 进度提示 + S1 取消传播双侧证伪。环境备注：orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

@@ -17,6 +17,9 @@ export interface HostConfig {
     /** SPEC §3：接真实模型时提高至 120s；deterministic agent 响应在毫秒级。 */
     timeoutMs: number;
   };
+  /** D8/V1 演示节奏：analyze 流每条消息的间隔毫秒数（0 = CI 全速）。只影响
+   *  下发节奏，不影响 guard/提交语义——演示配置，不是模型延迟。 */
+  demoPacingMs: number;
 }
 
 function requirePositive(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
@@ -25,6 +28,16 @@ function requirePositive(env: NodeJS.ProcessEnv, key: string, fallback: number):
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`配置非法：${key} 必须是正数，当前为 ${String(raw)}`);
+  }
+  return value;
+}
+
+function requireNonNegative(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const raw = env[key];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`配置非法：${key} 必须是非负整数，当前为 ${String(raw)}`);
   }
   return value;
 }
@@ -44,5 +57,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HostConfig {
       endpoint: env.ORDEROPS_AGENT_URL ?? 'http://127.0.0.1:3202/rpc',
       timeoutMs: requirePositive(env, 'ORDEROPS_AGENT_TIMEOUT_MS', 120_000),
     },
+    demoPacingMs: requireNonNegative(env, 'ORDEROPS_DEMO_PACING_MS', 0),
   };
 }

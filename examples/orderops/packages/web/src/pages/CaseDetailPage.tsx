@@ -30,6 +30,8 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
   const [status, setStatus] = useState<SurfaceStatus>('idle');
   const [error, setError] = useState<string>();
   const [resultText, setResultText] = useState<string>();
+  /** V1 流式可见化：已接收的 A2UI 消息条数（宿主演示节奏下逐条增长）。 */
+  const [received, setReceived] = useState(0);
 
   useEffect(() => {
     actionHandlerRef.current = (event: ActionEvent) => {
@@ -73,8 +75,9 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
     unknownResultRef.current = false;
     setStatus('streaming');
     setError(undefined);
+    setReceived(0);
     try {
-      const outcome = await analyzeCase(runtime, caseId);
+      const outcome = await analyzeCase(runtime, caseId, (count) => setReceived(count));
       if (outcome.ok) {
         setStatus('ready');
       } else {
@@ -92,7 +95,13 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
       <button type="button" onClick={() => void analyze()} disabled={status === 'streaming' || status === 'submitting'}>
         {status === 'streaming' ? '生成中…' : '生成审核 surface'}
       </button>
-      {status === 'streaming' && <p aria-live="polite">生成中，操作按钮暂不可用…</p>}
+      {status === 'streaming' && (
+        <p aria-live="polite">
+          {received === 0
+            ? '正在生成受控界面…'
+            : `SDK 已接收 ${received} 条界面消息，逐条渲染中（完成前操作按钮不可用）…`}
+        </p>
+      )}
       {status === 'submitting' && <p aria-live="polite">提交中，请勿重复操作…</p>}
       {status === 'recovered' && (
         <p role="status" aria-live="polite">
