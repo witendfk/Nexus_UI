@@ -2,7 +2,7 @@ import { CatalogRegistry } from '@nexus-ui/core';
 import { AgentAdapter, createExternalAgentGenerationSource } from '@nexus-ui/server';
 import type { ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { ORDEROPS_CATALOG, ORDEROPS_CATALOG_ID } from './catalog';
-import { createTicketForSurface, resolveCreateTicketContext } from '../actions/create-ticket';
+import { createTicketForSurface, resolveHostActionContext } from '../actions/create-ticket';
 import type { SqliteDb } from '../db/client';
 
 const registry = new CatalogRegistry([ORDEROPS_CATALOG]);
@@ -28,7 +28,7 @@ export function createAgentAdapter(options: CreateAgentAdapterOptions = {}): Age
     ...(options.db === undefined
       ? {}
       : {
-          resolveActionContext: resolveCreateTicketContext,
+          resolveActionContext: resolveHostActionContext,
         }),
   });
   if (options.db !== undefined) {

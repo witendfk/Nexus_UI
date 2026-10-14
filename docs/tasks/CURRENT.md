@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-**主产品是 Nexus SDK，当前验证任务是 OrderOps M3 收口。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0/M1 完成，**M2 全部任务（T3.1–T3.7）已完成**（收口仅差真实模型冒烟，待凭证）。**M3 代码任务（T4.1–T4.4）已全部完成**：建单事务、工单号定点 patch、操作终态查询、Web 三结局反馈与刷新恢复、七类失败样本每类一条端到端证伪（含锁定 D5 的"事务成功但 patch 失败"故障注入）。**下一步是 M3 里程碑门禁，不再是写代码**：fresh clone 跑通、真浏览器走查（录屏点）、完整代码评审；真实模型冒烟（待凭证）可并行补。之后仓外独立宿主 → M4。未经对应端到端验证，不把下一段能力标为完成。
+**主产品是 Nexus SDK，当前验证任务是 OrderOps M3 收口。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0/M1 完成，**M2 全部任务（T3.1–T3.7）已完成**（收口仅差真实模型冒烟，待凭证）。**M3 代码任务（T4.1–T4.4）已全部完成**：建单事务、工单号定点 patch、操作终态查询、Web 三结局反馈与刷新恢复、七类失败样本每类一条端到端证伪（含锁定 D5 的"事务成功但 patch 失败"故障注入）。**M3 里程碑门禁三项已完成两项**：① fresh clone 全量门禁全绿（2026-10-13，install/typecheck/lint/test/build）；③ 全量代码评审完成（2026-10-13，无 P0/P1，3 个 P2 当场修复：resolver 按 action 分发消除 M4 陷阱、审计行冲突降级保痕迹、模型响应 2MB 上限；剩真浏览器走查）。真实模型冒烟（待凭证）可并行补。之后 SDK S1–S5 → M4 → 拆分/部署。未经对应端到端验证，不把下一段能力标为完成。
 
 **下一步**：T4.4 已于 2026-10-13 完成，七类失败样本矩阵闭环（见下表）。**M3 出口 = 里程碑门禁**：① fresh clone 全量门禁；② 真浏览器走查全链并录屏（面试交付点）；③ 完整代码评审。真实模型冒烟等凭证后随时并行。之后按 仓外独立宿主（SDK S2/S3）→ M4 → subtree 拆分评估 推进。未经对应端到端验证，不把下一段能力标为完成。
 
@@ -27,7 +27,7 @@
 | Nexus SDK 生产级设计门禁 | 进行中；当前三包根入口与独立 Demo 已有证据，完整门禁未通过 | 见下方 SDK 队列；不能以 OrderOps 演示代替 |
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
 | OrderOps M2 | T3.1–T3.7 已完成；收口仅差真实模型冒烟（待凭证） | 真实模型单独特定冒烟通过即宣告 M2 |
-| OrderOps M3 | 代码任务完成（T4.1–T4.4，2026-10-13）；待里程碑门禁 | fresh clone、真浏览器走查（录屏）、完整代码评审 |
+| OrderOps M3 | 代码任务完成（T4.1–T4.4，2026-10-13）；里程碑门禁 2/3：fresh clone ✅、代码评审 ✅（3 P2 修复）、真浏览器走查待做 | 真浏览器全链走查 |
 | OrderOps M4 | 待 M3 收口 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
 
@@ -93,6 +93,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-13，T4.4 完成、M3 代码任务闭环）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 142 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。T4.1–T4.4 已提交推送；M3 待里程碑门禁（fresh clone/真浏览器/代码评审）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-13，M3 门禁 fresh clone + 代码评审完成）：fresh clone（临时目录，Node 24）install/typecheck/lint/test/build 五项全绿，orderops 142；随后评审修正 3 个 P2（resolver 按 action 分发 + 回退语义、审计行冲突降级 NULL 键、模型响应 2MB 上限），根 `pnpm test` 全绿——core 179 / orderops 146 / React 32 / playground 9 / demo 1。评审遗留 P3（agent app 静默不挂载 /rpc、read-api token 直读 env、randomUUID 需 secure context 的部署注记）不阻塞。真浏览器走查待做。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

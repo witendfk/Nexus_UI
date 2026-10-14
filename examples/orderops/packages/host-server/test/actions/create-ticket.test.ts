@@ -6,10 +6,11 @@ import { openDatabase, type SqliteDb } from '../../src/db/client';
 import { detectStalledCases } from '../../src/cases/detect';
 import { seedFixtures } from '../../src/fixtures/seed';
 import { insertSurfaceBinding, getSurfaceBinding } from '../../src/cases/repository';
-import { createTicketForSurface, resolveCreateTicketContext } from '../../src/actions/create-ticket';
+import { createTicketForSurface, resolveCreateTicketContext, resolveHostActionContext } from '../../src/actions/create-ticket';
 
 /** T4.1 判据（docs/tasks/CURRENT.md）：最新备注生效；换 path、伪造字段、过期、
- * 双击不能重复建单；事务一次写入工单/案件状态/操作记录/审计。 */
+ * 双击不能重复建单；事务一次写入工单/案件状态/操作记录/审计。
+ * 评审修正（P2）：resolver 按 action 分发，未知 action 走声明字段默认语义。 */
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const SEEDED_CASE_ID = 'case-order-stalled-001-evt-stalled-002';
@@ -63,6 +64,25 @@ describe('resolveCreateTicketContext（换 path / 伪造字段在此被拒）', 
   it('合法 note 原样通过（允许为空字符串）', () => {
     expect(resolveCreateTicketContext({ action, clientContext: { note: '最新备注' } })).toEqual({ note: '最新备注' });
     expect(resolveCreateTicketContext({ action, clientContext: { note: '' } })).toEqual({ note: '' });
+  });
+
+  it('评审修正：未知 action 走声明字段默认语义（服务端快照权威，M4 扩展点不被全局假设拦截）', () => {
+    const surfaceAction = {
+      declaration: { name: 'approveSimulatedRefund', context: { amount: { path: '/order/amountMinor' } } },
+      snapshot: { dataModel: { order: { amountMinor: 12900 } } },
+    };
+    const resolution = {
+      action: { ...action, name: 'approveSimulatedRefund' },
+      surfaceAction,
+      clientContext: { amount: '浏览器伪造的金额' },
+    };
+    // 客户端伪造值被忽略，金额以服务端快照为权威
+    expect(resolveHostActionContext(resolution)).toEqual({ amount: 12900 });
+
+    // 未声明字段仍然拒绝
+    expect(() =>
+      resolveHostActionContext({ ...resolution, clientContext: { amount: 1, orderId: 'x' } }),
+    ).toThrow('orderId');
   });
 });
 

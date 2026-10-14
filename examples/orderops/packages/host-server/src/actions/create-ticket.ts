@@ -35,17 +35,31 @@ export interface CreateTicketInput {
 }
 
 /**
- * 自定义 resolveActionContext（SPEC §3）：浏览器**最新输入**经此提纯后才是权威 context
- * ——默认 resolver 只读服务端 dataModel，拿不到浏览器后续编辑值。仅接受 `note`
- * 一个声明字段（换 path、伪造字段在此被拒），类型/长度按 contracts 契约校验。
+ * 自定义 resolveActionContext（SPEC §3），按 action 分发（M4 增加新 action 时
+ * 在此加分支，而不是被全局假设拦截）：
+ * - `createTicket`：浏览器**最新输入**经 contracts 契约提纯——默认 resolver 只读
+ *   服务端 dataModel，拿不到浏览器后续编辑值；
+ * - 其余 action：服务端快照为权威（默认语义），仅接受声明过的 `{path}` 字段。
  */
+export function resolveHostActionContext(resolution: {
+  action: AgentAction;
+  surfaceAction: { declaration: { context?: unknown }; snapshot: { dataModel: unknown } };
+  clientContext: Record<string, unknown>;
+}): Record<string, unknown> {
+  if (resolution.action.name === 'createTicket') {
+    return resolveCreateTicketContext(resolution);
+  }
+  return resolveDeclaredPathContext(resolution);
+}
+
+/** createTicket 的最新输入白名单：仅接受 `note`，类型/长度按 contracts 契约校验。 */
 export function resolveCreateTicketContext(resolution: {
   action: AgentAction;
   clientContext: Record<string, unknown>;
 }): Record<string, unknown> {
   const { action, clientContext } = resolution;
   if (action.name !== 'createTicket') {
-    throw new Error(`未支持的领域 action: ${action.name}`);
+    throw new Error(`resolveCreateTicketContext 只处理 createTicket，收到: ${action.name}`);
   }
   const extraFields = Object.keys(clientContext).filter((key) => key !== 'note');
   if (extraFields.length > 0) {
@@ -56,6 +70,42 @@ export function resolveCreateTicketContext(resolution: {
     throw new Error(`备注非法：${parsed.error.issues[0]?.message ?? '不是合法的 note 字段'}`);
   }
   return { note: parsed.data.note };
+}
+
+interface PathBinding {
+  path?: string;
+}
+
+/** 默认语义的本地实现（server 未公开 resolveDeclaredActionContext）：声明过的
+ *  `{path}` 字段从服务端 dataModel 取值，未声明的客户端字段拒绝。 */
+function resolveDeclaredPathContext(resolution: {
+  surfaceAction: { declaration: { context?: unknown }; snapshot: { dataModel: unknown } };
+  clientContext: Record<string, unknown>;
+}): Record<string, unknown> {
+  const { surfaceAction, clientContext } = resolution;
+  const declaration = (surfaceAction.declaration.context ?? {}) as Record<string, PathBinding>;
+  const extraFields = Object.keys(clientContext).filter((key) => !(key in declaration));
+  if (extraFields.length > 0) {
+    throw new Error(`未声明的 action 字段: ${extraFields.join(', ')}`);
+  }
+  const resolved: Record<string, unknown> = {};
+  for (const [key, binding] of Object.entries(declaration)) {
+    resolved[key] =
+      binding !== null && typeof binding === 'object' && typeof binding.path === 'string'
+        ? getValueAtPath(surfaceAction.snapshot.dataModel, binding.path)
+        : binding;
+  }
+  return resolved;
+}
+
+function getValueAtPath(model: unknown, path: string): unknown {
+  if (path === '' || path === '/') return model;
+  let current: unknown = model;
+  for (const segment of path.split('/').filter(Boolean)) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[decodeURIComponent(segment)];
+  }
+  return current;
 }
 
 function recordAttempt(
@@ -79,7 +129,24 @@ function recordAttempt(
       input.now,
     );
   } catch {
-    // request_key 唯一冲突 = 同请求重放，保留首条记录即可。
+    // request_key 唯一冲突（同 actionId 已有记录，如对抗性重用他人请求键）：
+    // 降级写 NULL 键行保住审计痕迹，而不是静默吞掉。NULL 键不受唯一索引约束。
+    if (requestKey === null) return;
+    try {
+      db.prepare(
+        `INSERT INTO action_attempts (id, case_id, operation, request_key, status, result_id, error, created_at)
+         VALUES (?, ?, 'createTicket', NULL, ?, ?, ?, ?)`,
+      ).run(
+        `attempt-${randomUUID()}`,
+        input.caseId,
+        input.status,
+        input.resultId ?? null,
+        `请求键冲突（${input.requestId}）：${input.error ?? input.status}`,
+        input.now,
+      );
+    } catch {
+      // 审计为 best-effort：连降级都失败时不阻断领域事务。
+    }
   }
 }
 
