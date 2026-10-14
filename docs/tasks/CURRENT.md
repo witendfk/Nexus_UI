@@ -6,9 +6,19 @@
 
 ## 当前结论
 
-**主产品是 Nexus SDK，当前验证任务是 OrderOps M3。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0/M1 完成，**M2 全部任务（T3.1–T3.7）已完成**（收口仅差真实模型冒烟，待凭证）。**M3 进行中：T4.1、T4.2、T4.3 已完成**——action 回流走真实建单事务（resolver 限定 `/draft/note` 提纯最新备注，事务写唯一工单/案件推进/操作/审计；重复检查先于版本检查），建单成功 patch 在 `/result` 定点写工单号，`GET /api/actions/:actionId` 提供断线恢复查询；Web 三种结局显式表态（成功渲染工单号 / Host 确认失败可重试 / **结果未知锁定重发**），终态案件刷新后不再提供分析入口。T4.4（七类失败样本）待开工。
+**主产品是 Nexus SDK，当前验证任务是 OrderOps M3 收口。** SDK 的生产级设计门禁与业务演示分开验收。Nexus Layer 0 七项加固与 v0.9 conformance 基线已关闭；M0/M1 完成，**M2 全部任务（T3.1–T3.7）已完成**（收口仅差真实模型冒烟，待凭证）。**M3 代码任务（T4.1–T4.4）已全部完成**：建单事务、工单号定点 patch、操作终态查询、Web 三结局反馈与刷新恢复、七类失败样本每类一条端到端证伪（含锁定 D5 的"事务成功但 patch 失败"故障注入）。**下一步是 M3 里程碑门禁，不再是写代码**：fresh clone 跑通、真浏览器走查（录屏点）、完整代码评审；真实模型冒烟（待凭证）可并行补。之后仓外独立宿主 → M4。未经对应端到端验证，不把下一段能力标为完成。
 
-**下一步**：T4.3 已于 2026-10-13 完成。下一步 **T4.4 七类失败样本**：盘点后大部分已有散落覆盖（双击、SSE 中断、旧 surface 版本、非法 Catalog 字段、伪造字段在 T4.1/T4.2/guard 测试中），真正要补的是**编造事件 ID 的端到端样本**（模型注入快照外证据 → `insufficient_evidence` 面）、**伪造订单 ID 走 surface 字段**、**"事务成功但 patch 失败"故障注入（锁定 D5）**，并整理成每类一条端到端证伪用例的矩阵。T4.4 收口后即达 M3 里程碑门禁：fresh clone、真浏览器走查（录屏点）、完整代码评审。之后仓外独立宿主 → M4。每段只处理该段暴露的 SDK R1–R7 缺口并记录证据；未经对应端到端验证，不把下一段能力标为完成。
+**下一步**：T4.4 已于 2026-10-13 完成，七类失败样本矩阵闭环（见下表）。**M3 出口 = 里程碑门禁**：① fresh clone 全量门禁；② 真浏览器走查全链并录屏（面试交付点）；③ 完整代码评审。真实模型冒烟等凭证后随时并行。之后按 仓外独立宿主（SDK S2/S3）→ M4 → subtree 拆分评估 推进。未经对应端到端验证，不把下一段能力标为完成。
+
+| 失败样本 | 自动化用例位置 |
+| --- | --- |
+| ① 编造事件 ID | agent `handler.test`：model 注入快照外证据 → 不可执行面（无输入/按钮，缺信息明示） |
+| ② 非法 Catalog 字段 | host `app.test` 样本①：未声明组件 → SSE error + 无绑定；另 guard 等价测试常驻 |
+| ③ 伪造订单 ID | host `app.test` 样本②：action 夹带 orderId → 400 未声明字段；`create-ticket.test` resolver 用例 |
+| ④ 旧 surface | host `app.test` 样本③ + `create-ticket.test` expired 用例：版本推进 → 400 重新分析 |
+| ⑤ 双击 | host `app.test`：不同 actionId 双发 → 400 已建单且仅一单 |
+| ⑥ SSE 中断 | host `app.test`：响应头后中断 → 事务不回滚、查询可见 succeeded |
+| ⑦ 事务成功但 patch 失败 | host `d5-patch-failure.test`：故障注入未声明组件 patch → 事务/操作记录保持，guard 拒绝（**D5 锁定**） |
 
 | 阶段 | 状态 | 下一门禁 |
 | --- | --- | --- |
@@ -17,7 +27,7 @@
 | Nexus SDK 生产级设计门禁 | 进行中；当前三包根入口与独立 Demo 已有证据，完整门禁未通过 | 见下方 SDK 队列；不能以 OrderOps 演示代替 |
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
 | OrderOps M2 | T3.1–T3.7 已完成；收口仅差真实模型冒烟（待凭证） | 真实模型单独特定冒烟通过即宣告 M2 |
-| OrderOps M3 | 进行中；T4.1–T4.3 完成，T4.4 待开工 | 七类失败样本矩阵、真浏览器走查（录屏点） |
+| OrderOps M3 | 代码任务完成（T4.1–T4.4，2026-10-13）；待里程碑门禁 | fresh clone、真浏览器走查（录屏）、完整代码评审 |
 | OrderOps M4 | 待 M3 收口 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
 
@@ -67,7 +77,7 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 | T4.1 | ✅ 已完成（2026-10-12，`5a06740`）：`createTicket` 本地 handler——resolver 限定 `note`（contracts 契约校验，换 path/伪造字段在此被拒），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；**重复检查先于版本检查**（双击答"已建单"） | 证伪测试 10 例：最新备注生效、伪造字段、过期、双击不重复建单、dismissed 拒绝、无绑定 fail-closed；HTTP 双击 400 且仅一单 |
 | T4.2 | ✅ 已完成（2026-10-12，`f3970f2`）：建单成功 patch = 禁用按钮 + 官方 `updateDataModel` 可选 `path` 语义在 `/result` 定点写工单号（不清空 draft）；`GET /api/actions/:actionId` 返回操作终态（succeeded/failed + resultId），未知 404 | 集成测试：patch 两段断言（ticketId 与库一致、draft 未被清空）、查询 200/404、**客户端中断流后事务不回滚且查询可见** |
 | T4.3 | ✅ 已完成（2026-10-13，`408af5d`）：Web 三种结局显式表态——成功（patch 渲染工单号）/ 流失败后按 actionId 查 Host 终态：确认成功则展示"Host 确认"结果并锁定重发、确认失败可重试、**查询不可用=结果未知（锁定重发并提示勿重复提交）**；终态案件刷新后不再提供分析入口、不发起 analyze 请求 | jsdom 证伪 4 例：D5 恢复（查询 actionId 与提交一致、重发被锁）、未知态锁定、404 可重试、ticket_created 刷新零 analyze 请求；既存穿刺全链用例保持全绿 |
-| T4.4 | 七类失败样本：编造事件 ID、非法 Catalog 字段、伪造订单 ID、旧 surface、双击、SSE 中断、事务成功但 patch 失败 | 每类有触发该失败的自动化用例 |
+| T4.4 | ✅ 已完成（2026-10-13）：七类失败样本每类一条端到端证伪（矩阵见上）；新增编造证据（agent model 模式 e2e）、非法组件/伪造字段/旧 surface（host e2e）、**事务成功但 patch 失败故障注入（D5 锁定）**，双击与 SSE 中断由 T4.1/T4.2 用例承载 | 样本用例全绿；根 typecheck/lint/test 通过（orderops 142） |
 
 **M3 完成**：M1–M3 的物流停滞切片在真浏览器通过，人工确认后才建单，工单可审计且可恢复。
 
@@ -83,6 +93,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-13，T4.3 完成）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 137 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。T4.1–T4.3 已提交推送；T4.4 工作区未开工。环境备注：orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-13，T4.4 完成、M3 代码任务闭环）：根 `pnpm test` 全绿——core 179（含 conformance）/ orderops 142 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。T4.1–T4.4 已提交推送；M3 待里程碑门禁（fresh clone/真浏览器/代码评审）。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

@@ -14,10 +14,74 @@ export interface StubAgent {
   lastRequest: Record<string, unknown> | undefined;
 }
 
-export function stubAgentServer(options?: {
+export interface StubAgentOptions {
   status?: number;
   errorBody?: Record<string, unknown>;
-}): Promise<StubAgent> {
+  /** T4.4 样本：组件表注入 Catalog 未声明组件，host guard 应拒绝整条流。 */
+  illegalSurface?: boolean;
+}
+
+function surfaceNdjson(surfaceId: string, options: StubAgentOptions | undefined): string {
+  const components: Array<Record<string, unknown>> = [
+    {
+      id: 'root',
+      component: 'Column',
+      children: ['case-title', 'ticket-result', 'note', 'submit-ticket-label', 'submit-ticket'],
+    },
+    { id: 'case-title', component: 'Text', text: { path: '/title' }, variant: 'h3' },
+    {
+      id: 'ticket-result',
+      component: 'Text',
+      text: { path: '/result/ticketText' },
+      variant: 'body',
+    },
+    {
+      id: 'note',
+      component: 'TextField',
+      label: { path: '/noteLabel' },
+      value: { path: '/draft/note' },
+      variant: 'longText',
+    },
+    { id: 'submit-ticket-label', component: 'Text', text: { path: '/submitButtonLabel' } },
+    {
+      id: 'submit-ticket',
+      component: 'Button',
+      child: 'submit-ticket-label',
+      action: {
+        event: {
+          name: 'createTicket',
+          context: { note: { path: '/draft/note' } },
+        },
+      },
+    },
+  ];
+  if (options?.illegalSurface === true) {
+    // Catalog v1 未声明的组件：host guard 应在流内拒绝整条生成。
+    components.push({ id: 'evil-chart', component: 'NotInCatalog', rows: [] });
+  }
+  const lines = [
+    { version: 'v0.9', createSurface: { surfaceId, catalogId: ORDEROPS_CATALOG.catalogId } },
+    { version: 'v0.9', updateComponents: { surfaceId, components } },
+    {
+      version: 'v0.9',
+      updateDataModel: {
+        surfaceId,
+        value: {
+          title: '物流异常分析：案件 stub',
+          noteLabel: '处理备注',
+          submitButtonLabel: '确认建单',
+          result: { ticketText: '确认后此处显示工单号。' },
+          draft: { note: '' },
+        },
+      },
+    },
+  ]
+    .map((line) => JSON.stringify(line))
+    .join('\n');
+  return `${lines}\n`;
+}
+
+export function stubAgentServer(options?: StubAgentOptions): Promise<StubAgent> {
   const state: { lastRequest: Record<string, unknown> | undefined } = { lastRequest: undefined };
   const server: Server = createServer((req, res) => {
     let body = '';
@@ -33,71 +97,8 @@ export function stubAgentServer(options?: {
         return;
       }
       const surfaceId = String((state.lastRequest as { surfaceId?: string }).surfaceId);
-      const lines = [
-        { version: 'v0.9', createSurface: { surfaceId, catalogId: ORDEROPS_CATALOG.catalogId } },
-        {
-          version: 'v0.9',
-          updateComponents: {
-            surfaceId,
-            components: [
-              {
-                id: 'root',
-                component: 'Column',
-                children: [
-                  'case-title',
-                  'ticket-result',
-                  'note',
-                  'submit-ticket-label',
-                  'submit-ticket',
-                ],
-              },
-              { id: 'case-title', component: 'Text', text: { path: '/title' }, variant: 'h3' },
-              {
-                id: 'ticket-result',
-                component: 'Text',
-                text: { path: '/result/ticketText' },
-                variant: 'body',
-              },
-              {
-                id: 'note',
-                component: 'TextField',
-                label: { path: '/noteLabel' },
-                value: { path: '/draft/note' },
-                variant: 'longText',
-              },
-              { id: 'submit-ticket-label', component: 'Text', text: { path: '/submitButtonLabel' } },
-              {
-                id: 'submit-ticket',
-                component: 'Button',
-                child: 'submit-ticket-label',
-                action: {
-                  event: {
-                    name: 'createTicket',
-                    context: { note: { path: '/draft/note' } },
-                  },
-                },
-              },
-            ],
-          },
-        },
-        {
-          version: 'v0.9',
-          updateDataModel: {
-            surfaceId,
-            value: {
-              title: '物流异常分析：案件 stub',
-              noteLabel: '处理备注',
-              submitButtonLabel: '确认建单',
-              result: { ticketText: '确认后此处显示工单号。' },
-              draft: { note: '' },
-            },
-          },
-        },
-      ]
-        .map((line) => JSON.stringify(line))
-        .join('\n');
       res.writeHead(200, { 'content-type': 'application/x-ndjson' });
-      res.end(`${lines}\n`);
+      res.end(surfaceNdjson(surfaceId, options));
     });
   });
   return new Promise((resolve, reject) => {

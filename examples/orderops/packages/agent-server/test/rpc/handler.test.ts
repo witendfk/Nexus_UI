@@ -9,10 +9,12 @@ import { CatalogContractClient } from '../../src/catalog-contract/client';
 import { CaseContextClient } from '../../src/tools/case-context';
 import { createAnalysisGeneration } from '../../src/a2ui/generate';
 import { analyzeCase } from '../../src/analysis/engine';
+import { ModelClient } from '../../src/analysis/model-client';
 import {
   INTERNAL_TOKEN,
   STALLED_CASE_ID,
   catalogContractPayload,
+  chatCompletion,
   stalledContext,
 } from '../fixtures/snapshot';
 
@@ -189,5 +191,58 @@ describe('POST /rpc（§10.1 契约 + T3.4/T3.5 管线）', () => {
     const baseUrl = await listen(appWithPipeline(hostPort));
     const response = await fetch(`${baseUrl}/rpc`);
     expect(response.status).toBe(405);
+  });
+
+  it('T4.4 样本④编造事件 ID：模型引用快照外证据 → 200 但为不可执行面（无输入/按钮，缺信息明示）', async () => {
+    const hostPort = await stubHost();
+    const hostBaseUrl = `http://127.0.0.1:${hostPort}`;
+    const model = new ModelClient(
+      { baseUrl: 'http://model.test/v1', apiKey: 'k', model: 'm', timeoutMs: 5_000 },
+      (): Promise<Response> =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              chatCompletion(
+                JSON.stringify({
+                  verdict: 'analysis',
+                  summary: '编造证据的分析',
+                  reason: '引用了不存在的事件',
+                  evidenceEventIds: ['evt-fabricated-999'],
+                  recommendation: '建单',
+                  uncertainties: [],
+                }),
+              ),
+            ),
+            { status: 200 },
+          ) as unknown as Response,
+        ),
+    );
+    const baseUrl = await listen(
+      createApp({
+        contractClient: new CatalogContractClient({ hostBaseUrl }),
+        generate: createAnalysisGeneration({
+          contextClient: new CaseContextClient({ hostBaseUrl, internalToken: INTERNAL_TOKEN }),
+          analyze: (context, promptContract) =>
+            analyzeCase(context, { mode: 'model', attempts: 2, promptContract, model }),
+        }),
+      }),
+    );
+
+    const response = await fetch(`${baseUrl}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(VALID_REQUEST),
+    });
+    expect(response.status).toBe(200);
+    const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines).toHaveLength(3);
+    const components = (lines[1] as { updateComponents: { components: Array<{ component: string }> } })
+      .updateComponents.components;
+    // 不可执行面：不给输入与按钮，明示缺失信息（SPEC §5）
+    expect(components.map((c) => c.component)).not.toContain('Button');
+    expect(components.map((c) => c.component)).not.toContain('TextField');
+    const insufficient = (lines[2] as { updateDataModel: { value: { insufficient: { missingText: string } } } })
+      .updateDataModel.value.insufficient;
+    expect(insufficient.missingText).toContain('evt-fabricated-999');
   });
 });

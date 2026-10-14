@@ -353,3 +353,87 @@ it('伪造的 action 名被拒绝', async () => {
   const body = (await actionResponse.json()) as { error: string };
   expect(body.error).toBe('INVALID_REQUEST');
 });
+
+/* ─────────── T4.4 七类失败样本（docs/tasks/CURRENT.md）：每类一条端到端证伪 ───────────
+ * 双击 →「双击建单」用例；SSE 中断 →「客户端中断不回滚」用例；此处补齐其余四类。 */
+
+it('T4.4 样本①非法 Catalog 字段：Agent 返回未声明组件 → SSE error，无绑定落库', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer({ illegalSurface: true });
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
+
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+  });
+  const events = parseSse(await response.text());
+  expect(events.at(-1)?.event).toBe('error');
+  const errorData = events.at(-1)?.data as { message: string };
+  expect(errorData.message).toContain('NotInCatalog');
+  // 失败流不提交快照、不落绑定
+  expect(db.prepare('SELECT surface_id FROM surface_bindings').all()).toHaveLength(0);
+});
+
+it('T4.4 样本②伪造订单 ID 走 action 字段 → 400 未声明字段（归属以 surface_bindings 为准）', async () => {
+  const { baseUrl, db } = await appWithAgent();
+  const surfaceId = await analyzeForSurface(baseUrl);
+
+  const response = await fetch(`${baseUrl}/api/a2ui/event`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      version: 'v0.9',
+      action: {
+        name: 'createTicket',
+        surfaceId,
+        sourceComponentId: 'submit-ticket',
+        timestamp: new Date().toISOString(),
+        actionId: 'forge-order-1',
+        context: { note: 'x', orderId: 'order-forged' },
+      },
+    }),
+  });
+  expect(response.status).toBe(400);
+  const body = (await response.json()) as { message: string };
+  expect(body.message).toContain('orderId');
+  expect(db.prepare('SELECT id FROM tickets').all()).toHaveLength(0);
+});
+
+it('T4.4 样本③旧 surface（案件版本已推进）→ 400 要求重新分析', async () => {
+  const { baseUrl, db } = await appWithAgent();
+  const surfaceId = await analyzeForSurface(baseUrl);
+
+  // surface 提交后案件被其他路径推进（如另一操作员处理）
+  db.prepare('UPDATE anomaly_cases SET version = version + 1 WHERE id = ?').run(SEEDED_CASE_ID);
+
+  const response = await fetch(`${baseUrl}/api/a2ui/event`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      version: 'v0.9',
+      action: {
+        name: 'createTicket',
+        surfaceId,
+        sourceComponentId: 'submit-ticket',
+        timestamp: new Date().toISOString(),
+        actionId: 'stale-surface-1',
+        context: { note: 'x' },
+      },
+    }),
+  });
+  expect(response.status).toBe(400);
+  const body = (await response.json()) as { message: string };
+  expect(body.message).toContain('重新分析');
+  expect(db.prepare('SELECT id FROM tickets').all()).toHaveLength(0);
+});
+
+/** analyze 一次并返回 surfaceId（T4.4 样本共用）。 */
+async function analyzeForSurface(baseUrl: string): Promise<string> {
+  const generateResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+  });
+  const generateEvents = parseSse(await generateResponse.text());
+  const createMessage = generateEvents.find((entry) => entry.event === 'message')
+    ?.data as { createSurface: { surfaceId: string } };
+  return createMessage.createSurface.surfaceId;
+}
