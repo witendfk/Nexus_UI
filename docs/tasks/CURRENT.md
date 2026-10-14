@@ -36,7 +36,7 @@
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| V1 | ✅ 已完成（2026-10-14）：编译器分阶段产出（createSurface 后交错 components/data，数据按 path 定点写入）；`ORDEROPS_DEMO_PACING_MS` 演示节奏参数（默认 0，CI 全速）；Web 生成进度提示（已接收 n 条）+ 完成前操作禁用可见；S1 取消传播收尾（analyze 信号传入 prepareGeneration + agent /rpc 断开停止缓冲，双侧证伪） | host e2e 断言骨架批次→执行区批次的生长顺序；取消传播双侧证伪（stub sawClose + agent 生成器 finally）；guard 等价/稳定快照/编排 e2e 全绿 |
+| V1 | ✅ 已完成（2026-10-14，`b2aeb68`）：编译器分阶段产出（createSurface 后交错 components/data，数据按 path 定点写入）；`ORDEROPS_DEMO_PACING_MS` 演示节奏参数（默认 0，CI 全速）；Web 生成进度提示（已接收 n 条）+ 完成前操作禁用可见；S1 取消传播收尾（analyze 信号传入 prepareGeneration + agent /rpc 断开停止缓冲，双侧证伪） | host e2e 断言骨架批次→执行区批次的生长顺序；取消传播双侧证伪（stub sawClose + agent 生成器 finally）；guard 等价/稳定快照/编排 e2e 全绿 |
 | V2 | 对抗模式：fixture 越权变体（Catalog 外组件/伪造字段）+ Web 拒绝横幅（guard 原因定位到组件/字段） | 对抗开启时零渲染污染、横幅可读、其余内容照常（证伪测试 + 浏览器确认） |
 | V3 | SDK 观察面板：guard 拦截、消息计数、run 状态迁移的实时面板（数据源：共享 run manager / action_attempts / SSE 事件） | 面板与真实流量一致（可选增强，部署后完成） |
 | V4 | 走查判据固化：PRD §5.3 表为唯一走查清单，浏览器逐格执行 | M3 里程碑门禁"真浏览器走查"关闭 |
