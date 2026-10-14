@@ -93,6 +93,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-13，M3 门禁 fresh clone + 代码评审完成）：fresh clone（临时目录，Node 24）install/typecheck/lint/test/build 五项全绿，orderops 142；随后评审修正 3 个 P2（resolver 按 action 分发 + 回退语义、审计行冲突降级 NULL 键、模型响应 2MB 上限），根 `pnpm test` 全绿——core 179 / orderops 146 / React 32 / playground 9 / demo 1。评审遗留 P3（agent app 静默不挂载 /rpc、read-api token 直读 env、randomUUID 需 secure context 的部署注记）不阻塞。真浏览器走查待做。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-13，M3 门禁 fresh clone + 代码评审完成）：fresh clone（临时目录，Node 24）install/typecheck/lint/test/build 五项全绿，orderops 142；随后评审修正 3 个 P2（`f7cd4d4`：resolver 按 action 分发 + 回退语义、审计行冲突降级 NULL 键、模型响应 2MB 上限），根 `pnpm test` 全绿——core 179 / orderops 146 / React 32 / playground 9 / demo 1。评审遗留 P3（agent app 静默不挂载 /rpc、read-api token 直读 env、randomUUID 需 secure context 的部署注记）不阻塞。真浏览器走查待做。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。
