@@ -77,7 +77,7 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 | T4.1 | ✅ 已完成（2026-10-12，`5a06740`）：`createTicket` 本地 handler——resolver 限定 `note`（contracts 契约校验，换 path/伪造字段在此被拒），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；**重复检查先于版本检查**（双击答"已建单"） | 证伪测试 10 例：最新备注生效、伪造字段、过期、双击不重复建单、dismissed 拒绝、无绑定 fail-closed；HTTP 双击 400 且仅一单 |
 | T4.2 | ✅ 已完成（2026-10-12，`f3970f2`）：建单成功 patch = 禁用按钮 + 官方 `updateDataModel` 可选 `path` 语义在 `/result` 定点写工单号（不清空 draft）；`GET /api/actions/:actionId` 返回操作终态（succeeded/failed + resultId），未知 404 | 集成测试：patch 两段断言（ticketId 与库一致、draft 未被清空）、查询 200/404、**客户端中断流后事务不回滚且查询可见** |
 | T4.3 | ✅ 已完成（2026-10-13，`408af5d`）：Web 三种结局显式表态——成功（patch 渲染工单号）/ 流失败后按 actionId 查 Host 终态：确认成功则展示"Host 确认"结果并锁定重发、确认失败可重试、**查询不可用=结果未知（锁定重发并提示勿重复提交）**；终态案件刷新后不再提供分析入口、不发起 analyze 请求 | jsdom 证伪 4 例：D5 恢复（查询 actionId 与提交一致、重发被锁）、未知态锁定、404 可重试、ticket_created 刷新零 analyze 请求；既存穿刺全链用例保持全绿 |
-| T4.4 | ✅ 已完成（2026-10-13）：七类失败样本每类一条端到端证伪（矩阵见上）；新增编造证据（agent model 模式 e2e）、非法组件/伪造字段/旧 surface（host e2e）、**事务成功但 patch 失败故障注入（D5 锁定）**，双击与 SSE 中断由 T4.1/T4.2 用例承载 | 样本用例全绿；根 typecheck/lint/test 通过（orderops 142） |
+| T4.4 | ✅ 已完成（2026-10-13，`f5931cd`）：七类失败样本每类一条端到端证伪（矩阵见上）；新增编造证据（agent model 模式 e2e）、非法组件/伪造字段/旧 surface（host e2e）、**事务成功但 patch 失败故障注入（D5 锁定）**，双击与 SSE 中断由 T4.1/T4.2 用例承载 | 样本用例全绿；根 typecheck/lint/test 通过（orderops 142） |
 
 **M3 完成**：M1–M3 的物流停滞切片在真浏览器通过，人工确认后才建单，工单可审计且可恢复。
 
