@@ -162,7 +162,8 @@ function createSseContext(): { ctx: Koa.Context; getOutput: () => string } {
   const ctx = {
     status: 200,
     set: () => undefined,
-    res: { flushHeaders: () => undefined },
+    // res 必须是可写流：claimSseResponse 会 pipe 到它（ctx.respond = false）。
+    res: new PassThrough(),
     get body() {
       return body;
     },

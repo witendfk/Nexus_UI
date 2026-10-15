@@ -41,6 +41,9 @@ Thumbs.db
 # Local-only project notes
 docs/interview-narrative.md
 
+# AI session journals (local-only)
+.workbuddy-ai/
+
 # Logs
 *.log
 npm-debug.log*

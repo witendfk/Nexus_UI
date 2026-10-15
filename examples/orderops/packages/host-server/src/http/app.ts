@@ -214,16 +214,19 @@ export function createApp(options: CreateAppOptions = {}): Koa {
     if (bodyResult.adversarial === true) {
       plan.run.source = withAdversarialTail(plan.run.source, surfaceId);
     }
-    try {
-      await sendAgentRun(ctx, plan.run, `${surfaceId}:analyze`, {
-        streamDelayMs: options.demoPacingMs ?? 0,
-        manager: runManager,
-        signal: controller.signal,
-      });
-    } finally {
-      ctx.req.off('aborted', abort);
-      ctx.res.off('close', abort);
-    }
+    // 响应在调用那一刻就被 sendAgentRun 同步占用，处理器必须立刻返回让 Koa 进入
+    // respond()。若 await 到流结束，整条流会被缓冲后一次性下发，V1 的分阶段可见化
+    // 与前端进度提示（transport.ts 的 onMessage）都会失效。收尾用 dispose 解绑本
+    // 处理器注册的 abort 监听。
+    void sendAgentRun(ctx, plan.run, `${surfaceId}:analyze`, {
+      streamDelayMs: options.demoPacingMs ?? 0,
+      manager: runManager,
+      signal: controller.signal,
+      dispose: () => {
+        ctx.req.off('aborted', abort);
+        ctx.res.off('close', abort);
+      },
+    });
   });
 
   // T3.3b（docs/tasks/CURRENT.md）：业务宿主下线参考程序的自由 generate 路由，

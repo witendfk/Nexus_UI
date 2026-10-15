@@ -147,6 +147,42 @@ it('analyze 经外部 Agent RPC 分阶段流式输出，以 done 结束，并落
   expect((agent.lastRequest as { message?: string }).message).toBe(SEEDED_CASE_ID);
 });
 
+it('V1 判据：analyze 的 SSE 必须逐条到达，而非整流缓冲后一次性下发', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer();
+  agents.push(agent);
+  // 演示节奏放大到 40ms，使"逐条到达"与"整流一次性到达"在时序上可区分。
+  const baseUrl = await listen(
+    createApp({ db, agentRpc: { endpoint: agent.url }, demoPacingMs: 40 }),
+  );
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+  });
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toContain('text/event-stream');
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const startedAt = Date.now();
+  const arrivals: Array<{ at: number; frames: number }> = [];
+  let raw = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    raw += decoder.decode(value, { stream: true });
+    // 每个 SSE 帧以 '\n\n' 收尾；未完成的尾块不计入。
+    arrivals.push({ at: Date.now() - startedAt, frames: raw.split('\n\n').length - 1 });
+  }
+  const totalMs = Date.now() - startedAt;
+
+  // 反例形态：宿主 await sendAgentRun → Koa 推迟到流结束才 pipe，整条流被缓冲成
+  // 一次读取（arrivals.length === 1），首个事件与流结束同时到达。
+  expect(arrivals.length).toBeGreaterThan(1);
+  expect(arrivals[0]!.frames).toBeGreaterThanOrEqual(1);
+  expect(new Set(arrivals.map((entry) => entry.frames)).size).toBeGreaterThan(1);
+  expect(arrivals[0]!.at).toBeLessThan(totalMs / 2);
+});
+
 it('S1 可观察性：analyze 的 run 状态（成功/失败）可经 /api/a2ui/runs 查询', async () => {
   const { baseUrl } = await appWithAgent();
   const doneResponse = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, { method: 'POST' });

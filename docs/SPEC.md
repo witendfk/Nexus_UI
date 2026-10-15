@@ -47,7 +47,7 @@ OrderOps Catalog v1 当前只允许 `Column`、`Text`、`TextField`、`Button`�
 
 ## 3. Nexus transport 与 action（当前能力）
 
-Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并提交 Nexus 快照后发 `done`。此前的 `message` 是可见预览，后续校验或提交失败仍会发 `error`，本次失败流不会提交 history 或新的可执行 action 快照；浏览器必须在 `done` 前禁用业务 action，并在 `error` 后清理预览。现有 `sendMessages` 不是先缓存全流再一次性发给浏览器，不能把收到首条 `message` 当作提交成功。
+Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并提交 Nexus 快照后发 `done`。此前的 `message` 是可见预览，后续校验或提交失败仍会发 `error`，本次失败流不会提交 history 或新的可执行 action 快照；浏览器必须在 `done` 前禁用业务 action，并在 `error` 后清理预览。现有 `sendMessages` 不是先缓存全流再一次性发给浏览器，不能把收到首条 `message` 当作提交成功。`sendAgentRun` 在调用时同步占用响应并自行接管其生命周期（`ctx.respond = false` + 立即 `flushHeaders` 并 pipe 到 socket），不依赖 Koa 的 `respond()`：因此同 surface 的排队 run 不会回落到 404，宿主写 `void sendAgentRun(...)` 或 `await sendAgentRun(...)` 都保持逐条下发（宿主自注册的 abort 监听用 `dispose` 回调收尾）。
 
 回流端点 `POST /api/a2ui/event` 接 A2UI `action` 信封。必填 `version: 'v0.9'`、`name`、`surfaceId`、`sourceComponentId`、可解析的 `timestamp` 和对象 `context`；`actionId` 在服务端解析器中可选，OrderOps Web 当前会生成并携带。服务端顺序为 surface 锁 → 已提交 action 快照及组件/action 归属校验 → ledger 去重 → 解析声明过的 context → Host handler → patch 重新过 guard → SSE。同一 surface 的 handler 串行，第二个读第一个提交后的 dataModel。ledger 有 `actionId` 时按它与 surface/组件/action 标识去重；缺失时按时间戳和 context 等字段组成键。Nexus 快照与内存 ledger 不等于持久化业务事务；默认 resolver 使用服务端提交时的 dataModel，不能拿到浏览器后续编辑值；自定义 `resolveActionContext` 必须自己拒绝未声明字段并验证类型。
 

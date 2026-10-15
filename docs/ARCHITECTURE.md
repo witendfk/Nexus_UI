@@ -185,7 +185,8 @@ server 侧的两条 run 管线共享同一套 guard 与序列化机制。guard �
 prepareGenerate（本地 fixture / LLM / 外部 Agent RPC → AgentRun：source + sequence + commit）
    │
    ▼
-sendAgentRun：登记 run(queued)，挂 per-surface promise 队列（同 surface 串行）
+sendAgentRun：同步占用响应（ctx.body + flushHeaders + respond=false + pipe 到 socket）
+   │              → 登记 run(queued) → 挂 per-surface promise 队列（同 surface 串行）
    │              浏览器断开 → req/res close → AbortController 取消
    ▼
 sendMessages 循环：每条候选 Protocol → Profile → 序列 / Catalog / Policy
@@ -202,6 +203,13 @@ SSE done；任一步失败 → SSE error（AGENT_STREAM_ERROR + boundaryCode + d
 ```
 
 `sendMessages` 逐条转发而非先缓存全流——**收到首条 `message` 只代表"可见预览"，`done` 才代表提交成功**；浏览器必须在 `done` 前禁用业务 action（SPEC §3）。run 状态机见 §6。
+
+响应占用与响应生命周期都发生在 `sendAgentRun` **被调用的那一刻**，而不是队列轮到它的时候。Koa 只在中间件链结束后的 `respond()` 阶段才把 `ctx.body` 交给 socket，因此 SDK 自行接管响应（`ctx.respond = false` + 立即 `flushHeaders` 并 `pipe` 到 socket），不依赖 `respond()`：
+
+- 若等到排队回调才装配 `ctx.body`，同 surface 的第二个请求会落到 Koa 的 404 兜底，而队列里的 run 仍会流式输出并 commit——客户端看到失败、服务端已经成功。
+- 若把下发交给 `respond()`，宿主一旦 `await sendAgentRun(...)`，链结束就被推迟到流末尾，整条流被缓冲成一次下发，逐条可见预览退化为一次性到达。
+
+因此 `void sendAgentRun(...)` 与 `await sendAgentRun(...)` 都是正确写法：前者只要响应，后者还需要 run 的结果；两者都保持逐条下发。宿主自注册的 abort 监听用 `dispose` 回调收尾（参考 `routes.ts` 与 OrderOps 宿主）。
 
 ### 5.2 action run：锁 → 快照 → ledger → resolver → handler → patch
 
