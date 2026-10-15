@@ -42,11 +42,13 @@
 | V4 | 走查判据固化：PRD §5.3 表为唯一走查清单，本地起服务浏览器逐格执行（V5 公网部署在全部完工后进行，不影响本地真实验证） | M3 里程碑门禁"真浏览器走查"关闭 |
 | V5 | 部署：三服务轻量服务器 + HTTPS（顺带解决 randomUUID secure context）；SQLite 持久化与进程管理 | 全部完工后执行；公网/局域网可访问全链，判据表全过 |
 
+V4 前置（2026-10-15 Web 视觉评审，REQUEST_CHANGES 未闭环）：宿主控制区占用 SDK 容器类名 `.nexus-surface`（`demo.css` 的 label/input 规则命中对抗模式复选框）待改类名；生成树渲染在面板 header 之上、路由返回后 surface 残留，待浏览器实证；PRD §5.3 补"观感与控件"判据行。修复随 V4 走查一并提交（Web 视觉改动当前未提交）。
+
 ## SDK 主线待办
 
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
-| S1 | 收口运行时边界：取消传播、并发/重复 action、失败流清理、资源上限和结构化 diagnostics | 对真实触发条件有证伪测试；失败状态可被宿主观察和恢复，不把内存 ledger 当业务事务。**2026-10-14 取消传播已收口**（analyze 信号贯通 host→agent + 双侧证伪 + run 状态可查询）；**2026-10-15 并发响应占用已收口**（`sendAgentRun` 改为在调用时同步占用响应并自行接管生命周期：`ctx.respond = false` + 立即 flushHeaders + pipe，不再依赖 Koa 的 `respond()`；同 surface 排队不再回落 404，且 `void` / `await` 两种宿主写法都保持逐条下发；证伪用例 `server/tests/sse-response-claim.test.ts` 三条，修复前均红）；重放/超限 e2e 与剩余组合反例挂账本行 |
+| S1 | 收口运行时边界：取消传播、并发/重复 action、失败流清理、资源上限和结构化 diagnostics | 对真实触发条件有证伪测试；失败状态可被宿主观察和恢复，不把内存 ledger 当业务事务。**2026-10-14 取消传播已收口**（analyze 信号贯通 host→agent + 双侧证伪 + run 状态可查询）；**2026-10-15 并发响应占用已收口**（`105ee34`：`sendAgentRun` 改为在调用时同步占用响应并自行接管生命周期：`ctx.respond = false` + 立即 flushHeaders + pipe，不再依赖 Koa 的 `respond()`；同 surface 排队不再回落 404，且 `void` / `await` 两种宿主写法都保持逐条下发；证伪用例 `server/tests/sse-response-claim.test.ts` 三条，修复前均红）；重放/超限 e2e 与剩余组合反例挂账本行 |
 | S2 | 公开 API 与包产物：核对 core/react/server 根导出、类型、exports、依赖与兼容版本 | 当前改动产物在仓外干净宿主安装，仅用公开入口完成最小闭环；API 快照和兼容检查通过 |
 | S3 | 宿主接入能力：先用现有根入口完成独立宿主，再评估浏览器 API/组合层与非 Koa guard 的抽取 | 可替换 Agent/transport/Catalog/renderMap/handler；正常与非法流均走同一准入边界，记录重复接线量；仅在证据支持时新增公共 API 或包 |
 | S4 | conformance、React 交互与接入文档 | 支持子集和偏差有版本化基线；输入、action、错误提示和基本可访问性在浏览器验证；quickstart 覆盖坏输出 |
@@ -100,10 +102,11 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 - SDK 高层 API 先由独立宿主和 M3 的接线量提出候选，再用 M4 复核；无重复成本时保留现有三包。能力和发行门禁已列在 S1–S5。Vue renderer、完整官方 Basic Catalog 支持和更多协议特性按独立需求评估。
 - 组件线 D1–D7：仅在 M2/M4 真实界面需要时补业务组件的 schema + policy + renderMap、字段约束、action 归属、可访问性和 guard 反例。
 - 质量尾项：OrderOps `detect.ts` case ID 理论碰撞、最新输入权威性、事务成功但 patch 失败恢复；Nexus action 取消/`AbortSignal` HTTP 路径纳入 SDK S1，不再作为可延后的业务尾项。模型语法容错与 Catalog Prompt Skill 随真实模型接入；freestanding catalog 导出及 v0.9/v1.0 决策在拆分/发布前。
+- 2026-10-15 SDK 基建评审挂账（已实测，收敛归 S1/S3，不阻塞演示线）：`resolveContext` 裸写 key 缺 `UNSAFE_SEGMENTS` 防护（原型可被模型数据改写）；render 裸对象查表可命中 `Object.prototype`（`components['toString']` 产出非法 VNode）；媒体 URL 无 scheme 约束（Image/Video/AudioPlayer 直接 `src`）；`/api/a2ui/runs` 无鉴权可枚举；per-surface 双锁（`surfaceRunQueues` + `surfaceActionLocks`，`streamClaimed` 为耦合产物）；validator protocol/Profile 双实现（~400 行近重复）；host catalog `schema.pattern` 用原生 RegExp 不走 safe-regex；runtime+guard 每条消息全量重校验所有组件；SSE 慢客户端无背压上限。
 - 同居拆分：M3 后评估 subtree split；拆分时先升 Nexus 三包 patch 版本，再同步 OrderOps deps/overrides 和 tarball。
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-15，SSE 响应占用时机修复）：根 `pnpm test` 全绿——core 179 / server 127 / orderops 156 / React 32 / playground 9 / demo 21；orderops typecheck、lint、根 typecheck（全仓 Done）通过。V1（`b2aeb68`）/ V2 已提交推送；剩余 V4 走查（浏览器）→ V5 部署 → V3 面板。环境备注：orderops 含 `better-sqlite3` 原生模块，**必须 Node 24**——用 Node 22 会因 `NODE_MODULE_VERSION 137 vs 127` 报 63 例全挂（`PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`）；orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。已知未清：orderops `pnpm format:check` 有 45 个文件既有漂移（改动前即存在），该门禁当前不可用。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-15，SSE 响应占用时机修复 `105ee34`）：根 `pnpm test` 全绿——core 179 / server 127 / orderops 156 / React 32 / playground 9 / demo 21；orderops typecheck、lint、根 typecheck（全仓 Done）通过。V1（`b2aeb68`）/ V2（`1d972ff`）已提交推送；剩余 V4 走查（浏览器）→ 真实模型冒烟（等凭证）→ V5 部署（全部完工后执行）→ V3 面板。环境备注：orderops 含 `better-sqlite3` 原生模块，**必须 Node 24**——用 Node 22 会因 `NODE_MODULE_VERSION 137 vs 127` 报 63 例全挂（`PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`）；orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。已知未清：orderops `pnpm format:check` 有 45 个文件既有漂移（改动前即存在），该门禁当前不可用。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

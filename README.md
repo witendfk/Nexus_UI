@@ -8,7 +8,7 @@ Nexus UI 是基于 A2UI v0.9 消息模型的受约束 Agent Task Surface SDK。A
 
 Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard → SSE → 渲染 → action → 同 surface patch。Catalog Contract 带版本与 hash，可发现、校验并用于外部 Agent 接入。三包 `dist` 根入口可在 workspace 使用，当前仍为私有包；当前产物尚未通过完整的 SDK 发行门禁。内存 surface 快照和 action ledger 不代替业务事务。
 
-SDK 主线仍需当前产物的仓外安装、公开 API/兼容、失败恢复、资源边界和独立宿主验收。OrderOps M0 接入和 M1 案件事实已完成，M2 Agent 分析进行中；Host 仍使用玩具生成源与回显 patch，人工确认建单 M3 尚未实现。2026-09-30 已知基线：Nexus Layer 0 七项关闭；官方 v0.9 conformance 9 份用例为 33 pass / 47 已决策偏差 / 0 fail。最新任务、证据和门禁见 [CURRENT](docs/tasks/CURRENT.md)，历史数字不代表当前未提交工作区已验证。
+SDK 主线仍需当前产物的仓外安装、公开 API/兼容、失败恢复、资源边界和独立宿主验收。OrderOps M2（Agent 分析）与 M3（人工确认建单、七类失败样本端到端证伪）代码任务已完成；M2 收口仅差真实模型冒烟（等凭证），M3 里程碑剩真浏览器走查。2026-10-14 起演示与部署线（D8）推进：V1 流式可见化、V2 对抗模式已落地，执行序 V4 走查 → 真模型冒烟 → V5 部署 → V3 面板。2026-09-30 已知基线：Nexus Layer 0 七项关闭；官方 v0.9 conformance 9 份用例为 33 pass / 47 已决策偏差 / 0 fail。最新任务、证据和门禁见 [CURRENT](docs/tasks/CURRENT.md)，历史数字不代表当前未提交工作区已验证。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
