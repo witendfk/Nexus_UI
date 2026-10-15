@@ -37,7 +37,7 @@
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
 | V1 | ✅ 已完成（2026-10-14，`b2aeb68`）：编译器分阶段产出（createSurface 后交错 components/data，数据按 path 定点写入）；`ORDEROPS_DEMO_PACING_MS` 演示节奏参数（默认 0，CI 全速）；Web 生成进度提示（已接收 n 条）+ 完成前操作禁用可见；S1 取消传播收尾（analyze 信号传入 prepareGeneration + agent /rpc 断开停止缓冲，双侧证伪） | host e2e 断言骨架批次→执行区批次的生长顺序；取消传播双侧证伪（stub sawClose + agent 生成器 finally）；guard 等价/稳定快照/编排 e2e 全绿 |
-| V2 | ✅ 已完成（2026-10-14）：对抗模式——analyze 可选 `{adversarial:true}`（strict body 校验），宿主在同一生产管线候选源尾部注入越权输出（Catalog 外组件 + 声明外伪造字段 + 未声明 action，模型幻觉替身）；guard 拒绝后 SSE error 透出 code/boundaryCode，Web 横幅"SDK 已拒绝模型输出"定位到组件 | host e2e：合法前缀照常预览 + error 收尾 + 零绑定（失败流零污染）；strict body 未知字段 400；transport code 透传 + 浏览器横幅 jsdom 用例；开关关闭行为不变 |
+| V2 | ✅ 已完成（2026-10-14，`1d972ff`）：对抗模式——analyze 可选 `{adversarial:true}`（strict body 校验），宿主在同一生产管线候选源尾部注入越权输出（Catalog 外组件 + 声明外伪造字段 + 未声明 action，模型幻觉替身）；guard 拒绝后 SSE error 透出 code/boundaryCode，Web 横幅"SDK 已拒绝模型输出"定位到组件 | host e2e：合法前缀照常预览 + error 收尾 + 零绑定（失败流零污染）；strict body 未知字段 400；transport code 透传 + 浏览器横幅 jsdom 用例；开关关闭行为不变 |
 | V3 | SDK 观察面板：guard 拦截、消息计数、run 状态迁移的实时面板（数据源：共享 run manager / action_attempts / SSE 事件） | 面板与真实流量一致（可选增强，部署后完成） |
 | V4 | 走查判据固化：PRD §5.3 表为唯一走查清单，浏览器逐格执行 | M3 里程碑门禁"真浏览器走查"关闭 |
 | V5 | 部署：三服务轻量服务器 + HTTPS（顺带解决 randomUUID secure context）；SQLite 持久化与进程管理 | 公网/局域网可访问全链，判据表全过 |
