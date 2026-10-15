@@ -172,6 +172,53 @@ it('穿刺全链：详情页生成 → 渲染 → 编辑备注 → action 回流
   expect(payload.action.context.note).toBe('穿刺时的最新备注');
 });
 
+it('V2 对抗模式：开关打开 → 请求携带 adversarial，SDK 拒绝以横幅呈现', async () => {
+  const errorEvents = [
+    {
+      event: 'error',
+      data: {
+        code: 'AGENT_STREAM_ERROR',
+        boundaryCode: 'CATALOG_UNSUPPORTED',
+        message: 'Catalog orderops/v1 不支持组件: NotInCatalog',
+      },
+    },
+  ];
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    if (url.includes('/analyze')) {
+      const sent = JSON.parse(String(init?.body ?? '{}')) as { adversarial?: boolean };
+      return Promise.resolve(
+        sseResponse(sent.adversarial === true ? errorEvents : generateEvents),
+      );
+    }
+    if (url.includes('/api/cases/')) return Promise.resolve(jsonResponse(DETAIL_PAYLOAD));
+    return Promise.reject(new Error(`意外的请求：${url}`));
+  });
+
+  render(
+    <MemoryRouter initialEntries={['/cases/case-1']}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText('订单摘要');
+
+  // 开关打开：请求携带 adversarial:true，SSE 拒绝以"SDK 已拒绝"横幅呈现
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: '生成审核 surface' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('SDK 已拒绝模型输出');
+  expect(alert.textContent).toContain('AGENT_STREAM_ERROR');
+  expect(alert.textContent).toContain('NotInCatalog');
+  const analyzeCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('/analyze'));
+  expect(JSON.parse(String(analyzeCall?.[1]?.body))).toEqual({ adversarial: true });
+
+  // 开关关闭：正常生成，无横幅
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: '生成审核 surface' }));
+  expect(await screen.findByText('穿刺玩具案件')).toBeDefined();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
 it('生成请求网络失败时进入 error 态且按钮恢复可点', async () => {
   fetchMock.mockImplementation((input) => {
     const url = String(input);

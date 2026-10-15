@@ -28,7 +28,7 @@
 | OrderOps M0 / M1 | 已完成（2026-09-28 / 09-30） | 保持公开入口、fixture、队列/详情及重复扫描测试 |
 | OrderOps M2 | T3.1–T3.7 已完成；收口仅差真实模型冒烟（待凭证） | 真实模型单独特定冒烟通过即宣告 M2 |
 | OrderOps M3 | 代码任务完成（T4.1–T4.4，2026-10-13）；里程碑门禁 2/3：fresh clone ✅、代码评审 ✅（3 P2 修复）、真浏览器走查按 §5.3 演示判据执行（V1/V2 落地后） | 真浏览器全链走查（走查判据 = 演示节拍表） |
-| 演示与部署线（D8） | V1 已完成（2026-10-14）；V2 对抗模式下一个 | V1 判据全过（见下表） |
+| 演示与部署线（D8） | V1、V2 已完成（2026-10-14）；V4 走查 → V5 部署 → V3 面板 | V2 判据全过（见下表） |
 | OrderOps M4 | 待演示线 V1/V2 落地与 M3 关满后启动 | 模拟退款验证复用 |
 | OrderOps M5 / Vue 等扩展 | 可选 | 不阻塞 SDK 首个交付范围 |
 
@@ -37,7 +37,7 @@
 | ID | 任务 | 完成判据 |
 | --- | --- | --- |
 | V1 | ✅ 已完成（2026-10-14，`b2aeb68`）：编译器分阶段产出（createSurface 后交错 components/data，数据按 path 定点写入）；`ORDEROPS_DEMO_PACING_MS` 演示节奏参数（默认 0，CI 全速）；Web 生成进度提示（已接收 n 条）+ 完成前操作禁用可见；S1 取消传播收尾（analyze 信号传入 prepareGeneration + agent /rpc 断开停止缓冲，双侧证伪） | host e2e 断言骨架批次→执行区批次的生长顺序；取消传播双侧证伪（stub sawClose + agent 生成器 finally）；guard 等价/稳定快照/编排 e2e 全绿 |
-| V2 | 对抗模式：fixture 越权变体（Catalog 外组件/伪造字段）+ Web 拒绝横幅（guard 原因定位到组件/字段） | 对抗开启时零渲染污染、横幅可读、其余内容照常（证伪测试 + 浏览器确认） |
+| V2 | ✅ 已完成（2026-10-14）：对抗模式——analyze 可选 `{adversarial:true}`（strict body 校验），宿主在同一生产管线候选源尾部注入越权输出（Catalog 外组件 + 声明外伪造字段 + 未声明 action，模型幻觉替身）；guard 拒绝后 SSE error 透出 code/boundaryCode，Web 横幅"SDK 已拒绝模型输出"定位到组件 | host e2e：合法前缀照常预览 + error 收尾 + 零绑定（失败流零污染）；strict body 未知字段 400；transport code 透传 + 浏览器横幅 jsdom 用例；开关关闭行为不变 |
 | V3 | SDK 观察面板：guard 拦截、消息计数、run 状态迁移的实时面板（数据源：共享 run manager / action_attempts / SSE 事件） | 面板与真实流量一致（可选增强，部署后完成） |
 | V4 | 走查判据固化：PRD §5.3 表为唯一走查清单，浏览器逐格执行 | M3 里程碑门禁"真浏览器走查"关闭 |
 | V5 | 部署：三服务轻量服务器 + HTTPS（顺带解决 randomUUID secure context）；SQLite 持久化与进程管理 | 公网/局域网可访问全链，判据表全过 |
@@ -104,6 +104,6 @@ S1/S2 是贯穿当前切片的 SDK 质量工作：优先修复 M2/M3 接线直�
 
 ## 验证门禁与更新规则
 
-最近已知快照（2026-10-14，V1 流式可见化完成）：根 `pnpm test` 全绿——core 179 / orderops 151 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。编译器分阶段产出（15 条左右交错消息）+ `ORDEROPS_DEMO_PACING_MS` 演示节奏 + Web 进度提示 + S1 取消传播双侧证伪。环境备注：orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
+最近已知快照（2026-10-14，V2 对抗模式完成）：根 `pnpm test` 全绿——core 179 / orderops 155 / React 32 / playground 9 / demo 1；orderops typecheck、lint、根 typecheck 通过。V1（`b2aeb68`）/ V2 已提交推送；剩余 V4 走查（浏览器）→ V5 部署 → V3 面板。环境备注：orderops 根 vitest 的 vite transform 缓存（`node_modules/.vite`）在 core 重建后可能脏读 dist，报"invalid JS syntax"时先清缓存。历史快照（2026-09-30 至 T3.2）：OrderOps 72 / core 179（含 conformance）/ React 27 / playground 9 / demo 1。根 CI 为 Node 24 的 install/typecheck/lint/test/build。声明新任务完成时记录实际日期、命令与结果；SDK 发行门禁还须当前产物的仓外干净安装、独立宿主坏输出与浏览器验收；OrderOps 里程碑须 fresh clone、真浏览器和完整代码评审。跨包契约变更需同 fixture 双端测试。
 
 进度只改本文件及对外 README 的一句话状态；契约变更改 SPEC，结构变更改 ARCHITECTURE，新决策改 DESIGN，需求变化先改 PRD。返工经验写入根 AGENTS.md。历史快照不能当作本轮门禁。

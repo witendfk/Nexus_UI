@@ -458,6 +458,44 @@ it('伪造的 action 名被拒绝', async () => {
 /* ─────────── T4.4 七类失败样本（docs/tasks/CURRENT.md）：每类一条端到端证伪 ───────────
  * 双击 →「双击建单」用例；SSE 中断 →「客户端中断不回滚」用例；此处补齐其余四类。 */
 
+it('V2 对抗模式：注入越权候选（Catalog 外组件/伪造字段/未声明 action）→ guard SSE error，零绑定', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer();
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
+
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ adversarial: true }),
+  });
+  expect(response.status).toBe(200);
+  const events = parseSse(await response.text());
+  // 合法前缀照常下发（预览），越权消息被 guard 拒绝：error 收尾、无 done
+  expect(events.some((entry) => entry.event === 'message')).toBe(true);
+  expect(events.at(-1)?.event).toBe('error');
+  const data = events.at(-1)?.data as { code?: string; message: string };
+  expect(data.message).toMatch(/NotInCatalog|forgedField|stealData/);
+  // 失败流零污染：无绑定（无可执行快照）
+  expect(db.prepare('SELECT surface_id FROM surface_bindings').all()).toHaveLength(0);
+});
+
+it('V2 对抗 body 严格校验：未知字段 → 400', async () => {
+  const db = seededDb();
+  const agent = await stubAgentServer();
+  agents.push(agent);
+  const baseUrl = await listen(createApp({ db, agentRpc: { endpoint: agent.url } }));
+
+  const response = await fetch(`${baseUrl}/api/cases/${SEEDED_CASE_ID}/analyze`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ adversarial: true, hack: 1 }),
+  });
+  expect(response.status).toBe(400);
+  const body = (await response.json()) as { message: string };
+  expect(body.message).toContain('hack');
+});
+
 it('T4.4 样本①非法 Catalog 字段：Agent 返回未声明组件 → SSE error，无绑定落库', async () => {
   const db = seededDb();
   const agent = await stubAgentServer({ illegalSurface: true });

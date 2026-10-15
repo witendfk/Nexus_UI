@@ -44,6 +44,19 @@ describe('streamIntoRuntime', () => {
     expect(runtime.end).toHaveBeenCalledTimes(1);
   });
 
+  it('V2 对抗模式：error 事件的 code/boundaryCode 透传（区分 SDK 拒绝与网络失败）', async () => {
+    const codedError =
+      'event: error\nid: t:2\ndata: {"code":"AGENT_STREAM_ERROR","boundaryCode":"CATALOG_UNSUPPORTED","message":"Catalog 不支持组件: NotInCatalog"}\n\n';
+    const runtime = fakeRuntime();
+    const outcome = await streamIntoRuntime(sseResponse([messageBlock, codedError]), runtime);
+    expect(outcome).toEqual({
+      ok: false,
+      error: 'Catalog 不支持组件: NotInCatalog',
+      code: 'AGENT_STREAM_ERROR',
+      boundaryCode: 'CATALOG_UNSUPPORTED',
+    });
+  });
+
   it('reader 中途抛错（网络断开）：返回失败且不吞异常', async () => {
     const runtime = fakeRuntime();
     const body = new ReadableStream<Uint8Array>({

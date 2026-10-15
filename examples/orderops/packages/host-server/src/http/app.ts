@@ -10,6 +10,7 @@ import type { ExternalAgentRpcConfig } from '@nexus-ui/server';
 import { HOST_SERVER_VERSION } from '../index';
 import { createAgentAdapter } from '../nexus/adapter';
 import { ORDEROPS_CATALOG } from '../nexus/catalog';
+import { withAdversarialTail } from '../nexus/adversarial-source';
 import { getCaseVersion, getActionAttemptByActionId, insertSurfaceBinding } from '../cases/repository';
 import { admitAnalyze, ANALYZABLE_CASE_STATUSES } from '../cases/analyze-guard';
 import { createCasesRouter } from './cases';
@@ -23,6 +24,55 @@ export interface CreateAppOptions {
   agentRpc?: ExternalAgentRpcConfig;
   /** D8/V1 演示节奏：analyze 流每条消息间隔毫秒数（缺省 0 = 全速）。 */
   demoPacingMs?: number;
+}
+
+const ANALYZE_BODY_MAX_BYTES = 65_536;
+
+function readRawBody(ctx: Koa.Context, maxBytes: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    ctx.req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error(`请求体超过 ${maxBytes} 字节上限`));
+        ctx.req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    ctx.req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    ctx.req.on('error', reject);
+  });
+}
+
+/** analyze 可选请求体（V2 对抗模式开关）：strict——未知字段与非法值一律 400。 */
+async function readAnalyzeBody(ctx: Koa.Context): Promise<{ adversarial?: boolean } | { error: string }> {
+  let raw: string;
+  try {
+    raw = await readRawBody(ctx, ANALYZE_BODY_MAX_BYTES);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : '请求体读取失败' };
+  }
+  if (raw.trim() === '') return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return { error: '请求体不是合法 JSON' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { error: '请求体必须是 JSON 对象' };
+  }
+  const body = parsed as Record<string, unknown>;
+  const unknownKeys = Object.keys(body).filter((key) => key !== 'adversarial');
+  if (unknownKeys.length > 0) {
+    return { error: `未声明的请求字段: ${unknownKeys.join(', ')}` };
+  }
+  if (body.adversarial !== undefined && typeof body.adversarial !== 'boolean') {
+    return { error: 'adversarial 必须是布尔值' };
+  }
+  return body.adversarial === undefined ? {} : { adversarial: body.adversarial };
 }
 
 export function createApp(options: CreateAppOptions = {}): Koa {
@@ -108,6 +158,12 @@ export function createApp(options: CreateAppOptions = {}): Koa {
       ctx.body = { error: 'SERVICE_UNAVAILABLE', message: 'Agent 生成源未配置' };
       return;
     }
+    const bodyResult = await readAnalyzeBody(ctx);
+    if ('error' in bodyResult) {
+      ctx.status = 400;
+      ctx.body = { error: 'INVALID_REQUEST', message: bodyResult.error };
+      return;
+    }
     // S1 取消传播（docs/DESIGN.md D6/PRD R1）：客户端断开时中止上游 Agent RPC，
     // 而不是让 Agent 空转后丢弃结果；同一信号交给 sendAgentRun 收尾流。
     const controller = new AbortController();
@@ -153,6 +209,11 @@ export function createApp(options: CreateAppOptions = {}): Koa {
         createdAt: new Date().toISOString(),
       });
     };
+    // D8/V2 对抗模式（docs/PRD.md §5.3）：演示开关在同一生产管线的候选源尾部
+    // 注入越权输出（模型幻觉替身），guard 的拒绝行为与真实越权完全一致。
+    if (bodyResult.adversarial === true) {
+      plan.run.source = withAdversarialTail(plan.run.source, surfaceId);
+    }
     try {
       await sendAgentRun(ctx, plan.run, `${surfaceId}:analyze`, {
         streamDelayMs: options.demoPacingMs ?? 0,

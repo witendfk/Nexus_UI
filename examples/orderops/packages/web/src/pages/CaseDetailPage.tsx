@@ -32,6 +32,9 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
   const [resultText, setResultText] = useState<string>();
   /** V1 流式可见化：已接收的 A2UI 消息条数（宿主演示节奏下逐条增长）。 */
   const [received, setReceived] = useState(0);
+  /** V2 对抗模式：开关 + SDK 拒绝的边界码（非空时渲染拒绝横幅）。 */
+  const [adversarial, setAdversarial] = useState(false);
+  const [rejectCode, setRejectCode] = useState<string>();
 
   useEffect(() => {
     actionHandlerRef.current = (event: ActionEvent) => {
@@ -75,19 +78,26 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
     unknownResultRef.current = false;
     setStatus('streaming');
     setError(undefined);
+    setRejectCode(undefined);
     setReceived(0);
     try {
-      const outcome = await analyzeCase(runtime, caseId, (count) => setReceived(count));
+      const outcome = await analyzeCase(
+        runtime,
+        caseId,
+        (count) => setReceived(count),
+        { adversarial },
+      );
       if (outcome.ok) {
         setStatus('ready');
       } else {
+        if (outcome.code !== undefined) setRejectCode(outcome.code);
         setStatus('error');
         setError(outcome.error);
       }
     } finally {
       streamingRef.current = false;
     }
-  }, [runtime, caseId]);
+  }, [runtime, caseId, adversarial]);
 
   return (
     <section aria-label="agent 分析区">
@@ -95,6 +105,15 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
       <button type="button" onClick={() => void analyze()} disabled={status === 'streaming' || status === 'submitting'}>
         {status === 'streaming' ? '生成中…' : '生成审核 surface'}
       </button>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 12, fontSize: 13, color: '#666' }}>
+        <input
+          type="checkbox"
+          checked={adversarial}
+          onChange={(event) => setAdversarial(event.target.checked)}
+          disabled={status === 'streaming' || status === 'submitting'}
+        />
+        对抗模式（演示：模拟模型越权输出）
+      </label>
       {status === 'streaming' && (
         <p aria-live="polite">
           {received === 0
@@ -108,7 +127,15 @@ function CaseSurface({ caseId }: CaseSurfaceProps) {
           {resultText}
         </p>
       )}
-      {status === 'error' && <p role="alert">失败：{error}</p>}
+      {status === 'error' && rejectCode !== undefined && (
+        <p
+          role="alert"
+          style={{ border: '1px solid #b91c1c', color: '#b91c1c', padding: '8px 10px', borderRadius: 6 }}
+        >
+          <strong>SDK 已拒绝模型输出</strong>（{rejectCode}）：{error}
+        </p>
+      )}
+      {status === 'error' && rejectCode === undefined && <p role="alert">失败：{error}</p>}
     </section>
   );
 }

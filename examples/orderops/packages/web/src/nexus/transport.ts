@@ -3,6 +3,9 @@ import type { ActionEvent, A2UIRuntime } from '@nexus-ui/core';
 export interface StreamOutcome {
   ok: boolean;
   error?: string;
+  /** SSE error 事件的边界码（V2：区分"SDK 拒绝模型输出"与网络失败）。 */
+  code?: string;
+  boundaryCode?: string;
 }
 
 interface SseBlock {
@@ -46,8 +49,13 @@ export async function streamIntoRuntime(
     } else if (parsed.event === 'done') {
       settled = true;
     } else if (parsed.event === 'error') {
-      const message = (parsed.data as { message?: string } | undefined)?.message;
-      outcome = { ok: false, error: message ?? 'Agent 流式输出失败' };
+      const data = parsed.data as { code?: string; boundaryCode?: string; message?: string } | undefined;
+      outcome = {
+        ok: false,
+        error: data?.message ?? 'Agent 流式输出失败',
+        ...(data?.code === undefined ? {} : { code: data.code }),
+        ...(data?.boundaryCode === undefined ? {} : { boundaryCode: data.boundaryCode }),
+      };
       settled = true;
     }
   };
@@ -90,10 +98,13 @@ export async function analyzeCase(
   runtime: A2UIRuntime,
   caseId: string,
   onMessage?: (receivedCount: number) => void,
+  options: { adversarial?: boolean } = {},
 ): Promise<StreamOutcome> {
   try {
     const response = await fetch(`/api/cases/${encodeURIComponent(caseId)}/analyze`, {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(options.adversarial === true ? { adversarial: true } : {}),
     });
     return await streamIntoRuntime(response, runtime, { onMessage });
   } catch (error) {
