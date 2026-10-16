@@ -1,0 +1,22 @@
+{
+  "id": "legacy-fields-binding",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "fields 中出现 binding 键：绑定能力唯一权威是 schema.dynamic，v1 风格的双源声明按未知键拒绝",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/dual-binding-source/v2",
+    "components": {
+      "ScaleInput": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["weight"],
+          "properties": { "weight": { "type": "number", "minimum": 0, "dynamic": "allowed" } }
+        },
+        "fields": { "weight": { "binding": "allowed", "origin": "host-extension" } },
+        "inputs": { "weight": { "type": "number", "minimum": 0 } }
+      }
+    },
+    "actions": []
+  }
+}

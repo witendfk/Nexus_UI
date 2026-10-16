@@ -1,0 +1,33 @@
+{
+  "id": "display-only",
+  "kind": "catalog",
+  "expect": "accept",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/neutral-display/v2",
+    "components": {
+      "Text": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string", "dynamic": "allowed" }
+          }
+        }
+      },
+      "MetricCard": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric", "caption"],
+          "properties": {
+            "metric": { "type": "string", "dynamic": "allowed" },
+            "caption": { "type": "string" },
+            "tone": { "type": "string", "enum": ["default", "warning"] }
+          }
+        },
+        "origin": "host-extension"
+      }
+    },
+    "actions": []
+  }
+}

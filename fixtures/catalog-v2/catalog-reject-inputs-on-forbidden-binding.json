@@ -1,0 +1,21 @@
+{
+  "id": "inputs-on-forbidden-binding",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "inputs 键必须指向 schema.dynamic 非 forbidden 的可绑定字段；text 未声明 dynamic（默认 forbidden），属矛盾声明",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/bad-input/v2",
+    "components": {
+      "StaticLabel": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text"],
+          "properties": { "text": { "type": "string" } }
+        },
+        "inputs": { "text": { "type": "string", "maxLength": 40 } }
+      }
+    },
+    "actions": []
+  }
+}

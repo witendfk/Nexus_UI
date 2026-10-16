@@ -76,6 +76,8 @@ export type {
   ResolvedAgentPolicy,
 } from './agent/policy';
 export { createAgentRouter } from './api/routes';
+export type { NexusActionRequest } from './api/nexus-request';
+export type { SurfaceStateBaseline } from './api/surface-state';
 export type {
   AgentRunListPayload,
   AgentOnboardingContractPayload,

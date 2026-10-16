@@ -9,6 +9,7 @@ describe('core public API surface', () => {
       'CORE_API_VERSION',
       'CatalogRegistry',
       'JSONLBuffer',
+      'NEXUS_SESSION_VERSION',
       'PROTOCOL_VERSION',
       'VERSION',
       'applyDataModelUpdate',

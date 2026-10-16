@@ -1,0 +1,29 @@
+{
+  "id": "action-required-without-source",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "action.required 为 true 的组件必须出现在至少一个 action 的 sources 中，否则为矛盾声明",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/orphan-required/v2",
+    "components": {
+      "MustTrigger": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": { "label": { "type": "string", "dynamic": "allowed" } }
+        },
+        "action": { "required": true }
+      },
+      "LooseTrigger": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": { "label": { "type": "string", "dynamic": "allowed" } }
+        }
+      }
+    },
+    "actions": [{ "name": "poke", "sources": ["LooseTrigger"] }]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "v1-shape-missing-actions",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "v2 中 actions 必填（展示型显式 []），components 必须是组件声明表；v1 形状显式拒绝",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/v1-legacy/v2",
+    "components": ["Text", "Button"]
+  }
+}

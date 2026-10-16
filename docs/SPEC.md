@@ -82,17 +82,39 @@ SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成
 
 ## 4. 目标 Catalog 与交互准入（待实现）
 
-目标 Catalog Contract 升至 v2，支持展示、输入与 action 能力的一致声明。现有 v1 与目标 v2 不得静默混用；内容或能力变化产生新 hash，正在运行的 surface 固定其契约版本/hash。
+目标 Catalog Contract 升至 v2，支持展示、输入与 action 能力的一致声明。现有 v1 与目标 v2 不得静默混用；内容或能力变化产生新 hash，正在运行的 surface 固定其契约版本/hash。契约类型已在 core 公开入口定型（`CatalogDefinitionV2` 等，注册闸门切换后替换 v1 `CatalogDefinition` 形状并移除 V2 后缀）；共享正常/非法 fixture 定稿于 `fixtures/catalog-v2/`，core 注册与 server 准入对同一数据必须给出一致结论。
 
-1. actions 必须显式声明，展示型 Catalog 使用空数组；缺失配置显式报错，不继承示例动作。
-2. 发布组件须有 props schema 和能力声明；标准组件可复用 SDK 定义。未声明字段默认拒绝，不支持的 schema 配置在注册时显式报错。
-3. 输入声明包含可写绑定属性及值 schema；宿主为 surface 配置允许编辑的 JSON Pointer。首发使用明确路径，不建设任意路径表达式或业务规则 DSL。
-4. action 声明包含可挂载组件能力和参数 schema。由声明决定 action 来源，不按 Button/TaskButton 名称特判。
-5. 浏览器提交输入只标识组件、绑定属性和新值；服务端从已提交组件声明取得路径，核对允许路径与 schema 后构造临时输入模型。不得直接 deep-merge 客户端 dataModel。
-6. handler 参数从服务端持有的 action 声明及临时输入模型重新解析，并通过参数 schema。客户端 context 不是参数权威，额外字段拒绝；只读业务字段由宿主再查询和核对。
-7. 通用准入成功不表示业务授权成功。宿主依据可信身份、业务对象与当前业务版本决定是否执行。
+### 4.1 v2 声明形状
 
-Catalog schema、绑定与 action 规则由 core 的纯模块复用。server 是权威准入点，浏览器校验用于状态正确性与反馈，不能替代 server。
+| 声明                                | 字段                                                                    | 约束                                                                                                                                                                         |
+| ----------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CatalogDefinitionV2`               | `catalogId`、`components`、`actions`                                    | `actions` 必填，展示型显式 `[]`；`components` 为组件名到声明的表，每个发布组件必须携带完整声明，name-only 条目不再存在                                                       |
+| `CatalogComponentDeclaration`       | `schema`（必填）、`fields?`、`inputs?`、`action?`、`checks?`、`origin?` | `fields`/`inputs` 的键必须是 `schema.properties` 已声明字段；`inputs` 键还必须是 `dynamic` 非 `forbidden` 的可绑定字段，值 schema 描述浏览器提交的字面值、不得声明 `dynamic` |
+| `CatalogFieldPolicyV2`              | `origin?`、`componentRef?`                                              | 只承载字段元数据；绑定能力唯一权威是 schema 节点的 `dynamic`（未声明即 `forbidden`），`fields` 不再声明 `binding`                                                            |
+| `CatalogActionDeclaration`          | `name`、`sources`、`paramSchema?`                                       | `sources` 是允许挂载该 action 的组件名（非空、无重复、均为已声明组件）；`paramSchema` 缺省表示重算参数必须是空对象                                                           |
+| `CatalogComponentActionRequirement` | `required?`                                                             | 组件侧只声明「必须挂载」；挂载权威在 `sources`                                                                                                                               |
+
+可选与缺失必需的区分：`fields`、`origin` 缺省表示无附加元数据；`inputs`、`checks`、`paramSchema`、`action.required` 缺省表示该能力关闭（默认拒绝），均不继承任何默认值。绑定能力只在 schema 上声明一次：`dynamic` 缺省即 `forbidden`，不存在 schema 与 fields 双源解释。`catalogId`、非空 `components`、`actions` 数组与每个组件的 `schema` 缺失即注册报错。
+
+### 4.2 注册期拒绝（宿主装配时显式报错）
+
+- 未知键一律拒绝：`CatalogDefinitionV2`、组件声明、action 声明、字段/checks/action policy 与 schema 节点出现未定义键（含拼写错误）即报错，不静默忽略；`fields` 中的 `binding` 键属 v1 双源声明，同样按未知键拒绝。
+- 不支持的 schema 语法注册报错；`pattern` 的注册口径与运行期有界求值引擎一致——原生 RegExp 可编译但 `compileSafeRegExp` 不支持的语法在注册时拒绝，不允许先注册再在取值时失败。
+- 矛盾声明拒绝：`action.required` 组件不在任何 `sources` 中；`inputs` 指向不可绑定字段；`fields` 键不在 `schema.properties` 中；`checks.enabled` 为 true 但 `functions` 为空；`sources` 引用未声明组件。
+- 校验收紧：`checks.functions` 必须是受支持函数子集；`binding`/`origin` 枚举值非法即报错（v1 对两者静默放行）。
+- 标准组件复用 SDK 以同一声明机制提供的定义，宿主按需组合；不另保留按组件名驱动的输入/checks/action 解释器。
+
+### 4.3 输入与参数准入（服务端权威）
+
+- 可编辑范围为宿主在可信装配中按 surface 提供的精确 JSON Pointer 白名单：绝对指针（RFC 6901）、拒绝空串根指针、规范化后重复即配置错误、默认拒绝、不做通配或前缀继承。白名单自身允许嵌套重叠（如同时允许 `/profile` 与 `/profile/name`）。
+- 浏览器输入只提交 `{ componentId, property, value }`；服务端在 surface 锁内从已提交组件声明解析目标路径，逐项核对声明、白名单与值 schema。客户端提交目标写路径、未声明属性、错误类型均整批拒绝；同批 `inputs` 的写入与数组顺序无关——重复（同组件同属性）、同目标路径、以及解析路径互为祖先/后代（按 JSON Pointer 段比较，如 `/profile` 与 `/profile/name`）都判冲突拒绝；任一项失败不产生局部写入。未变化输入合法，按普通输入幂等写回。
+- handler 参数由服务端从已提交 action 声明与临时输入模型重新解析，并按 `paramSchema` 校验。客户端 `context` 键必须是已声明绑定字段，且值不作为参数权威；自定义 resolver 只能在共享准入之后扩展参数，其输出仍须通过未声明字段拒绝与参数 schema，不得把被拒输入重新变为可执行 action。准入成功不表示业务授权成功，身份、对象归属与事务由宿主 handler 判断。
+
+Catalog schema、绑定与 action 规则由 core 的共享纯模块实现，server 不复制第二套组件/输入语义。
+
+### 4.4 失败语义
+
+注册期失败在宿主装配时抛错；运行期拒绝返回结构化失败且满足同一不变式：handler 未调用、已提交快照与 revision 不变。运行拒绝类别：envelope 缺失 `nexus` 或 `sessionVersion` 非 1（旧格式显式拒绝）；revision/hash 与快照固定值不一致；未声明组件/action/属性；越权或伪造路径；schema 不符；重复/冲突输入；action 未注册 handler（既有）。浏览器本地校验只服务状态正确性与反馈，不能替代服务端权威准入。
 
 ## 5. 目标 session 与流契约（待实现）
 
@@ -100,7 +122,21 @@ Catalog schema、绑定与 action 规则由 core 的纯模块复用。server 是
 
 新增 Nexus Session v1，独立于 A2UI v0.9、Catalog Contract v2 和包 API 版本。运行元数据放在 Nexus 传输 envelope，A2UI message 保持自身形状，不向 createSurface/action payload 静默追加 SDK 字段。
 
-目标 action HTTP 请求为外层 `{ message, nexus }`：message 承载 v0.9 action 信封；nexus 承载 session version、actionId、surfaceRevision、catalogHash 和组件输入。actionId 标识一次用户提交，不代表领域幂等键。具体 TypeScript 字段签名与解析器在对应实现切片共同锁定；这些语义不再由示例各自定义。
+目标 action HTTP 请求为外层 `{ message, nexus }`：message 承载 v0.9 action 信封（形状不变）；nexus 承载 SDK 元数据。签名已在 core 公开入口定型：`NexusActionMetadata` 含 `sessionVersion`（字面量 1，常量 `NEXUS_SESSION_VERSION`）、`actionId`（非空字符串，标识一次用户提交，不代表领域幂等键）、`surfaceRevision`（正安全整数）、`catalogHash`（`sha256:` 加 64 位十六进制）与 `inputs`（`NexusActionInput[]`，元素为 `{ componentId, property, value }`）。解析规则：缺失 `nexus` 或 `sessionVersion` 非 1 显式拒绝；`message.action.actionId` 若存在必须与 `nexus.actionId` 一致；输入项出现 `componentId`/`property`/`value` 之外的键拒绝。这些语义不再由示例各自定义；S3 的 start/done/error 复用同一 session 版本基线，不向 A2UI payload 追加字段。
+
+浏览器的 action 基准必须对应其实际渲染的那次 UI 提交，不自行递增、猜测或从最新快照借用 revision/hash。共享类型 `NexusSurfaceCommit` 定于 core `session`，server 的 `SurfaceStateBaseline` 是其类型别名，字段为 `{ sessionVersion: 1, runId, surfaceId, catalogId, contractVersion, catalogHash, surfaceRevision }`。`runId` 是服务端分配的非空运行标识，在同一 runtime 中不复用；其余版本/hash/revision 与该次实际提交固定值一致。
+
+revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不能因重建而与仍可能提交的旧基准重号。重新生成/删除重建后的旧视图同样必须被拒；超出正安全整数或无法维持旧基准失效时显式失败，不重置为可碰撞的基准。
+
+S2 通过按运行查询交付基准（S2.5 接线）：
+
+- `GET /api/a2ui/surface-state?surfaceId=<id>&runId=<id>` 两项必填，缺失/空值返回 400；先执行宿主 `runsAccess(surfaceId, ctx)`，未配置或拒绝均为 403，再查询该 surface 下的运行结果。
+- server 在发布 UI revision 的提交边界保存不可变的 `NexusSurfaceCommit`，先于成功 `done` 可见；不能等查询时再读取最新 surface 拼装。200 响应只返回指定运行的固定结果，即使同一 surface 后续已有其他提交，历史结果也不改变。surface/run 不存在、两者不匹配或结果已淘汰返回 404；运行存在但尚无可确认的 UI 提交结果返回 409。任何不可用情况均不得回退到最新基准；留存条数有界，记录淘汰允许查询失败，运行标识不得复用。
+- 生成与 action 的 SSE 响应在 S2.5 显式携带 `X-Nexus-Run-Id` 响应头（跨源使用时须暴露该头），值与本次运行及其 SSE event id 前缀一致；浏览器把响应、已校验消息与成功 `done` 作为同一次本地运行关联，不能通过解析 event id 格式或查询最新 run 猜测标识。A2UI 消息及 S2 的 SSE data 形状不加字段。
+- 只有本地该次流成功、消息全部校验通过，且查询响应的 session version/runId/surfaceId/catalogId 与本地运行一致、contractVersion/hash 与所用 Catalog 一致时，才能把该次视图与基准成对启用。查询失败、收到晚到的旧运行结果或本地校验失败时不开放 action；保留查询所归属的本地运行，不能把结果贴到另一份视图。
+- 另一提交无论发生在流完成后查询前，还是查询后 action 前，都不能替旧视图刷新基准：例如本地渲染 run A/revision 1，run B 已提交 revision 2，查询 A 仍返回 1，下一枚 action 因旧 revision 被拒。此时禁用该 surface 的 action，通过重新生成或受控完整快照恢复视图与基准；仅重新查询元数据或让用户再次点击不能恢复一致性。
+
+S3 的成功 `done` 直接复用 `NexusSurfaceCommit`，`start` 继续报告本次运行的基准，按运行查询保留为结果对账用途；查询元数据本身不是视图恢复接口。上述查询、结果留存、响应头与浏览器接线属于 S2.5，本次 S2.1 只锁定类型与验收数据。
 
 首发流适配为 POST fetch/SSE：
 
@@ -108,7 +144,7 @@ Catalog schema、绑定与 action 规则由 core 的纯模块复用。server 是
 | --------- | ---------------------------------------------------------------------------- |
 | `start`   | session version、runId、surfaceId、Catalog hash、基准 revision；先于候选消息 |
 | `message` | data 为原始 A2UI 消息；经校验后进入本次预览                                  |
-| `done`    | runId、surfaceId、已提交 revision 与 Catalog hash；表示 UI 提交成功          |
+| `done`    | `NexusSurfaceCommit`：本次运行固定的提交结果；表示 UI 提交成功               |
 | `error`   | runId、surfaceId、诊断与 UI commitState；不表示业务失败                      |
 
 每条流只能有一个终态；终态后 message 或第二个终态视为无效流。EOF 前未收到终态为运行不完整；content-type、frame/响应大小、超时与 reader 清理均受约束。首发不自动重试 action、不承诺断点续传或 exactly-once。
@@ -148,6 +184,8 @@ React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 
 ## 8. 版本迁移与验证
 
 当前三包 API 1 保持“现状”标识，目标改造涉及 Provider 行为、默认依赖、Catalog 与 HTTP envelope 的破坏性变化。各切片同步公开根导出快照、消费方、迁移说明；交付新的破坏性契约时提升相应 API 版本。包版本与 workspace 安装规则遵循 AGENTS.md，文档定稿不提前改包版本。
+
+Catalog Contract 版本在 S2 升至 2：hash 算法不变（对 `{ contractVersion, catalog }` 稳定序列化取 SHA-256），版本常量提升后全部 hash 随之变化；输入能力、action 参数 schema 与组件声明都进入发布内容，能力变化必须影响 hash。surface 快照在创建时固定 `contractVersion` 与 `catalogHash`，请求携带值与固定值不一致显式拒绝，registry 原地变更不回写已创建 surface。v1 的拒绝点是明确的：v1 形状 Catalog 在注册闸门报错，缺 `nexus` 的 action 请求在解析入口拒绝，不维护 v1/v2 两套通用解释器。迁移样例以 `fixtures/catalog-v2/` 的正常夹具与 S2.6 的最小接入样例为准；各包 API 版本随其破坏性行为落地的切片提升并同步消费方。
 
 新增 client 后，只通过四包公开入口消费；不强制所有应用安装四包。协议/Profile 与组件能力校验使用共享正常/非法 fixture 在 core、server 和 client/React 接入验证，不等待业务应用重建。conformance 变更须显式更新分类理由和基线。
 

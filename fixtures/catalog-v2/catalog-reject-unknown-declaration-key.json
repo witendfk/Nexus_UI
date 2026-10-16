@@ -1,0 +1,21 @@
+{
+  "id": "unknown-declaration-key",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "声明对象（CatalogDefinitionV2/CatalogComponentDeclaration/CatalogActionDeclaration/policy/schema）的未知键一律注册报错；sourcez 为 sources 拼写错误，静默忽略会扩权",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/typo-key/v2",
+    "components": {
+      "PingTrigger": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": { "label": { "type": "string", "dynamic": "allowed" } }
+        },
+        "action": { "required": true }
+      }
+    },
+    "actions": [{ "name": "ping", "sources": ["PingTrigger"], "sourcez": ["PingTrigger"] }]
+  }
+}

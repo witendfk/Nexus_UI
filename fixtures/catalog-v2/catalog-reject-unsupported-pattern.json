@@ -1,0 +1,23 @@
+{
+  "id": "unsupported-pattern",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "pattern 注册口径与有界求值引擎一致：原生 RegExp 可编译但 compileSafeRegExp 不支持的环视语法在注册时拒绝，不能先注册再在取值时失败",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/lookahead/v2",
+    "components": {
+      "PasswordInput": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": { "type": "string", "pattern": "^(?=.*[0-9]).+$", "dynamic": "allowed" }
+          }
+        },
+        "inputs": { "value": { "type": "string", "pattern": "^(?=.*[0-9]).+$" } }
+      }
+    },
+    "actions": []
+  }
+}

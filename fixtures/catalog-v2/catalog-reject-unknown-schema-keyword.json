@@ -1,0 +1,28 @@
+{
+  "id": "unknown-schema-keyword",
+  "kind": "catalog",
+  "expect": "reject-registration",
+  "reason": "schema 未知关键字（format）不受支持，注册时显式报错，不静默忽略；本夹具其余声明均合法，仅注入此单一偏差",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/bad-keyword/v2",
+    "components": {
+      "CodeInput": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Z]{4}$",
+              "dynamic": "allowed",
+              "format": "upper-alpha"
+            }
+          }
+        },
+        "inputs": { "value": { "type": "string", "pattern": "^[A-Z]{4}$" } }
+      }
+    },
+    "actions": []
+  }
+}

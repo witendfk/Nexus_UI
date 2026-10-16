@@ -160,6 +160,8 @@ EOF 不是 done。失败后可以保留上次已提交视图展示，但提交�
 
 会话层与 React 同时执行交互门控：标准/自定义动作组件反映禁用态，动作出口也核对当前 revision 可提交。一个组件忽略 disabled 不能绕过 session 门控。
 
+S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，再按 surfaceId/runId 查询该次运行固定的 `NexusSurfaceCommit`。结果由 server 在提交边界保存，不能由最新快照事后拼装；浏览器只有在同一运行成功、本地消息校验通过且关联字段吻合时才把视图和基准成对启用。S3 的成功 done 直接携带同一类型；仅查询元数据不构成视图恢复。
+
 ## 6. server：准入、运行与 HTTP 分离（目标）
 
 ### 6.1 模块分层

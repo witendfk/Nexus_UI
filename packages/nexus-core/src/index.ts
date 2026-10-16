@@ -95,3 +95,12 @@ export type {
   DynamicBindingPolicy,
   SchemaValueType,
 } from './catalog/schema';
+export type {
+  CatalogActionDeclaration,
+  CatalogComponentActionRequirement,
+  CatalogComponentDeclaration,
+  CatalogDefinitionV2,
+  CatalogFieldPolicyV2,
+} from './catalog/v2';
+export { NEXUS_SESSION_VERSION } from './session/index';
+export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from './session/index';

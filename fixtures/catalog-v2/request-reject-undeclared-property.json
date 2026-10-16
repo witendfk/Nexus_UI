@@ -1,0 +1,60 @@
+{
+  "id": "reject-undeclared-property",
+  "kind": "action-request",
+  "expect": "reject-admission",
+  "reason": "inputs 的 property 未在该组件 Catalog inputs 中声明，未声明输入默认拒绝",
+  "catalog": "interactive-form",
+  "editablePaths": ["/score", "/note"],
+  "surface": {
+    "messages": [
+      {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s-fix-1",
+          "catalogId": "https://example.com/catalogs/fixtures/neutral-form/v2"
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s-fix-1",
+          "components": [
+            { "id": "root", "component": "Column", "children": ["rating-1"] },
+            {
+              "id": "rating-1",
+              "component": "RatingInput",
+              "score": { "path": "/score" },
+              "label": "总体评分",
+              "action": {
+                "event": { "name": "rate", "context": { "score": { "path": "/score" } } }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateDataModel": { "surfaceId": "s-fix-1", "value": { "score": 3 } }
+      }
+    ]
+  },
+  "request": {
+    "message": {
+      "version": "v0.9",
+      "action": {
+        "name": "rate",
+        "surfaceId": "s-fix-1",
+        "sourceComponentId": "rating-1",
+        "timestamp": "2026-10-16T00:00:00.000Z",
+        "context": { "score": { "path": "/score" } }
+      }
+    },
+    "nexus": {
+      "sessionVersion": 1,
+      "actionId": "reject-undeclared-property",
+      "surfaceRevision": 1,
+      "catalogHash": "{{catalogHash}}",
+      "inputs": [{ "componentId": "rating-1", "property": "level", "value": 4 }]
+    }
+  }
+}

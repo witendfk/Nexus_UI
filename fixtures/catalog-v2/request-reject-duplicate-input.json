@@ -1,0 +1,63 @@
+{
+  "id": "reject-duplicate-input",
+  "kind": "action-request",
+  "expect": "reject-admission",
+  "reason": "同一 componentId + property 在一批 inputs 中重复出现，重复输入拒绝",
+  "catalog": "interactive-form",
+  "editablePaths": ["/score", "/note"],
+  "surface": {
+    "messages": [
+      {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s-fix-1",
+          "catalogId": "https://example.com/catalogs/fixtures/neutral-form/v2"
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s-fix-1",
+          "components": [
+            { "id": "root", "component": "Column", "children": ["rating-1"] },
+            {
+              "id": "rating-1",
+              "component": "RatingInput",
+              "score": { "path": "/score" },
+              "label": "总体评分",
+              "action": {
+                "event": { "name": "rate", "context": { "score": { "path": "/score" } } }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateDataModel": { "surfaceId": "s-fix-1", "value": { "score": 3 } }
+      }
+    ]
+  },
+  "request": {
+    "message": {
+      "version": "v0.9",
+      "action": {
+        "name": "rate",
+        "surfaceId": "s-fix-1",
+        "sourceComponentId": "rating-1",
+        "timestamp": "2026-10-16T00:00:00.000Z",
+        "context": { "score": { "path": "/score" } }
+      }
+    },
+    "nexus": {
+      "sessionVersion": 1,
+      "actionId": "reject-duplicate-input",
+      "surfaceRevision": 1,
+      "catalogHash": "{{catalogHash}}",
+      "inputs": [
+        { "componentId": "rating-1", "property": "score", "value": 4 },
+        { "componentId": "rating-1", "property": "score", "value": 5 }
+      ]
+    }
+  }
+}

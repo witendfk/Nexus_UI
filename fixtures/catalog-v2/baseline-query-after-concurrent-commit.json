@@ -1,0 +1,42 @@
+{
+  "id": "baseline-query-after-concurrent-commit",
+  "kind": "run-baseline",
+  "reason": "浏览器已渲染 run-rendered；另一运行在查询前提交。查询必须仍返回 run-rendered 的 revision 1，不能用最新 revision 2 为旧视图刷新资格",
+  "initialSurfaceFixture": "request-accept-with-inputs.json",
+  "renderedRunId": "run-rendered",
+  "commits": [
+    { "runId": "run-rendered", "kind": "generate" },
+    {
+      "runId": "run-concurrent",
+      "kind": "action",
+      "messages": [
+        {
+          "version": "v0.9",
+          "updateDataModel": { "surfaceId": "s-fix-1", "value": { "score": 5, "note": "updated" } }
+        }
+      ]
+    }
+  ],
+  "queryAfterRunId": "run-concurrent",
+  "query": { "surfaceId": "s-fix-1", "runId": "run-rendered" },
+  "expectedLatestRevisionAtQuery": 2,
+  "expectedResponse": {
+    "status": 200,
+    "body": {
+      "sessionVersion": 1,
+      "runId": "run-rendered",
+      "surfaceId": "s-fix-1",
+      "catalogId": "https://example.com/catalogs/fixtures/neutral-form/v2",
+      "contractVersion": 2,
+      "catalogHash": "{{catalogHash}}",
+      "surfaceRevision": 1
+    }
+  },
+  "expectedNextAction": {
+    "surfaceRevision": 1,
+    "serverRevision": 2,
+    "decision": "reject-stale-revision",
+    "handlerCalls": 0,
+    "snapshotUnchanged": true
+  }
+}

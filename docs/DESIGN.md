@@ -85,7 +85,17 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 自定义 action 组件依据 Catalog 能力准入，不按 Button/TaskButton 名称特判。未声明字段与 action 拒绝。schema 的支持子集和新增声明随 Catalog Contract 版本演进，禁止忽略不支持的配置。
 
-**依据与代价**：当前写回只支持五个内置输入，默认 resolver 看不到浏览器编辑；每个宿主自写 resolver 容易复制安全逻辑。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
+**契约定型（2026-10-16，S2.1）**：
+
+- v2 采用单一组件声明表（`CatalogDefinitionV2.components`），替换 v1 的 components/componentSchemas/componentPolicies 三张平行表，name-only 条目不复存在；`actions` 必填，展示型显式 `[]`。
+- action 挂载权威在 `CatalogActionDeclaration.sources`；组件侧只保留 `action.required`，「required 组件不在任何 sources 中」属矛盾声明，注册报错。该选择取代 v1 组件侧 `action.allowed` 与 validator 中按组件名禁止挂载的分散规则，注册闸门同时校验两向一致性。
+- `inputs` 声明可写绑定属性 → 值 schema，键必须是 `dynamic` 非 `forbidden` 的已声明字段；值 schema 只描述浏览器提交的字面值，不含 `dynamic`。字段绑定能力唯一权威是 schema 节点的 `dynamic`（缺省即 `forbidden`），`fields` 收窄为 origin/componentRef 元数据、不再声明 `binding`，v1 风格双源声明按未知键注册拒绝。浏览器只提交 `{ componentId, property, value }`，目标路径由服务端从已提交声明解析，客户端永不提交写路径。
+- 可编辑白名单为宿主按 surface 提供的精确 JSON Pointer 集合：绝对指针、规范化后判重、默认拒绝、无通配与前缀继承；白名单自身允许嵌套重叠。同批 inputs 写入与数组顺序无关：重复、同目标路径、解析路径互为祖先/后代（按段比较）均判冲突拒绝；未变化输入合法，按普通输入幂等写回。
+- resolver 扩展点后置：共享准入（revision/hash 核对、声明、白名单、值 schema、重复冲突）先执行，resolver 输出仍须通过未声明字段拒绝与 `paramSchema`；`paramSchema` 缺省即参数必须为空对象。
+- nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `runsAccess`，未配置 403），S3 成功 done 直接复用。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；SSE data 与原始 A2UI 形状不加字段。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
+- 共享正常/非法 fixture 定稿于 `fixtures/catalog-v2/`，core 注册与 server 准入对同一数据必须给出一致结论。
+
+**依据与代价**：当前写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 须随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
 
 ## D9. 单实例调度与资源边界
 
