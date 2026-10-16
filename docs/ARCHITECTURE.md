@@ -1,335 +1,222 @@
-# ARCHITECTURE — 架构视图：拓扑、运行时与渲染
+# ARCHITECTURE — SDK 架构与接入模型
 
-状态：本文回答"系统怎么组织、一条消息怎么跑完运行时与渲染、服务端怎么准入与提交、失败落在哪里"。上游需求见 [PRD](PRD.md)，wire/API 精确语义见 [SPEC](SPEC.md)，设计理由见 [DESIGN](DESIGN.md)，进度证据见 [CURRENT](tasks/CURRENT.md)。文中"已接通/目标"等进度注记以 CURRENT 为准。更新：2026-10-13。
+更新：2026-10-16。本文同时描述现状和已决策目标，各节显式标注。需求见 [PRD](PRD.md)，字段与 wire 契约见 [SPEC](SPEC.md)，取舍见 [DESIGN](DESIGN.md)，实施状态只见 [CURRENT](tasks/CURRENT.md)。目标图与示意 API 不代表当前已经交付。
 
-## 1. 视图索引：怎么读这套文档
+## 1. 系统定位与架构约束
 
-文档五件套各答一类问题，一类事实只有一个家。架构信息在本文内按三个高度组织：**静态视图**（§2 包与依赖）→ **SDK 动态视图**（§3–§7 运行时流水线、渲染管线、服务端准入、状态机、资源边界）→ **业务时序视图**（§8–§9 OrderOps 生成/执行闭环）。
+Nexus 是嵌入宿主应用的 Agent UI Runtime。它消费候选 A2UI 消息，执行宿主声明的组件与交互约束，维护可渲染状态，并把 action 交给宿主注册的处理器。宿主拥有布局、设计系统、业务事实、身份权限和副作用。
 
-| 问题 | 去处 |
-| --- | --- |
-| SDK 解决什么问题、为谁、验收线是什么 | [PRD](PRD.md) |
-| 消息/字段/端点在 wire 上的精确语义、诊断码、上限数值 | [SPEC](SPEC.md) |
-| 系统怎么组织、运行时/渲染/提交怎么流转 | 本文 §2–§7 |
-| 业务闭环端到端时序（生成、执行与恢复） | 本文 §8–§9 |
-| 为什么选这条路、代价是什么（ADR） | [DESIGN](DESIGN.md) |
-| 现在做到哪、下一步、门禁 | [CURRENT](tasks/CURRENT.md) |
+架构遵循以下约束：
 
-## 2. 系统上下文与包拓扑（静态视图）
+- core 不依赖 DOM、React、HTTP、Node API 或业务模型。
+- Catalog/schema/绑定规则只有一份通用解释实现，前后端复用；服务端仍独立校验所有不可信输入。
+- 生成源、Host Policy、handler 与状态实现由宿主显式装配；SDK 不依据业务词或模型凭证选择流程。
+- surface、run 与业务 operation 是三种不同状态；SDK 不承诺业务事务或 exactly-once。
+- 一切消费方只依赖公开入口；示例与参考服务不向 SDK 反向提供实现。
+- 未实现的生命周期与安全保证必须作为差距记录，不能靠架构图宣称完成。
 
-SDK 面向 Web 宿主：core 独立于框架和传输，React 将 VNode 映射到宿主组件，有限 server 入口装配 guard/Agent/action。当前浏览器 transport 由示例实现；是否抽成 client/组合层取决于独立宿主的接入重复点。包边界、兼容和产物在独立宿主验收；下图的 OrderOps 只是其中一个消费方。
+## 2. 仓库、模块与依赖
 
-```text
-Agent（候选 NDJSON，不可信）
-   │ POST /rpc：caseId + Catalog Contract
-   ▼
-Host server guard（Protocol → Profile → Catalog / Policy 逐条准入；依据 Host Catalog + Policy 声明）
-   │ 通过才发 SSE message（可见预览 ≠ 提交；快照提交成功才 done）
-   ▼
-core runtime（浏览器：JSONL 切行 → 校验 → surface 状态 → VNode）
-   │ onRender
-   ▼
-React renderMap（宿主组件渲染；受控输入即时写回 dataModel）
-   │ 用户输入 / 按钮 action
-   ▼
-action transport（构造 v0.9 action 信封）
-   │ POST /api/a2ui/event
-   ▼
-Nexus adapter（surface 锁 → 快照核对 → ledger 去重 → resolver 提纯）
-   │ 已声明输入 + surfaceId
-   ▼
-Host handler（领域事务：SQLite 写工单/操作/审计 —— 业务事实唯一权威）
-   │ 同 surface patch
-   └──▶ patch 重过 guard → SSE → core 原位更新 → done（业务终态以 Host 查询为准）
-```
-
-### 2.1 包内模块与依赖方向
-
-| 层 / 代码位置 | 负责的状态与接口 | 依赖约束 |
-| --- | --- | --- |
-| `packages/nexus-core/src/buffer` | JSONL 跨 chunk 切行、单行长度上限与溢出丢弃 | 纯文本层，不感知协议语义 |
-| `packages/nexus-core/src/{protocol,catalog,checks}` | v0.9 信封/Profile 校验、Catalog schema/policy、prompt contract、safe regex | 不感知 HTTP、Koa、DOM、React 或业务对象 |
-| `packages/nexus-core/src/{state,runtime,render,dataModel,action}` | CoreStore、消息分发与生命周期、VNode 树构建、绑定解析、action 事件构造 | 可替换渲染器，运行时不执行领域 action |
-| `packages/nexus-react/src/{provider,renderer,components}` | Provider（持有 runtime）、renderMap 映射、17 个标准组件、输入与无障碍状态 | 依赖 core 公开入口；不拥有业务事实或 transport |
-| `server/nexus-playground-server/src/agent` | AgentAdapter、Catalog Contract、guard、Policy、run/ledger/surface 快照 | 以有限 `@nexus-ui/server` 根入口提供装配，不反向 import OrderOps |
-| `server/nexus-playground-server/src/{api,transport}` | guarded router、外部 RPC、SSE 与 client action 入口 | 参考 HTTP 装配；自定义宿主可组合公开 API |
-| 浏览器接入逻辑（示例中） | 解析 SSE、区分终态、构造 action 信封并挂载 surface | 目前不是 SDK 公共 API；抽取前先核对两个消费方的重复逻辑 |
-
-服务端 guard 是 Agent 输出进浏览器前的主准入点；core 在浏览器再次执行协议/Profile/生命周期校验（可选注入 CatalogRegistry 加组件级校验；Catalog/Policy 的权威准入在 Host guard，OrderOps Web 未注入浏览器侧 registry）。`createCatalogPromptContract` 只帮助 Agent 生成，不能替代 guard。四层职责：Protocol 识别结构、Profile 裁剪特性、Catalog 限定组件/字段/action、Policy 应用宿主工作流。React 只负责展示，不替 Host 认定业务事实。
+### 2.0 当前仓库布局
 
 ```text
-Browser / OrderOps Web (:3200)
-  ├─ @nexus-ui/react → @nexus-ui/core
-  └─ HTTP + SSE ↔ OrderOps Host (:3201)
-                    ├─ @nexus-ui/server → @nexus-ui/core
-                    ├─ cases / tools / actions → SQLite
-                    └─ /rpc → OrderOps Agent (:3202) → read-only Host tool / model
-
-OrderOps Agent / Host / Web → @orderops/contracts
-OrderOps → Nexus public root entries only; Nexus → no OrderOps dependency
+Nexus_UI/
+├─ packages/
+│  ├─ nexus-core/             现有协议、Catalog、状态与绑定内核
+│  ├─ nexus-react/            现有 Provider、renderer、17 标准组件
+│  └─ nexus-server/           现有 SDK 装配；参考 Koa 程序仍在 src/main.ts
+├─ web/nexus-playground/      开发者试验台前端，连接参考服务
+├─ examples/
+│  ├─ standalone-host-demo/   公开入口接入与后续仓外验收载体
+│  └─ agent-demo/             业务应用占位，由应用自行定义场景
+├─ specification/v0_9/        上游协议与指南快照
+└─ docs/                     PRD / SPEC / ARCHITECTURE / DESIGN / tasks/CURRENT
 ```
 
-Nexus core 负责 JSONL、协议/Profile/Catalog 校验、surface 状态与 dataModel；React 负责受控渲染和输入事件；server 提供有限装配 API、生成/action guard、SSE 与进程内 surface 快照/ledger。`server/src/main.ts` 是参考程序，不是业务后端。业务事实、持久化、权限、领域事务和恢复由 OrderOps Host 负责。三包仍是私有包，`dist` 根入口可供 workspace 消费；公开发行须先通过 SDK 的独立安装、兼容和失败语义门禁。
+当前依赖为 `react → core`、`server → core`；浏览器流处理散在 playground 与 standalone-host-demo。client 包尚不存在。参考服务移出 server 包、自定义交互和非 Koa 接入均尚未完成。
 
-OrderOps 位于 `examples/orderops/`，包含 `packages/contracts`、`host-server`、`agent-server`、`web`。这是阶段性 subtree 同居，拆分出口为 `git subtree split --prefix=examples/orderops`。同居期只通过 `workspace:*` 消费 Nexus 公开根入口；拆分时恢复版本化 tarball/包依赖。
+### 2.1 已决策的目标包图
 
-### 2.2 OrderOps 包职责（验证拓扑）
+```mermaid
+flowchart TB
+  HostWeb[宿主页面 / 布局] --> React[react: Provider / Surface / renderMap]
+  HostWeb --> Client[client: session / fetch-SSE]
+  React --> Core[core: 协议 / Catalog / 状态 / 绑定]
+  Client --> Core
+  HostAPI[宿主 API / 访问控制] --> Server[server: guard / runtime / action 准入]
+  Server --> Core
+  HostAPI --> Business[宿主业务 handler / 数据 / 事务]
+  HostAPI --> Agent[宿主生成源 / Agent]
+  Client -. HTTP / SSE .-> HostAPI
+```
 
-| 包 | 当前模块 | 目标模块 / 阶段 |
-| --- | --- | --- |
-| `contracts` | `CaseSnapshot`、只读上下文、分析结果、建单输入 schema、**Catalog v1 定义**（Host 发布 / Agent 编译共用） | M4 增加退款契约，版本化字段变更 |
-| `host-server` | SQLite migration、fixture、停滞检测、队列/详情、内部只读工具、Nexus 装配（外部 Agent 生成源 + `surface_bindings`；`createTicket` 领域事务已接） | 已交付至 T4.3；T4.4 失败样本矩阵 |
-| `agent-server` | `/rpc`、Catalog Contract 缓存、只读快照客户端、分析引擎（deterministic/model）、A2UI 编译器 | 模型适配真实冒烟（凭证就绪后） |
-| `web` | 队列、详情、业务 renderMap（证据锚点回查）、SSE 终态门控、三结局提交反馈（成功 / 可重试失败 / 结果未知锁定）与终态案件恢复 | 已交付 T4.3；真浏览器走查（录屏点） |
+箭头为代码依赖；虚线为通信。client 与 server 不互相 import 实现，React 不强依赖 client。共享的纯消息、运行元数据与组件能力类型放在 core；请求读取、SSE framing 和 HTTP 对象留在适配层。
 
-## 3. core 运行时：一条候选消息的一生
+目标新增 `packages/nexus-client/`，先只提供浏览器会话与 fetch/SSE。参考程序迁至 `examples/playground-server/`，通过 SDK 根入口消费三包/后续四包。现有 web 路径可以保留，不为整齐重命名无关目录；根 dev/递归脚本随真实迁移更新。
 
-core 是框架无关的协议运行时，对外只有三个 seam：**IN**（`push(chunk)` / `dispatch(message)`，两个入口走同一管道）、**OUT**（`onRender(VNode)`）、**OUT**（`onAction(ActionEvent)`），外加 `onError` 诊断出口。宿主框架只在这四个点上与 core 接触。
+不额外拆分 guard、Catalog、Policy 或 Agent 包。Node server 的根入口不启动 listener、不读取项目环境、不隐式依赖模型 SDK；Koa/RPC 适配为显式可选能力。实际产物验证框架无关入口的可加载性。
 
-### 3.1 流水线全景
+### 2.2 模块职责与验收归属
+
+| 模块            | 负责                                                                          | 验收归属                                   |
+| --------------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| core            | 协议/Profile、Catalog/schema、JSON Pointer、状态更新、VNode、输入/action 原语 | conformance、纯状态与安全反例              |
+| client（目标）  | run/surface 会话状态、预览与提交协调、终态、取消、恢复、transport 适配        | headless 会话测试与浏览器接入              |
+| React           | runtime/context、按 surface 订阅、组件映射与交互门控                          | 布局嵌入、多 surface、自定义控件与可访问性 |
+| server          | 候选准入、surface 快照、action 输入准入、调度与提交；Koa/RPC 薄适配           | 通用运行测试、HTTP 时序与资源反例          |
+| playground      | 模型装配、联系人/任务/Workbench 演示、调试 UI                                 | 示例可用性，不决定 SDK 业务范围            |
+| standalone host | 自有 Catalog、布局、控件、handler 的完整接入                                  | SDK 独立安装与集成验收                     |
+| agent-demo      | 应用业务场景、数据与事务                                                      | 应用自己的 docs 与验收                     |
+
+## 3. 信任边界与能力契约
+
+### 3.1 四层准入
 
 ```text
-push(chunk) / dispatch(message)（两入口走同一管道）
-   │
-   ▼
-JSONLBuffer（跨 chunk 切行 · 单行 1MB 上限 · 超长整行丢弃）
-   │
-   ▼
-JSON.parse → Protocol 结构校验 → Profile 子集校验 → Catalog 预校验（可选 CatalogRegistry）
-   │              任一层拒绝 ─▶ addError + onError：该消息不落 store，同 chunk 后续行照常处理
-   ▼
-生命周期门（createSurface 仅一次 · update*/delete 的 surface 必须已存在）
-   │
-   ▼
-applyMessage 写 CoreStore（组件表 · dataModel · errors 环形缓冲，按 surfaceId 全维度隔离）
-   │
-   ▼
-buildTree：扁平表 → VNode 树（栈式 DFS · {path} 绑定取真值 · 环检测 · memo 复用 · 双预算 10k/1k）
-   │
-   ▼
-onRender(root, surfaceId)（框架无关出口；deleteSurface → 级联清理，onRender(null)）
+不可信候选消息
+  → Protocol：A2UI 信封与结构
+  → Profile：Nexus 支持子集
+  → Catalog：组件 / props / 绑定 / action 能力
+  → Host Policy：宿主显式注入的附加规则
+  → 可见预览；完整运行提交后才可 action
 ```
 
-任一层拒绝（结构、Profile、Catalog、生命周期）都只产生一条结构化错误进 `errors` 环形缓冲并回调 `onError`，**该消息不落 store，同一 chunk 内的后续消息照常处理**——这是对 Agent 逐行输出的容错基线。Catalog 预校验中计算下一模型快照可能抛出异常（如保留路径），runtime 统一收敛为结构化拒绝，绝不让异常穿出 `parse/dispatch`。
+Protocol/Profile/Catalog 是 SDK 的通用机制；Host Policy 的具体业务规则由宿主拥有。原型防护、安全 URL 使用、正则与资源限制不能被一次业务 Policy 覆盖绕过。prompt contract 只帮助生成。
 
-### 3.2 状态中心与 surface 生命周期
+Catalog hash 固定当前契约内容，不是权限证明。已提交 surface 快照证明“SDK 接受过这些 UI 声明”，不证明模型写入的金额、对象 ID 或审批资格是真实业务事实。宿主使用可信身份与服务端数据再判业务可执行性。
 
-CoreStore 是 zustand vanilla store（每 runtime 一个），四个顶层槽全部按 `surfaceId` 隔离：
+### 3.2 扩展契约（目标）
 
-| 状态槽 | 内容 | 写入路径 |
-| --- | --- | --- |
-| `surfaces` | surface 元信息（catalogId、theme 等） | `createSurface` / `deleteSurface` |
-| `componentsBySurface` | 每 surface 一张扁平组件表（`id → Component`，upsert 语义） | `updateComponents` / 受控写回不涉及 |
-| `dataModelBySurface` | 每 surface 一个 JSON dataModel | `updateDataModel`、`setInputValue`（见 §3.4） |
-| `errors` | 结构化错误环形缓冲（200 条，raw 截断 2000 字符） | 任一层拒绝 |
+组件契约在 schema 与能力声明处定义，React 只实现视图；标准组件可复用同样的声明。展示、输入与 action 三条扩展路径都必须可用：
 
-生命周期规则：`createSurface` 幂等性为"仅一次"（重复即 `LIFECYCLE_INVALID`）；`updateComponents` / `updateDataModel` / `deleteSurface` 要求 surface 已存在；组件树与数据更新的先后不做强制——`updateComponents` 先到时 `{path}` 引用解析为 undefined，数据到达后下次 rerender 填充。`deleteSurface` 级联清理该 surface 的全部状态。dataModel 写入是不可变 upsert（copy-on-write），读取按 JSON Pointer；保留段（`__proto__`/`constructor`/`prototype`）在读路径静默返回 undefined、写路径显式抛错，宿主对象（Date/Map/class 实例）不视作数据容器，防止写入导向继承链。
+| 扩展        | 宿主提供                                             | SDK 解释                           |
+| ----------- | ---------------------------------------------------- | ---------------------------------- |
+| 展示组件    | props schema、能力声明、renderMap                    | 属性/绑定校验与 VNode 映射         |
+| 输入组件    | 可写绑定属性、值 schema、允许编辑的路径、renderMap   | 本地写回、最新输入收集与服务端提取 |
+| action 组件 | action 挂载能力、action/参数声明、handler、renderMap | 来源核对、参数构造与分发           |
 
-### 3.3 VNode 树构建（buildTree）
+首发不提供任意代码执行、任意 dataModel deep-merge 或业务规则 DSL。Catalog schema 子集明确版本化，非法/不支持的配置初始化即报错。自定义组件不能依赖在 runtime 中增加组件名分支。
 
-`buildTree` 把扁平邻接表渲染成 VNode 树，是"乱序到达、渐进填充"的实现点：
+## 4. core：消息与状态
 
-- 从 `id="root"` 起按 `children`/`child`/`tabs` 展开，**显式栈 DFS 不用递归**——深链不耗调用栈；
-- 子 id 未到达（后续消息才会带来）→ 占位 VNode，数据/组件到齐后下次构建自然填充；
-- 组件 props 里的 `{ path }` 经 `resolveDynamic` 解析为 dataModel 真值（展示绑定）；`action` 原样保留——context 在点击时才按当前模型解析（§3.4）；
-- 组件级 `checks` 结果以 `validation` 挂在 VNode 上（渲染层据此禁用按钮、显示错误）；
-- 环检测（子 id 命中当前路径祖先）→ 占位；共享子树（DAG 合法）经后序 memo 复用，防菱形链 2ⁿ 爆炸；
-- 双预算：`maxNodes`（默认 10,000，含占位）与 `maxDepth`（默认 1,000），任一耗尽后其余引用以占位呈现并恰好上报一次 `FEATURE_UNSUPPORTED`。
-
-### 3.4 交互出口：受控写回与 action
-
-core 的两个交互 seam 都在 core 内完成解释，渲染层只上报意图：
-
-- **受控输入写回** `setInputValue(componentId, surfaceId, value)`：仅接受五类输入组件（TextField / CheckBox / ChoicePicker / DateTimeInput / Slider），值类型按组件校验，绑定必须恰为 `{path}` 形态，保留段路径拒绝；通过后经 `setDataModelValueAtPath` 写本地模型并触发该 surface rerender。**绑定路径由 core 解释，宿主组件不直接碰 dataModel。**
-- **action 出口** `triggerAction(sourceComponentId, surfaceId)`：组件存在且 `checks` 全过 → `buildActionEvent` 把 action 声明中的 `{path}` context 按当前模型解析为真值 → `onAction(ActionEvent)`。组件不存在或校验不过则静默（不产生事件）。事件去向由宿主决定：agent 线 POST 回 Host，前端线走路由表。
-
-## 4. React 渲染管线：VNode → 宿主组件
+### 4.1 当前流水线（保留）
 
 ```text
-runtime.onRender(root, surfaceId)
-   │
-   ▼
-选 renderer（catalogRenderMaps[catalogId] ?? renderMap prop）
-   │
-   ▼
-ReactRenderer.renderTree（VNode → React 元素；maxElements=10k 预算，耗尽停止扩展）
-   │
-   ▼
-renderMap[type] 查表 ── 未知类型 → 红框提示 · 占位 → 弱化省略号（降级不抛错，不白屏）
-   │ 命中
-   ▼
-标准 17 组件 / 宿主自定义组件（props 已由 core 解析 {path}；validation 驱动禁用与错误提示）
-   │
-   ▼
-setTree 整树替换（每条消息全量重渲；mount/update/unmount 全交 React，不自研 reconciler）
-   │
-   ├── 输入 onChange ─▶ ctx.setInputValue → core 校验并写 dataModel → rerender（受控闭环）
-   └── 按钮 onClick ──▶ ctx.triggerAction → core 解析 context → onAction → 宿主 transport
+push(chunk) ─ JSONLBuffer ─ JSON.parse ─┐
+                                     ├→ Protocol → Profile → Catalog（配置时）
+dispatch(message) ────────────────────┘
+  → surface 生命周期校验
+  → CoreStore：surfaces / componentsBySurface / dataModelBySurface
+  → buildTree：扁平组件表 → VNode
+  → onRender(root, surfaceId)
 ```
 
-要点：
+单条非法消息记录结构化错误并丢弃，同 chunk 后续消息可继续；这只是单消息接受语义，不承诺运行级回滚。组件/dataModel 可渐进到达，缺失引用显示占位。
 
-- **不自研 reconciler**。VNode 树每条消息全量重建，React 负责 mount/update/unmount；core 侧 memo 复用 VNode 实例、React 侧 `maxElements` 预算（默认 10,000）共同把"引用展开共享子树"的成本封顶，预算耗尽渲染统一的占位提示。
-- **renderMap 是宿主接自身设计系统的唯一扩展点**：`renderMap` prop 整体替换标准 17 组件；`catalogRenderMaps` 按 catalogId 选择（未匹配回退 `renderMap`）。OrderOps Web 用"业务组件 + 标准组件显式合并"的 renderMap（T3.7）。
-- **降级不抛错**：未知组件类型、占位、预算耗尽都有兜底元素，宿主界面不会因一条坏组件白屏。
-- **输入可访问性**由标准组件内建（label/`aria-invalid`/`aria-describedby`/禁用态）；TextField 的本地格式校验用 `compileSafeRegExp` 线性引擎，不受信 pattern 不经 `new RegExp`（杜绝灾难性回溯）。
-- 每次击键都走"写 dataModel → 整树重渲"的受控闭环；这是当前有意为之的简单模型，渲染性能不在首发门禁内（PRD §4）。
+CoreStore 每 runtime 一份，按 surfaceId 隔离。JSON Pointer 更新不可变；树构建使用显式栈、环检测、共享子树 memo、节点/深度预算。继续使用有界整树重建，不自研 reconciler。
 
-## 5. 服务端准入与提交
+### 4.2 目标状态接口
 
-server 侧的两条 run 管线共享同一套 guard 与序列化机制。guard 每条候选消息按 **Protocol → Profile → 序列/组件级 Catalog/Policy** 执行（SPEC §1 的四层在代码中是每消息一次的准入检查，而非流前/流后两次）：surfaceId/catalogId 全程一致，生成流首条必须 `createSurface`、此后只能 `updateComponents`/`updateDataModel`，action 流只允许后两者；组件须在 Catalog 白名单内并通过 props schema、component policy 与 media policy；action 只能挂 Button 且在 action 白名单内。
+core 提供稳定订阅、状态快照/恢复与受控写回原语；订阅可解除，快照适合 React 稳定读取。client 基于这些原语隔离预览、已提交视图和用户本地输入草稿。core 不读取 SSE done，也不拥有网络连接。
 
-### 5.1 生成 run：逐条 guard → 可见预览 → 提交 → done
+输入绑定和 action context 仍由 core 的通用解释器解析。组件能力来自 Catalog；读/写路径必须防保留段与继承链，值按声明校验。原始低层 runtime 继续支持宿主本地消息流；高层 client 管理的 surface 经 client 的门控 action 出口提交。
+
+## 5. client 与 React：嵌入已有应用（目标）
+
+### 5.1 组合模型
+
+client session 创建并持有稳定 runtime、运行状态和 transport；React Provider 接收 runtime 与按 surface 的交互状态订阅。无网络场景由宿主直接提供 core runtime，默认使用低层消息语义。
 
 ```text
-prepareGenerate（本地 fixture / LLM / 外部 Agent RPC → AgentRun：source + sequence + commit）
-   │
-   ▼
-sendAgentRun：同步占用响应（ctx.body + flushHeaders + respond=false + pipe 到 socket）
-   │              → 登记 run(queued) → 挂 per-surface promise 队列（同 surface 串行）
-   │              浏览器断开 → req/res close → AbortController 取消
-   ▼
-sendMessages 循环：每条候选 Protocol → Profile → 序列 / Catalog / Policy
-   │              通过即写 SSE message（可见预览，≠ 提交成功）
-   ▼
-流尽终态校验（≥1 条消息 · 生成流含 id=root · Policy validateFinal；
-   │            动态绑定/媒体策略在每条消息到达时即对累积状态校验）
-   ▼
-run.commit（事务性提交）：整条流重放进权威 action 快照（version=1）
-   │            → onGenerationCommitted 钩子（OrderOps：写 surface_bindings）
-   │            → history；任一步失败 → removeSnapshot 回滚
-   ▼
-SSE done；任一步失败 → SSE error（AGENT_STREAM_ERROR + boundaryCode + diagnostics），不提交
+宿主创建 session / 或本地 runtime
+  → Provider：上下文与订阅
+    → 宿主自己的布局
+      → Surface(surfaceId=A)
+      → 宿主表单 / 导航 / 其他内容
+      → Surface(surfaceId=B)
 ```
 
-`sendMessages` 逐条转发而非先缓存全流——**收到首条 `message` 只代表"可见预览"，`done` 才代表提交成功**；浏览器必须在 `done` 前禁用业务 action（SPEC §3）。run 状态机见 §6。
+目标公开名称为 `createClientSession` 与 `A2UISurface`；具体类型签名随实现切片锁定，当前未导出。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
 
-响应占用与响应生命周期都发生在 `sendAgentRun` **被调用的那一刻**，而不是队列轮到它的时候。Koa 只在中间件链结束后的 `respond()` 阶段才把 `ctx.body` 交给 socket，因此 SDK 自行接管响应（`ctx.respond = false` + 立即 `flushHeaders` 并 `pipe` 到 socket），不依赖 `respond()`：
+外部 runtime/session 由创建者销毁；Provider 自建 runtime 在卸载时释放。视图层使用可取消且稳定快照的订阅，避免 React 并发渲染下的状态撕裂。标准样式显式选择，不在 import 时注入全局动画。
 
-- 若等到排队回调才装配 `ctx.body`，同 surface 的第二个请求会落到 Koa 的 404 兜底，而队列里的 run 仍会流式输出并 commit——客户端看到失败、服务端已经成功。
-- 若把下发交给 `respond()`，宿主一旦 `await sendAgentRun(...)`，链结束就被推迟到流末尾，整条流被缓冲成一次下发，逐条可见预览退化为一次性到达。
-
-因此 `void sendAgentRun(...)` 与 `await sendAgentRun(...)` 都是正确写法：前者只要响应，后者还需要 run 的结果；两者都保持逐条下发。宿主自注册的 abort 监听用 `dispose` 回调收尾（参考 `routes.ts` 与 OrderOps 宿主）。
-
-### 5.2 action run：锁 → 快照 → ledger → resolver → handler → patch
-
-`POST /api/a2ui/event` 收到 client action 信封后：
-
-1. `parseClientActionMessage` 信封校验（`version`/`name`/`surfaceId`/`sourceComponentId`/可解析 `timestamp`/对象 `context`；`actionId` 可选，OrderOps Web 总是携带）。
-2. `prepareAction` 按固定顺序执行：**surface 锁** → 读已提交 action 快照（无则拒：surface 过期）→ `findSurfaceAction` 核对组件存在且 action 名与快照声明一致 → handler 注册表查找（`catalogId + action`）→ **ledger 去重**（同 key 已有非 failed 记录 → 拒"重放或重复提交"）→ **context 解析**：默认 resolver 以服务端快照 dataModel 为权威解析声明过的绑定、拒绝客户端未声明字段；自定义 `resolveActionContext` 完全接管（OrderOps 限定 `/draft/note` 提纯浏览器最新备注）→ 读 history → 调 Host handler 得 patch 消息源。
-3. 返回 `AgentRun(kind='action')` 进**同一 per-surface 队列**：patch 逐条重过同一 guard（action 流不允许 `createSurface`/`deleteSurface`），全部通过后 `commitAction`（快照 version+1）→ SSE done。surface 锁在队列结算后才释放，同 surface 的 handler 因此串行——第二个请求读到第一个提交后的 dataModel。
-
-### 5.3 提交语义与回滚边界
-
-Nexus 的提交边界是"action 快照 + ledger + history"的进程内结算；**领域事务在 Host**。生成失败可整体回滚快照；action 的领域副作用一旦由 Host 提交，不因 SSE/patch 失败回滚（D5）。ledger 记录仅终态（succeeded/failed）可被容量淘汰，运行中记录被淘汰会静默放开重放保护——这是有意的不变量。权威数据所有权见 §10。
-
-## 6. 状态机与并发模型
-
-| 状态机 | 状态与迁移 | 载体与重启语义 |
-| --- | --- | --- |
-| 浏览器 surface | 不存在 → 已创建（组件表/dataModel 渐进填充）→ 已删除；无"半提交"态——被拒消息不落 store | core store，随页面生命周期 |
-| 服务端 action 快照 | 生成提交建立（version=1）→ 每次 action patch 提交 version+1 | server 进程内存；重启即失，旧 surface 不可再提交，须按案件重建 |
-| Agent run | `queued → running → succeeded \| failed \| canceled` | run-manager 进程内存，512 条上限 |
-| action ledger 记录 | `running → succeeded \| failed`；仅终态可淘汰 | 进程内存，1,024 条上限 |
-| OrderOps 领域案件/操作 | `open → in_review → ticket_created`（或 `dismissed`）；操作 `pending → succeeded \| failed \| needs_reconcile`（目标） | Host SQLite，跨重启权威（SPEC §5） |
-
-并发模型：同 surface 的生成/patch run 经 promise 队列串行，action 处理经 surface 锁 + 快照核对串行，ledger 按 `actionId`（缺失时按时间戳 + context 组合键）去重——三层都只保障**单进程界面层**行为；跨重启的领域幂等由 Host 唯一约束（`tickets.case_id UNIQUE`）与 `caseId + operationType` 领域键负责。跨 surface 互不阻塞。
-
-## 7. 资源与防御边界
-
-不可信输入（Agent 候选、浏览器 action、HTTP 请求）在每个边界都有预算与降级路径；超限是**结构化拒绝或占位降级**，不挂死宿主：
-
-| 边界 | 默认值与行为 | 代码位置 |
-| --- | --- | --- |
-| JSONL 单行 | 1MB；超长整行拒绝丢弃，永不换行的流转入溢出丢弃态；同一字节流任意 chunk 切分产出一致的行/错误序列 | core `buffer` |
-| VNode 数量 / 链深 | 10,000 / 1,000；超限占位降级 + 一次 `FEATURE_UNSUPPORTED` 诊断 | core `render` |
-| React 元素 | 10,000；预算耗尽停止扩展，统一占位提示 | react `renderer` |
-| 错误记录 | 环形 200 条；raw 截断 2000 字符，防恶意超长行常驻内存 | core `state` |
-| run / ledger / surface 快照 | 512 / 1,024（仅终态可淘汰）/ 256 | server `agent` |
-| 正则 | `compileSafeRegExp` 线性时间引擎，不受信 pattern 不经 `new RegExp` | core `checks` |
-| dataModel 路径 | 保留段拒绝（读 undefined / 写抛错）；宿主对象不作容器 | core `dataModel` |
-| HTTP 请求 / 外部 Agent RPC | 1 MiB·10s / 15s·2MB、媒体类型白名单、AbortSignal 传播 | 数值以 [SPEC](SPEC.md) §3 表为准 |
-
-## 8. 业务时序：生成路径（M2）
-
-以 OrderOps 为例的端到端生成闭环（deterministic 管线已端到端接通；真实模型冒烟待凭证）：
-
-1. Web 请求 `POST /api/cases/:id/analyze`；Host 查询并验证案件状态，固定 `caseId`、`surfaceId` 和 Catalog 身份。
-2. Host 经 Nexus 公开的 `createExternalAgentGenerationSource` 调 Agent `/rpc`。Agent 依据 Catalog Contract 取能力边界，并从 Host `GET /internal/cases/:id/context` 取得只读快照。
-3. Agent 用确定性 fixture 或真实模型得到结构化分析；代码校验证据 ID 属于快照，再编译 `createSurface`、`updateComponents`、`updateDataModel`。模型不直接决定可执行 action 或任意组件 JSON。
-4. Host 逐条跑 §5.1 的 guard 管线，通过才发 SSE `message`。提交成功后记录 `surface_bindings(surface_id, case_id, case_version, catalog_hash)` 并发 `done`；错误回滚 Nexus action 快照并发 `error`。
-5. Web 在 `done` 前禁用业务 action；证据可点击回查原始事件。
+### 5.2 会话层承担的完整路径
 
 ```text
-运营人员打开案件，Web 请求 POST /api/cases/:id/analyze（前置案件门禁：未知 404 · 状态 409 · 未接线 503）
-   │
-   ▼
-Host 经 createExternalAgentGenerationSource 调 Agent POST /rpc（caseId + Catalog Contract）
-   │
-   ▼
-Agent GET /internal/cases/:id/context（Bearer fail-closed）◀─ 只读快照：订单 · 物流事件 · caseVersion
-   │
-   ▼
-Agent：schema 校验 + 证据 ID ⊆ 快照 → 代码编译 A2UI（createSurface → updateComponents → updateDataModel）
-   │  NDJSON 候选消息
-   ▼
-Host guard 逐条准入（协议 → Profile → 序列 → Catalog / Policy）──▶ SSE message（可见预览）
-   │
-   ▼
-commit：action 快照 + surface_bindings(surface_id, case_id, case_version, catalog_hash) + history
-   │
-   ▼
-SSE done（失败 → error，回滚 Nexus 快照）；Web 在 done 前禁用业务 action，证据锚点页内可回查
+发起生成 / action
+  → 创建 run，关闭该 surface 的提交入口
+  → fetch/SSE：核对 start / version / runId / revision / hash
+  → message 经 core 校验，更新隔离预览
+  → done：核对成功提交与本地校验，发布新视图并开放 action
+  → error / cancel / 缺失终态：丢弃预览，按 commitState 决定是否失同步
 ```
 
-## 9. 业务时序：执行与恢复路径（M3）
+EOF 不是 done。失败后可以保留上次已提交视图展示，但提交结果未知时不能继续执行其 action。取消须关闭 reader/监听器并阻止晚到事件覆盖新 run；frame、响应大小和处理时间有上限。恢复使用重新生成或宿主提供的受控快照；不盲目重发业务操作。
 
-Web 把最新备注作为声明过的可编辑 context 送到 `/api/a2ui/event`，走 §5.2 的 action run 管线。OrderOps Host 自定义 resolver 拒绝未声明字段，handler 通过 `surface_bindings` 重读案件事实及版本，在 SQLite 事务内写唯一工单、状态、操作结果和审计，然后产生同 surface patch。提交事务先于 patch 下发；patch/SSE 失败不回滚工单，Web 从案件或 `GET /api/actions/:actionId` 恢复。
+会话层与 React 同时执行交互门控：标准/自定义动作组件反映禁用态，动作出口也核对当前 revision 可提交。一个组件忽略 disabled 不能绕过 session 门控。
+
+## 6. server：准入、运行与 HTTP 分离（目标）
+
+### 6.1 模块分层
 
 ```text
-运营人员编辑备注并确认 createTicket（按钮在 done 前禁用）
-   │
-   ▼
-POST /api/a2ui/event（actionId · timestamp · context.note）
-   │
-   ▼
-Nexus adapter：surface 锁 → 已提交快照核对组件/action 归属 → ledger 去重（actionId 防传输重放）
-   │
-   ▼
-resolver 提纯：只接受声明过的 /draft/note（换 path / 伪造字段在此被拒）
-   │
-   ▼
-Host handler：经 surface_bindings 重读案件与版本 → SQLite 事务写唯一工单 · 案件推进 · 操作 · 审计
-   │              重复检查先于版本检查（双击答"已建单"）；事务先提交
-   ▼
-patch 编译（禁用按钮 + /result 定点写工单号）→ 重过 guard → commitAction → SSE done
-   │
-   ▼
-断线 / 刷新恢复：Web 查询案件或 GET /api/actions/:actionId（事务已提交不回滚、不盲目重发）
+宿主 API：认证、可信请求上下文、surface 访问准入
+  → Koa / 自定义 HTTP 适配：解析 envelope、及时占用响应
+  → server runtime：单一调度、快照、输入/action 准入、候选 guard、UI 提交
+  → 宿主注入的生成源 / handler
+  → 运行事件
+  → HTTP 适配：SSE 序列化、背压、断开与收尾
 ```
 
-其中 T4.1/T4.2 已实现：同一请求的 actionId 由 ledger 处理传输重放；不同 actionId 的重复建单由 `tickets.case_id` 唯一约束与先于版本检查的重复检查阻止；建单 patch 在 `/result` 定点写工单号（官方可选 `path` 语义），`GET /api/actions/:actionId` 提供断线恢复查询，客户端中断流后事务不回滚有证伪测试。浏览器侧：OrderOps transport 把 SSE `message` 逐条 `runtime.push`，`done`/`error` 事件才算流收尾（网络中断不误报成功），`done` 前丢弃 action 事件。T4.3 前端恢复接线与 T4.4 的"事务成功但 patch 失败"反例（锁定 D5）待做——进度见 [CURRENT](tasks/CURRENT.md)。
+运行模块不接受 Koa Context，不通过 HTTP 层回写 `streamClaimed` 来转移锁所有权。Koa 适配器保留已有调用时响应占用语义；相同运行在非 Koa 消费中无需伪造 Context。Host 可保留自己的路由与认证栈，不必启用参考 router 的全部端点。
 
-Nexus 的内存 ledger 和锁只保障本进程的界面层行为；领域幂等、重启恢复和审计在 Host SQLite。Agent 不 import Host 数据库模块，通用 Nexus 包不引入订单、物流或退款模型。若 Host 事务已提交而 patch 校验或 SSE 失败，SDK run 可能标为 failed；这只表示界面回流失败。Web 必须查询 Host 的操作/案件结果，不能根据 SDK run 状态重试业务动作。
+### 6.2 生成与 action 顺序
 
-## 10. 数据所有权与失败边界
+生成：检查依赖/预算/访问准入 → 调度 → 候选逐条 guard → 预览事件 → 完整性校验 → 发布 UI revision → done。声明的 onCommit/观测不伪装为与业务库的跨存储事务。
 
-| 数据/状态 | 权威所在 | 重启/故障处理 |
-| --- | --- | --- |
-| 订单、物流事件、案件、工单、审计 | OrderOps Host SQLite；模拟数据也遵守领域约束 | migration + 唯一约束；业务结果查询 |
-| Agent 分析候选与证据引用 | Agent 输出不可信；Host 快照为引用校验依据 | 无效证据拒绝，必要时 `insufficient_evidence` |
-| surface 组件/dataModel 与 action 快照 | Nexus runtime/Host action state store | 默认内存；重启后旧 surface 不可直接提交，按案件重建 |
-| surface ↔ case 关联 | M3 `surface_bindings`，Host 持有 | action 时核对案件版本，过期需重新分析 |
-| request ledger/run 状态 | Nexus 默认进程内 | 不代替跨重启的领域幂等或操作查询 |
+action：访问准入 → 进入 surface 调度 → 读取已提交快照 → 核对 revision/hash/来源与 action → SDK 重放检查 → 提取声明过的最新输入 → 重新解析并校验参数 → Host handler → patch 基于已提交快照校验 → 发布新 UI revision → done。
 
-生成失败可以回滚 Nexus 快照；**已提交的领域副作用不能因 SSE 断开而回滚**。Host 的事务边界与 Nexus 的消息提交边界分开，业务终态由 Host 数据库决定。具体字段、端点、状态机见 [SPEC](SPEC.md)。
+handler 在排队准入完成后调用。输入只形成临时模型；未经接受的浏览器内容不直接改服务端快照。宿主从可信上下文查询业务事实并执行事务；其返回的 patch 仍是候选输出。
 
-## 11. SDK 演进拓扑
+### 6.3 调度、存储与所有权
 
-当前三包 `core → react` 与 `core → server` 是可消费基础。近期先用已有根入口完成独立 React + Node 宿主和 OrderOps M3；记录各自的 SSE/交互接线量与 guard 调用位置。若两侧重复承担终态解析、信封构造或错误清理，再抽取浏览器 API；若非 Koa 宿主无法复用准入行为，再从现有 server 边界提取框架无关 guard。是否新增包、组合组件或高层 API 由这些证据决定，首版不预定 `@nexus-ui/client` 或 `NexusSurface`。无论包图如何变化，core 的协议/状态逻辑只保留一份；React/Vue 不重写 guard；浏览器接入层不持有业务事务；server 不 import OrderOps。
+同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。所有监听器、源迭代器和锁都在终态或 dispose 路径释放。
 
-发行前用仓外干净宿主从实际产物安装，验证 types/exports/peer 兼容、Catalog 扩展、生成/action/patch、坏输出诊断及版本升级。OrderOps 同居的 workspace 链接仅是开发便利，不替代该验收。
+默认状态、ledger 和调度按实例隔离，禁止模块全局 store 把无关宿主绑在一起。UI revision 的发布点明确；已发布后连接或 history/观测失败，不得伪报未提交。默认内存重启后旧 surface 失效；可注入持久化存储，但首发不宣称多实例调度或业务幂等。
 
-## 12. 部署与验证边界
+## 7. 状态、失败与恢复
 
-本地单机三服务、Node 24、pnpm workspace 和 SQLite 足够完成 OrderOps M3/M4。Agent 端口只对 Host 开放；浏览器只访问 Host。认证、租户隔离和领域数据持久化由实际宿主部署负责；SDK 仍须提供输入/资源边界、可诊断失败、取消与兼容契约，不能因为验证 Agent 简单而降低这些要求。详细 HTTP/RPC、Catalog 和状态机见 [SPEC](SPEC.md)；SDK 与验证任务见 [CURRENT](tasks/CURRENT.md)。
+| 状态                                  | 所有者                             | 保证边界                                     |
+| ------------------------------------- | ---------------------------------- | -------------------------------------------- |
+| A2UI surface 组件/dataModel           | core                               | 消息级接受与 surface 隔离                    |
+| 预览 / 已提交 / 失同步视图            | client                             | 明确终态前不可提交；失败不泄露临时可执行界面 |
+| queued/running/终态 与 UI commitState | server runtime / client 的已知视图 | 单实例运行行为；确认丢失时报告 unknown       |
+| 业务 operation                        | Host                               | 领域事务、持久化幂等与结果查询               |
+
+`done` 只证明本次 UI 提交；`error`、断线或 canceled 都不能证明业务未执行。SDK 不回滚已执行的宿主副作用，不自动重试 action。宿主可提供不透明操作关联标识，client 把结果未知交给宿主恢复流程。
+
+当前实现没有完整 client 会话隔离；server 仍存在双锁和模块全局队列，ledger 的 failed 可能允许重入。这些属于迁移差距，不能作为已实现的上述保证。
+
+## 8. 安全、资源与诊断
+
+Agent JSON、浏览器事件和 HTTP 字节均按不可信输入处理。SDK 提供属性/绑定/action 的默认拒绝、安全 URL 使用、原型与继承链防护、安全正则、请求/响应与树预算。Host 提供业务授权、业务限额和部署策略；SDK 执行其访问准入结果。
+
+当前上限与实际缺口见 SPEC §3。尤其是记录淘汰配置不等于并发硬限额、checks 的安全正则实现不等于所有 schema.pattern 均已安全。CURRENT 中既有安全挂账须用触发条件核实并闭合，再扩大公开接入。
+
+目标所有预算可配置且非法值显式报错；超限结构化拒绝或有界降级。活动 run/ledger 不可为满足记录数量而静默淘汰。SSE 写入尊重背压，取消能打断排队与慢消费，错误日志/raw 不无界保留。
+
+诊断区分协议/Profile/Catalog/Policy、输入、资源、传输与运行状态，并携带可获得的 surfaceId/runId/actionId。新增运行错误码属于 Nexus session 契约，不伪装为 A2UI 协议字段。日志脱敏、关联标识和宿主观测通过回调接入，不内置业务审计库。
+
+## 9. 现状到目标的迁移
+
+| 切片 | 内容                                                           | 必须保留的证据                                               |
+| ---- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| S1   | 关闭可达安全缺陷；中立默认值；参考 Agent/服务迁出              | conformance、坏输出、安全反例、原 demo 行为                  |
+| S2   | Catalog v2、自定义输入/action、路径与参数准入                  | 自定义组件闭环、最新输入、只读/越权/额外字段拒绝             |
+| S3   | framework-neutral server runtime 与 session 元数据；Koa 薄适配 | 取消、并发、重放、提交前后失败、await/void、非 Koa 对测      |
+| S4   | client 包、Provider/Surface 分离、迁移两个浏览器消费方         | EOF/终态、预览清理、失同步、双 surface、订阅释放、浏览器验证 |
+| S5   | 当前产物仓外接入、API/兼容、升级文档与发行门禁                 | 干净安装、公开入口、完整 typecheck/lint/test/build/CI        |
+
+早期产物检查可在 S1 开始；S5 的 API 定型和最终验收在集成模型落地后进行。每个切片同步消费方，保持已交付路径可运行；新旧契约在迁移期显式版本区分，不长期保留两套通用校验实现。任务状态与精确判据只在 CURRENT 维护。
+
+验证宿主与 Agent 尚未选定；现有 standalone 示例只提供 SDK 接入反馈，不代表已选定验证工程。应用内部架构、业务模型、表、端点、状态机与部署不属于 SDK 评审范围；仅检查公开契约消费。业务载体是否重建不阻塞 SDK 改造。

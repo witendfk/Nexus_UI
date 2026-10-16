@@ -1,35 +1,23 @@
-# SOLID 坏味道提示
+# SOLID 与 SDK 边界
 
-来源：sanyuan0704/sanyuan-skills `code-review-expert`（适配 OrderOps）。
+## 职责与依赖
 
-## SRP（单一职责）
+- core 是否保持协议/状态/绑定的纯逻辑，不依赖 React、DOM、HTTP、Node、模型 SDK 或宿主业务类型？
+- 浏览器会话是否拥有网络运行状态，React 是否只负责上下文、订阅与视图？Provider 是否强加布局或因配置重渲丢失 runtime？
+- server 的 guard/调度/提交能否脱离 Koa Context 使用？HTTP 适配是否只拥有请求/响应与连接资源？
+- 示例、环境变量、模型选择、prompt、业务 Catalog/Policy 是否进入 SDK 默认调用链？同一包内的默认引用也属于依赖，不能只查 import 方向。
+- 默认 store、ledger、scheduler 是否按实例隔离，所有权是否明确？
 
-- 一个文件混装不相关关注点（HTTP + DB + 领域规则）。
-- 巨型类/函数（>100 行、圈复杂度肉眼过高）。
-- 命名为 "Manager"/"Helper"/"Utils" 的万能模块。
+## 扩展与替换
 
-## OCP（开闭）
+- 增加展示、输入、action 组件是否只需能力声明与注册？组件名、action 名和业务关键词是否成为内核分支？
+- Catalog/schema/绑定规则是否在前后端重复解释并产生漂移？纯规则共享不取消服务端权威校验。
+- 注入生成源、transport、handler、存储或 Policy 后是否仍遵守取消、错误、准入和提交契约？替换点能否绕过安全基线？
+- 一个扩展是否被迫依赖完整 HTTP/模型/业务接口？是否为尚无消费者的需求提前建设插件平台？
 
-- 加一种异常类型/组件/action 需要改多处 switch/if —— 本项目 Catalog 扩展点应通过注册而非修改 guard。
-- 硬编码类型码替代多态/注册表。
+## 公开契约
 
-## LSP（里氏替换）
-
-- 子类/实现收窄了入参或放宽了约束。
-- 违反契约的 override（如 handler 返回的消息违反 catalog 声明）。
-
-## ISP（接口隔离）
-
-- 依赖了用不到的大接口（如 Agent import Host 的 DB 模块 —— 架构红线，见 architecture.md §8.1）。
-- 跨包共享超出"版本化契约"的东西。
-
-## DIP（依赖倒置）
-
-- 高层模块直接依赖低层实现细节（HTTP 层直接写 SQL 字符串拼接）。
-- 应经构造注入的依赖被模块级单例写死（测试无法替换）。
-
-## OrderOps 结构红线
-
-- `agent-server` 不得 import `host-server` 内部模块；共享只经 `contracts`。
-- OrderOps 领域类型不得放进 Nexus 通用包。
-- 业务副作用只允许在 Host 事务内；Agent/生成源不得写库。
+- 当前公开根入口、API 版本、Catalog/Profile/session 版本和依赖兼容是否一致？破坏性变更是否显式迁移？
+- 消费方是否仅使用公开入口？仓内源码链接能否掩盖缺失导出、类型或产物依赖？
+- SDK 是否反向依赖示例/宿主？仅因宿主 fixture 使用某个业务流程，不能将该流程提升为 SDK 必需能力。
+- 目标设计是否被错误描述为已交付？性能或复杂度优化是否有真实瓶颈证据？

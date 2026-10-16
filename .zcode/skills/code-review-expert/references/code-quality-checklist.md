@@ -1,42 +1,24 @@
-# 代码质量清单
+# SDK 代码质量与验证
 
-来源：sanyuan0704/sanyuan-skills `code-review-expert`（适配 OrderOps）。
+## 错误与所有权
 
-## 错误处理
+- 诊断能否区分协议、Profile、Catalog、Policy、输入、资源、传输与运行状态，并携带可获得的关联标识？
+- 异常是否吞没、promise 是否未处理、失败状态是否卡死？不能把所有异常统一变成业务失败。
+- runtime/session、订阅、source、reader、timer、锁分别由谁创建与销毁？外部实例是否被 Provider 擅自释放？
+- React 快照引用是否稳定，是否出现过期闭包、状态撕裂或双 surface 覆盖？
 
-- 异常吞噬：空 catch、catch 后仅打印。
-- 未处理 rejection：`void asyncFn()`、`.then` 无 `.catch`。
-- 降级路径缺失：模型失败/网络断开/超时后的 UI 状态（本项目的 SSE 错误必须区分服务端 `error` 事件与网络失败）。
-- 错误状态卡死：失败后 loading 态永不复位。
+## 实现与 API
 
-## 代码坏味道
+- 重复的校验或 SSE 状态机是否产生不一致？共享常量和契约类型是否从定义处公开，不复制隐含规则？
+- 初始化是否意外启动 listener、读取环境、注入全局样式或要求模型凭证？非法配置是否显式报错？
+- 单条接受、运行提交、业务结果的命名与行为是否一致？注释是否把 ledger/存储描述成跨库事务或分布式保证？
+- 公开 API 的 types/exports/依赖是否完整？移除导出或改变默认行为是否有迁移说明和消费方更新？
 
-- 重复代码（三处以上复制粘贴；测试里重复的 SSE fixture 构造）。
-- 魔法数字/字符串（端口、阈值、路径散落各处 —— 应进 config）。
-- 死代码/防御性死分支（永远不会走到的 fallback）。
-- 绕圈实现：已解析对象再 stringify 回字符串过解析器（如 `runtime.push(JSON.stringify(msg))` vs `runtime.dispatch(msg)`）。
-- 注释掉的代码块留存。
+## 验证质量
 
-## 并发问题
-
-- 共享可变状态无同步（模块级 Map 被并发请求读写）。
-- 竞态窗口：check-then-act、先 render 后校验。
-- 异步完成后引用过期闭包变量。
-
-## 资源管理
-
-- 测试里启动的 server/句柄未在 afterEach/beforeAll 生命周期关闭。
-- 流读取中途放弃时未 cancel reader。
-- 定时器/事件监听未清理。
-
-## 测试质量
-
-- 断言过弱（只断言不抛错、只断言 200）。
-- 测试间共享可变全局状态（顺序依赖）。
-- mock 掩盖真实契约（mock 的响应 shape 与真实服务端漂移）。
-
-## 可维护性
-
-- 命名不达意（`data2`、`handleTmp`）。
-- 单导出文件的 barrel 缺失导致深路径 import。
-- 配置散落：同一常量在多处定义（catalogId、端口）。
+- 断言是否验证行为而非仅“不抛错/200”？fixture 的作用域、协议形状、版本和 oracle 是否与实际契约一致？
+- 是否覆盖自定义组件/输入/action、两个无关 Catalog、双 surface、非法输入、缺失终态、取消、并发、重放与提交前后失败？按改动选择必要用例，不要求所有任务全跑。
+- 宿主/Agent fixture 是否可替换且仅验证 SDK 契约？不能依赖尚未选定的业务工程，也不能借 fixture 评审业务架构。
+- 是否保留已有关键回归（例如 Koa await/void 与排队响应占用）？公开入口测试是否被内部 import 绕过？
+- Node、构建顺序和命令遵循根 AGENTS.md。结果是否来自真实退出码？本轮、历史、未执行和受阻证据是否明确分开？
+- 文档/skill 变更运行对应格式、链接与结构检查；涉及代码才运行相关单测/typecheck/lint/build。仓外安装、浏览器、CI 结论须在对应环境实测。

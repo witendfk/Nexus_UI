@@ -1,101 +1,156 @@
-# SPEC — Nexus / OrderOps 契约
+# SPEC — SDK 契约
 
-状态：✅ 当前代码/既有测试可支撑；🚧 目标或待补验收。更新：2026-10-10。上游 [PRD](PRD.md)；拓扑 [ARCHITECTURE](ARCHITECTURE.md)；理由 [DESIGN](DESIGN.md)。协议/类型真值源是 `specification/v0_9`、`packages/nexus-core/src/protocol`、CatalogDefinition 和 `examples/orderops/packages/contracts`；本文是人可读的接入契约，冲突时先核实代码再同步本文。
+更新：2026-10-16。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述本轮源码核对的现状；§4–§8 是已决策、尚待实现的目标契约。目标 API 和 wire 变更不能当作当前可用能力。
 
-## 0. 术语与两侧责任
+## 0. 术语与权威
 
-| 术语 | 含义与权威 |
-| --- | --- |
-| surface | 一个任务界面的组件树、dataModel 和 action 上下文；`surfaceId` 标识 |
-| Profile | Nexus 在 A2UI v0.9 上开放的有限能力，不等于官方 Basic Catalog |
-| CatalogDefinition | 宿主声明组件、字段、绑定及 action 的可用集合 |
-| Catalog Contract | 从 CatalogDefinition 生成的可发现版本/hash 与 prompt contract；hash 用于身份校验 |
-| Host | 持有业务事实、授权、可编辑字段规则、领域事务与结果查询 |
-| Agent | 提供候选分析/A2UI；不是事实和执行的权威 |
+| 术语             | 权威与范围                                              |
+| ---------------- | ------------------------------------------------------- |
+| surface          | 组件声明、dataModel 与界面 revision；不证明任何业务事实 |
+| Profile          | Nexus 开放的 A2UI v0.9 子集，不等于官方 Basic Catalog   |
+| Catalog Contract | 宿主能力声明及其版本/hash；hash 仅证明内容一致          |
+| run              | 一次生成或 action/patch 的 SDK 运行；不等于业务操作     |
+| Host             | 持有身份、权限、业务事实、领域事务与业务结果            |
+| Agent            | 提供不可信候选消息；业务分析/工具/模型由接入方定义      |
 
-## 1. A2UI 流与校验（当前 Nexus 能力）
+## 1. 当前 A2UI 消息与 Profile
 
-Server→client 是逐行 JSON 的 A2UI v0.9 消息（NDJSON）；每个信封恰好一个 payload。生成流先 `createSurface`（`surfaceId`、`catalogId`），再分别 `updateComponents` 建组件树及 `updateDataModel` 写初值；patch 复用相同 `surfaceId`。**v0.9 的 `createSurface` 不内嵌组件或 dataModel**。core 跨 TCP chunk 缓冲 JSONL。`deleteSurface` core 能处理，但 guarded Agent 流拒绝。
+server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 payload。生成流先 `createSurface(surfaceId, catalogId)`，再发送 `updateComponents` 与 `updateDataModel`；patch 只更新相同 surface。`createSurface` 不内嵌组件或 dataModel。core 支持 `deleteSurface`，当前 guarded Agent 流拒绝它。
 
 ```jsonl
-{"version":"v0.9","createSurface":{"surfaceId":"s-1","catalogId":"https://example.com/catalogs/orderops/v1"}}
+{"version":"v0.9","createSurface":{"surfaceId":"s-1","catalogId":"https://example.com/catalogs/demo/v1"}}
 {"version":"v0.9","updateComponents":{"surfaceId":"s-1","components":[{"id":"root","component":"Column","children":["title"]},{"id":"title","component":"Text","text":{"path":"/title"}}]}}
-{"version":"v0.9","updateDataModel":{"surfaceId":"s-1","value":{"title":"物流异常"}}}
+{"version":"v0.9","updateDataModel":{"surfaceId":"s-1","value":{"title":"任务界面"}}}
 ```
 
-组件采用扁平 ID 表，容器以 `children`/`child` 引用；`{ path }` 使用 JSON Pointer。生成流须包含 `root` 组件；action 响应只更新原 surface 的组件或 dataModel。上例是消息形状示意，不代表这些字面值已经走过 OrderOps 业务校验。
+组件采用扁平 ID 表，容器通过 `children`/`child`/`tabs` 引用，绑定采用 JSON Pointer。生成流须含 `root`；action 流仅允许 `updateComponents`/`updateDataModel`。
 
-校验链为 Protocol（结构）→ Nexus Profile（支持子集）→ Catalog（组件 schema、字段、绑定、action）→ Host Policy（工作流）。稳定诊断码：`PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`FEATURE_UNSUPPORTED`、`CATALOG_UNSUPPORTED`、`POLICY_REJECTED`；错误应带可定位的结构化 diagnostics。Client→server 的 `action`/`error` 不属于 core 的 server→client 流入校验；action 回流由 Host HTTP 边界处理。
+当前 17 个标准组件为 Text、Image、Icon、Row、Column、List、Card、Tabs、Divider、Button、TextField、CheckBox、ChoicePicker、DateTimeInput、Slider、Video、AudioPlayer。List 仅静态 children；Button 仅 `action.event`。TextField/Slider/Button 的 checks 子集为 required、regex、length、numeric、email。
 
-官方 `specification/v0_9` 的 9 份 conformance 用例已建机器基线 `packages/nexus-core/tests/conformance-baseline.json`：33 pass、47 已决策偏差、0 fail。四类偏差：`profile-unsupported` 16（官方合法而 Profile 不支持）；`profile-catches-protocol-loose` 23（结构层偏松、Profile 拦截）；`degraded-value-constraint` 5（无效值降级渲染）；`scope-client-to-server` 3（方向不适用）。协议层必须保持“官方合法消息不被协议层误拒”的零 fail 不变量；Profile 拒绝不计为协议错误。上游 v1.0 或其他生成格式须单独评估，不能静默混入该基线。
+不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束，当前自定义输入/action 仍受硬编码限制。
 
-## 2. Profile 与 Catalog（当前 Nexus 能力）
+校验链为 Protocol → Profile → Catalog → 显式 Host Policy。已有诊断码为 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`FEATURE_UNSUPPORTED`、`CATALOG_UNSUPPORTED`、`POLICY_REJECTED`。诊断可带 `path`、`message`、`dataPath`。client→server 消息由服务端 action 边界处理，不属于 core 的 server→client 流入。
 
-Nexus Basic Task Profile 支持 17 个标准组件：`Text`、`Image`、`Icon`、`Row`、`Column`、`List`、`Card`、`Tabs`、`Divider`、`Button`、`TextField`、`CheckBox`、`ChoicePicker`、`DateTimeInput`、`Slider`、`Video`、`AudioPlayer`。`List` 仅静态 children；`Button` 只支持 `action.event`；绑定使用 `{ path }`。`TextField`/`Slider`/`Button` 的最小 checks 支持 `required`、`regex`、`length`、`numeric`、`email`。不支持 checks 的 `and/or/not`、跨字段校验、`action.functionCall`、ChildList 模板、`sendDataModel` 端到端、Modal、WebSocket/A2A/MCP transport；Theme 被 core 保存但标准 React 组件尚不消费；playground 仅显示一个 active surface。
+官方用例历史基线（2026-09-30）：9 份用例，33 pass、47 已决策偏差、0 fail，位置为 `packages/nexus-core/tests/conformance-baseline.json`。偏差为 profile-unsupported 16、profile-catches-protocol-loose 23、degraded-value-constraint 5、scope-client-to-server 3。这个分类结果不代表完整协议一致性；当前改动须重跑 conformance 后才能声明无回归。
 
-宿主 `CatalogDefinition` 声明组件名单和 action 白名单；需要字段验证的组件同时声明 `componentSchemas`（props 结构）和 `componentPolicies`（字段/绑定/action 权限）。当前 OrderOps `Column` 是无 props 的根容器，未声明 schema/policy；不能笼统声称六个组件都双声明。`createCatalogPromptContract` 从同一声明生成提示，但 prompt 只是建议，guard 才是最终裁决。Catalog Contract 带 `contractVersion` 与内容 `contractHash`；公开 discovery `GET /api/a2ui/published-catalogs` 可找到契约 URL，Agent 可按 hash 缓存。
+## 2. 当前 Catalog 与公开 API
 
-OrderOps Catalog v1 当前只允许 `Column`、`Text`、`TextField`、`Button`、`OrderSummary`、`LogisticsTimeline` 六种组件和 `createTicket` 一个 action。`OrderSummary`/`LogisticsTimeline` 是展示组件，不挂 action；`Button.disabled` 只接受字面布尔。**当前 Catalog 只能要求 `TextField.value` 是 `{path}`，不能限制其路径必须为 `/draft/note`**；该路径的白名单由 M3 Host 自定义 resolver/handler 执行，现阶段尚未闭合。第二流程的组件/action 在 M4 再声明。
+CatalogDefinition 目前包含 `catalogId`、`components`、可选 `actions`、`componentSchemas` 和 `componentPolicies`。schema 是明确受限的 JSON-Schema-like 子集；`dynamic` 描述字面值/绑定约束，不能当作任意 JSON Schema 引擎。
 
-| Catalog 字段 | 当前可核对的约束 |
-| --- | --- |
-| `components` / `actions` | 组件/action 白名单；未声明的候选消息拒绝 |
-| `componentSchemas` | props 结构、必填、枚举、类型、额外字段规则 |
-| `componentPolicies.fields` | 动态绑定允许/必须/禁止、子组件引用、Host 扩展来源 |
-| `componentPolicies.action` | 该组件是否允许挂载 action |
-| `contractHash` | 对规范化 CatalogDefinition 计算 SHA-256，Agent 缓存命中须同 hash |
+`createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v1 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-## 3. Nexus transport 与 action（当前能力）
+**当前差距**：core 在 `actions` 缺省时不执行 action 名称白名单检查，server 的 helper 则可能回退到示例 actions；未声明 schema 的组件可仅做名称检查；默认 Policy 仍包含示例流程。不得把“所有未声明能力均被拒绝”作为当前统一保证。目标见 §4。
 
-Host 逐条校验候选消息，通过才发 SSE `message`；整条流完成并提交 Nexus 快照后发 `done`。此前的 `message` 是可见预览，后续校验或提交失败仍会发 `error`，本次失败流不会提交 history 或新的可执行 action 快照；浏览器必须在 `done` 前禁用业务 action，并在 `error` 后清理预览。现有 `sendMessages` 不是先缓存全流再一次性发给浏览器，不能把收到首条 `message` 当作提交成功。`sendAgentRun` 在调用时同步占用响应并自行接管其生命周期（`ctx.respond = false` + 立即 `flushHeaders` 并 pipe 到 socket），不依赖 Koa 的 `respond()`：因此同 surface 的排队 run 不会回落到 404，宿主写 `void sendAgentRun(...)` 或 `await sendAgentRun(...)` 都保持逐条下发（宿主自注册的 abort 监听用 `dispose` 回调收尾）。
+当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
-回流端点 `POST /api/a2ui/event` 接 A2UI `action` 信封。必填 `version: 'v0.9'`、`name`、`surfaceId`、`sourceComponentId`、可解析的 `timestamp` 和对象 `context`；`actionId` 在服务端解析器中可选，OrderOps Web 当前会生成并携带。服务端顺序为 surface 锁 → 已提交 action 快照及组件/action 归属校验 → ledger 去重 → 解析声明过的 context → Host handler → patch 重新过 guard → SSE。同一 surface 的 handler 串行，第二个读第一个提交后的 dataModel。ledger 有 `actionId` 时按它与 surface/组件/action 标识去重；缺失时按时间戳和 context 等字段组成键。Nexus 快照与内存 ledger 不等于持久化业务事务；默认 resolver 使用服务端提交时的 dataModel，不能拿到浏览器后续编辑值；自定义 `resolveActionContext` 必须自己拒绝未声明字段并验证类型。
+server 根入口提供 AgentAdapter、router、Policy 注入、Catalog/discovery、RPC、verifier、history/run 与 `sendAgentRun` 等装配能力。内置参考工厂不从根入口导出，但 Adapter 默认仍关联内置 Catalog/LLM/Policy，根导出隔离尚不等于默认行为已中立。
 
-外部 Agent 生成源是 Host→Agent HTTP RPC。请求字段为 `{ version: 1, kind: 'generate', surfaceId, message, catalogId, supportedComponents, supportedActions, catalogContract, history }`；`catalogContract` 至少含 `version: 1` 与 `hash`，可含 URL。成功返回 `application/x-ndjson`，每行一个候选 A2UI 消息；错误为非 2xx + `{error:{message}}`。OrderOps 把 `message` 规范化为 caseId。Agent 分析管线已落地（T3.4/T3.5）：caseId → 只读快照（Bearer fail-closed）→ 分析（deterministic 默认 / model）→ 确定性编译；handler 仍先缓冲输出再一次性返回，接真实模型流式时再评估逐行。Host 侧连接真实模型时把默认 15s 超时提高至其设定的 120s，并继续逐条 guard。
+## 3. 当前 HTTP、RPC 与提交语义
 
-| HTTP / RPC 边界 | 当前默认上限与结果 |
-| --- | --- |
-| Nexus JSON 请求读取 | `application/json` 或 `+json`，默认 1 MiB、10 s；非法媒体类型/超限/超时拒绝 |
-| 外部 Agent 客户端 | 默认 15 s、2,000,000 bytes，仅接受 `application/x-ndjson`/`application/jsonl`，零消息拒绝；取消经 AbortSignal 传播 |
-| `sendMessages` | 候选消息先 guard 后 SSE；参考默认逐条延迟 200 ms，OrderOps 明确配置 `streamDelayMs: 0` |
-| OrderOps Agent `/rpc`（T3.3 工作区） | 当前请求读取上限 1 MB；生成器先缓冲再写 NDJSON，失败时返回 JSON 错误体 |
+当前参考 HTTP 路由：
 
-参考 Host 路由还提供 `POST /api/a2ui/generate`（请求仅允许 `message?`/`catalogId?`）、`GET /api/a2ui/catalog-contract?catalogId=`、`GET /api/a2ui/published-catalogs`、`GET /api/a2ui/agent-onboarding?catalogId=` 和 `GET /api/a2ui/runs?surfaceId=`。业务宿主须校验自己的案件约束：当前 OrderOps 专用 analyze 路由尚未验证 caseId/状态，且通用 generate 路由仍挂载；在 M2 接线前应修正，见 [CURRENT](tasks/CURRENT.md)。
+| 路由                                        | 当前行为                                    |
+| ------------------------------------------- | ------------------------------------------- |
+| `POST /api/a2ui/generate`                   | 接收 `message?`、`catalogId?`，返回 SSE     |
+| `POST /api/a2ui/event`                      | 接收 v0.9 action 信封，返回同 surface patch |
+| `GET /api/a2ui/catalog-contract?catalogId=` | 返回已发布 Catalog Contract                 |
+| `GET /api/a2ui/published-catalogs`          | 返回显式发布的 Catalog 摘要与 URL           |
+| `GET /api/a2ui/agent-onboarding?catalogId=` | 返回 Agent 接入约束与验收描述               |
+| `GET /api/a2ui/runs?surfaceId=`             | 查询进程内运行记录；访问控制仍需宿主接线    |
 
-## 4. 公开包与兼容性（当前能力）
+当前 action 要求 name、surfaceId、sourceComponentId、可解析 timestamp 和对象 context；解析器支持可选 actionId。顺序为 surface 锁 → 快照与 action 声明核对 → handler 查找 → ledger → resolver → handler → patch guard → UI 快照提交。
 
-可依赖的只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server` 根入口；`packages/*/src/**`、`server/*/src/**` 与 `*/dist/*` 深路径不承诺兼容。core 根入口覆盖 runtime、协议/Profile 校验、Catalog/schema/policy、状态/VNode 和交互辅助；React 覆盖 Provider、renderer、标准 renderMap 和兼容检查；server 仅承诺 AgentAdapter、guarded router、生成/action/Policy 注入、Catalog Contract/discovery、外部 RPC、verifier、history/run、`sendAgentRun` 等有限装配 API。参考程序的内置 Catalog、LLM、mock handler、全局 store 和 listener 不属于包契约。
+默认 resolver 从服务端快照解析参数，无法取得浏览器后续输入；自定义 resolver 完全接管时，字段/路径/类型拒绝须宿主自行实现。ledger 只在进程内去重，failed 记录可能再次进入，不能作为业务重试依据。
 
-线协议版本为 `v0.9`；三包实现版本为 `0.1.x`；core/react/server 根 API 版本各为 `1`。React `0.1.x` 支持 core `0.1.x` 且要求 core API 1、协议 v0.9。移除/改变根导出需提升 API 版本；新增导出须有意更新公开面快照。三包当前私有，同居期 OrderOps 经 `workspace:*` 消费。浏览器终态/错误处理与服务端准入的可复用行为是 [PRD](PRD.md) 的产品目标；transport client、`NexusSurface` 或独立 guard 包是待验证的实现选项，不属于本版公开契约。Vue renderer 是可选扩展。
+SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成功后发送，`error` 表示运行失败。现有浏览器示例未完整落实终态识别与预览门控。当前 `sendAgentRun` 接受 Koa Context，调用时同步占用响应并自行 pipe，宿主 await/void 均逐条下发；此保证属于 Koa 适配行为。
 
-生产级设计门禁还要求当前产物在仓外干净宿主安装，只通过根入口完成生成、受控渲染、输入、action 和 patch；验证类型/exports/依赖、版本兼容、取消与错误状态、资源上限和坏输出诊断。历史 tarball 冒烟及当前 workspace 直链只能证明对应时点的接入，不能替代当前版本的独立安装结果。SDK 门禁与 OrderOps Agent 的生产能力分开，具体任务见 [CURRENT](tasks/CURRENT.md)。
+| 资源                        | 当前默认值 / 已知限制                                                  |
+| --------------------------- | ---------------------------------------------------------------------- |
+| JSON 请求体                 | JSON 或 +json，1 MiB、10 s                                             |
+| 外部 Agent RPC              | 15 s、2,000,000 bytes；仅 NDJSON/JSONL；空输出拒绝；AbortSignal 传播   |
+| SSE 下发                    | 默认每条延迟 200 ms；背压硬上限尚待补齐                                |
+| JSONL 行                    | 1,000,000 个 JavaScript 字符串代码单元；不是 HTTP 字节限制；超长行丢弃 |
+| VNode / 深度 / React 元素   | 10,000 / 1,000 / 10,000                                                |
+| 错误记录                    | 200 条；raw 截断 2000 字符                                             |
+| run / ledger / surface 快照 | 保留配置为 512 / 1,024 / 256；不构成运行总资源的完整硬上限             |
 
-## 5. OrderOps 领域契约（部分已实现，M2/M3 待闭合）
+外部生成 RPC 现有请求为 `{ version: 1, kind: 'generate', surfaceId, message, catalogId, supportedComponents, supportedActions, catalogContract, history }`，可传播 signal。成功响应为 `application/x-ndjson` 或 `application/jsonl`；失败为非 2xx 与错误信息。宿主选择 endpoint/headers/timeout，模型耗时超过默认值时须显式调高。该 RPC 是可选适配，不是所有 Agent 必须采用的协议。
 
-`packages/contracts` 的跨包 zod 契约包括 `CaseSnapshot`、`ReadContextResponse`、`AgentAnalysis` 判别联合和 `CreateTicketInput`；OrderOps Catalog v1 定义亦在 contracts（Host 发布、Agent 编译器共用）。分析成功分支有 `verdict: 'analysis'`、`summary`（≤500）、`reason`（≤1000）、`evidenceEventIds`（≤20）、`recommendation`（≤500）、`uncertainties`（≤10）；证据不足分支为 `verdict: 'insufficient_evidence'`、`reason`、`missingInformation`。Agent 不 import Host 数据库模块。`evidenceEventIds` 必须属于只读快照；Agent 分析引擎（T3.4）强制该校验——模型越界重试耗尽后输出 `insufficient_evidence`（missingInformation 为越界 id）而非可执行结论。
+## 4. 目标 Catalog 与交互准入（待实现）
 
-| 持久化表（M1 已建） | 关键字段/约束 | 权威用途 |
-| --- | --- | --- |
-| `orders` | ID、客户、币种、整数最小货币单位金额、承诺时间、状态、版本 | 订单事实 |
-| `logistics_events` | ID、订单 ID、状态、发生时间、来源 | 可回查的原始证据 |
-| `anomaly_cases` | 订单、type、occurrence_key、severity、status、version、last_event_id；`UNIQUE(order_id, occurrence_key)` | 案件与重复扫描幂等 |
-| `tickets` | `case_id UNIQUE`、order_id、note、status | M3 模拟工单领域幂等 |
-| `action_attempts` / `audit_events` | 请求键唯一索引、操作状态/结果；事件种类、actor、payload | M3 查询与审计 |
-| `surface_bindings` | surface_id 主键、case_id、case_version、catalog_hash | M3 以服务端关联决定 action 业务对象 |
+目标 Catalog Contract 升至 v2，支持展示、输入与 action 能力的一致声明。现有 v1 与目标 v2 不得静默混用；内容或能力变化产生新 hash，正在运行的 surface 固定其契约版本/hash。
 
-| 端点 | 现状 / 目标 |
-| --- | --- |
-| `GET /api/cases?status=&severity=&q=`、`GET /api/cases/:id` | M1 已实现；过滤/搜索、事实与事件时间线可回查，非法枚举 400 |
-| `GET /internal/cases/:id/context` | M2 T3.1 已实现；Bearer 内部 token fail-closed，出口校验 schema，最近 200 事件升序 |
-| `POST /api/cases/:id/analyze` | T3.6 已接外部 Agent RPC：analyze 前核对案件（404/409/503），Nexus 快照提交后、done 前写 `surface_bindings`；`ORDEROPS_AGENT_URL` 未配置时显式 503 |
-| `POST /api/a2ui/event` | T4.1/T4.2 已接本地领域事务：resolver 限定 `note`（contracts strict 校验，伪造字段拒绝），事务写唯一工单/案件 `ticket_created`+版本推进/操作/审计；重复检查先于版本检查（双击答"已建单"）；成功 patch = 禁用按钮 + `/result` 定点写工单号（官方可选 `path` 语义） |
-| `GET /api/actions/:actionId` | T4.2 已实现：按客户端 actionId 返回操作终态（succeeded/failed + resultId/error/createdAt），未知 404，存储未接线 503 |
-| Agent `POST /rpc`、`GET /health` | 已完成（T3.3–T3.5）：`message` 规范化为 caseId → 只读快照 → 分析（deterministic 默认；model 经 `ORDEROPS_AGENT_MODE` + `ORDEROPS_MODEL_*` 配置，真实冒烟待凭证）→ 确定性编译六组件 surface；仅 Host 可达，无浏览器面 |
+1. actions 必须显式声明，展示型 Catalog 使用空数组；缺失配置显式报错，不继承示例动作。
+2. 发布组件须有 props schema 和能力声明；标准组件可复用 SDK 定义。未声明字段默认拒绝，不支持的 schema 配置在注册时显式报错。
+3. 输入声明包含可写绑定属性及值 schema；宿主为 surface 配置允许编辑的 JSON Pointer。首发使用明确路径，不建设任意路径表达式或业务规则 DSL。
+4. action 声明包含可挂载组件能力和参数 schema。由声明决定 action 来源，不按 Button/TaskButton 名称特判。
+5. 浏览器提交输入只标识组件、绑定属性和新值；服务端从已提交组件声明取得路径，核对允许路径与 schema 后构造临时输入模型。不得直接 deep-merge 客户端 dataModel。
+6. handler 参数从服务端持有的 action 声明及临时输入模型重新解析，并通过参数 schema。客户端 context 不是参数权威，额外字段拒绝；只读业务字段由宿主再查询和核对。
+7. 通用准入成功不表示业务授权成功。宿主依据可信身份、业务对象与当前业务版本决定是否执行。
 
-M3 案件状态目标为 `open → in_review → ticket_created`，另可 `dismissed`；状态变更加 `case_version`，过期 surface 拒绝。操作状态目标为 `pending → succeeded | failed | needs_reconcile`。领域幂等键为 `caseId + operationType`，`tickets.case_id` 唯一约束兜底；请求 `actionId` 用于识别同请求重放，缺失时 SDK 退回时间戳与 context 等字段组合，均不代替领域幂等。备注不参与领域幂等键。Host 先提交工单/案件/操作/审计事务，再编译 patch；SSE 或 patch 失败不回滚已提交事务，真实结果由案件及操作查询确认。
+Catalog schema、绑定与 action 规则由 core 的纯模块复用。server 是权威准入点，浏览器校验用于状态正确性与反馈，不能替代 server。
 
-M4 的退款类型、金额字段、限额和状态迁移目前没有 schema/handler；实施前在 contracts/Catalog/Host 三处同时定义，并补跨包正常/越权/重复/断线测试。不能把 PRD 的模拟退款流程视作当前 wire 契约。
+## 5. 目标 session 与流契约（待实现）
 
-## 6. 契约治理
+### 5.1 版本与 envelope
 
-协议/Profile/Catalog/Policy 行为变更用同一 fixture 做 Nexus conformance 与 OrderOps guard 双端验证，根 `pnpm test` 覆盖。改变官方基线时显式再生 `packages/nexus-core/tests/conformance-baseline.json`，在 §1 记录新分类、数量和接受理由；不静默漂移。contracts schema 改动须 Agent/Host/Web typecheck、合法与非法边界测试同过。已实现的对外契约应由测试锁定，目标契约在交付时补测试。执行任务与门禁见 [CURRENT](tasks/CURRENT.md)。
+新增 Nexus Session v1，独立于 A2UI v0.9、Catalog Contract v2 和包 API 版本。运行元数据放在 Nexus 传输 envelope，A2UI message 保持自身形状，不向 createSurface/action payload 静默追加 SDK 字段。
+
+目标 action HTTP 请求为外层 `{ message, nexus }`：message 承载 v0.9 action 信封；nexus 承载 session version、actionId、surfaceRevision、catalogHash 和组件输入。actionId 标识一次用户提交，不代表领域幂等键。具体 TypeScript 字段签名与解析器在对应实现切片共同锁定；这些语义不再由示例各自定义。
+
+首发流适配为 POST fetch/SSE：
+
+| 事件      | 目标语义                                                                     |
+| --------- | ---------------------------------------------------------------------------- |
+| `start`   | session version、runId、surfaceId、Catalog hash、基准 revision；先于候选消息 |
+| `message` | data 为原始 A2UI 消息；经校验后进入本次预览                                  |
+| `done`    | runId、surfaceId、已提交 revision 与 Catalog hash；表示 UI 提交成功          |
+| `error`   | runId、surfaceId、诊断与 UI commitState；不表示业务失败                      |
+
+每条流只能有一个终态；终态后 message 或第二个终态视为无效流。EOF 前未收到终态为运行不完整；content-type、frame/响应大小、超时与 reader 清理均受约束。首发不自动重试 action、不承诺断点续传或 exactly-once。
+
+### 5.2 三种状态
+
+| 状态           | 语义                                                                    |
+| -------------- | ----------------------------------------------------------------------- |
+| core surface   | A2UI 消息产生的组件/dataModel 状态；core 不把每组消息当事务             |
+| SDK run        | queued → running → succeeded / failed / canceled；另报告 UI commitState |
+| Host operation | 宿主定义的业务结果，SDK 不推导或固化其领域状态机                        |
+
+UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提交事实报告；客户端未获得可信终态时保守使用 unknown，即使 TCP 正常关闭也不能推断未提交。
+
+成功 done 且本地消息全部通过校验，client 才把本次预览提升为已提交视图并开放 action。失败/取消丢弃本次预览；保留原已提交视图用于展示。commitState unknown、客户端与服务端 revision/hash 不一致或 done 后本地校验失败时，将该 surface 标记失同步并禁用 action，直到显式恢复/重新生成。
+
+恢复通过宿主提供的受控 surface 快照或重新生成完成；快照必须核对 revision/hash 并重新经过校验。业务结果恢复由宿主回调或查询实现，可使用宿主提供的不透明操作关联标识。SDK 不推断业务可重试，也不回滚已执行副作用。
+
+## 6. 目标 server runtime（待实现）
+
+- 生成源、registry、Host Policy、handler、状态实现均显式装配；缺少必需依赖报错。可提供确定性的可选标准 Catalog 工厂，不使用模型 key 或业务词选择默认行为。
+- 同一 runtime 的 surface 调度覆盖快照读取、revision/hash 核对、输入/action 准入、handler 和 patch 提交；handler 不得在排队准入前执行。HTTP 适配器不拥有第二套 surface 锁。
+- snapshot commit 是 UI revision 的发布点。确认失败发生在发布前报告 notCommitted；存储写入结果不确定时报告 unknown，不能仅凭写入异常推断未提交。发布后传输/观察者失败不能改写成未提交。history/观测为显式可选扩展，不伪装成与宿主数据库的原子事务。
+- default store、ledger、scheduler 按 runtime 实例隔离；可替换存储不意味着支持多实例一致性。首发只保证单实例调度，宿主另行处理跨实例业务幂等。
+- 取消关闭候选源、reader、监听器和排队任务；已经开始的宿主操作能否取消由 handler 决定。资源超限须显式拒绝，禁止无限排队、缓冲或淘汰运行中保护记录。
+- HTTP 适配在读取/公开 surface 数据及执行 action 前调用宿主访问准入。认证主体来自可信请求上下文；surfaceId、catalogHash 与客户端 context 都不是凭据。参考应用的本地演示模式须显式配置，不能作为公网默认授权。
+- Koa 适配保持调用时响应占用与 await/void 时序；非 Koa 消费无需构造 Koa Context，即可复用相同运行逻辑与准入结果。
+
+## 7. 目标 React 与 client 组合（待实现）
+
+client 对外提供会话控制器；其 TypeScript API 在实现时以 `createClientSession` 为入口定型，包含稳定 runtime、会话/surface 状态订阅、生成/action、取消、恢复及 dispose。transport 可注入；首发自带 fetch/SSE，核心会话状态机不依赖 React 或 Node server 包。
+
+React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话接入还需提供按 surface 订阅的交互可用状态，Surface 与动作出口均执行门控。
+
+订阅必须可解除；外部 runtime/session 由创建者销毁，Provider 自建 runtime 由 Provider 销毁。renderMap、回调和父组件重渲不得意外重置 runtime；两个 Surface 的状态、删除和生命周期隔离。样式由宿主显式选择，不在 import 时注入全局动画。
+
+## 8. 版本迁移与验证
+
+当前三包 API 1 保持“现状”标识，目标改造涉及 Provider 行为、默认依赖、Catalog 与 HTTP envelope 的破坏性变化。各切片同步公开根导出快照、消费方、迁移说明；交付新的破坏性契约时提升相应 API 版本。包版本与 workspace 安装规则遵循 AGENTS.md，文档定稿不提前改包版本。
+
+新增 client 后，只通过四包公开入口消费；不强制所有应用安装四包。协议/Profile 与组件能力校验使用共享正常/非法 fixture 在 core、server 和 client/React 接入验证，不等待业务应用重建。conformance 变更须显式更新分类理由和基线。
+
+发行须对当前产物做仓外干净安装、types/exports/依赖/兼容检查及真实浏览器关键路径验收。当前 workspace 测试和历史数字只证明对应快照；任务状态与执行命令见 CURRENT。
+
+### 8.1 目标发行产物（待实施）
+
+首发每包交付可原生加载的 ESM `.js` 与 `.d.ts`；建议 `.js.map`，发布时保证源码映射可用。视图包可提供显式公开的样式入口，宿主按需引入；当前 React 仍在 import 时注入动画，独立 CSS 尚未交付。不提供 CJS、UMD 或 IIFE；包内不重复捆绑 React/Vue，框架依赖以 peer dependency 声明，内部包按依赖关系消费。
+
+当前构建仍使用 `fix-esm-imports.mjs` 补齐相对路径。目标以显式 `.js` 源码路径和 NodeNext 配置在编译时保证 Node ESM 可解析性；通过产物原生加载、类型解析和浏览器打包验证后才移除脚本。宿主通过公开包入口消费，不运行 SDK 构建脚本。

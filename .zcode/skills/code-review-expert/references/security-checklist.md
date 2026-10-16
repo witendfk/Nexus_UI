@@ -1,43 +1,32 @@
-# 安全与可靠性清单
+# SDK 安全与可靠性
 
-来源：sanyuan0704/sanyuan-skills `code-review-expert`（适配 OrderOps）。
+## 不可信输入与准入
 
-## 输入/输出安全
+- Agent JSON、HTTP 字节和浏览器 action 是否经运行时结构校验？类型断言不能替代校验，不限定校验库。
+- Protocol/Profile/Catalog/Host Policy 的拒绝是否阻止状态落地？未知/不支持配置是否显式失败？
+- JSON Pointer、写回、对象合并与 registry 查表是否防原型保留段和继承属性？合法普通 key 不应被误拒。
+- schema.pattern、checks 正则和所有动态模式是否使用安全实现与长度/复杂度限制？
+- URL/src/link 是否按用途限制 scheme？是否有 HTML/脚本注入、路径穿越、命令拼接或密钥/诊断 raw 泄露？
+- RPC endpoint 的可信配置与不可信请求字段是否分开？仅当存在用户可控网络访问路径时评估 SSRF、重定向和超时边界。
 
-- **XSS**：`dangerouslySetInnerHTML`、未转义模板、`innerHTML` 赋值、用户输入直接进 URL/src。
-- **注入**：SQL 拼接（本项目 SQL 必须参数化）、命令拼接、log 注入。
-- **SSRF**：用户可控 URL 进入 `fetch`/request；重定向绕过白名单。
-- **原型污染**：对客户端 JSON 做 deep merge / `Object.assign` 到共享对象。
-- **反序列化**：不受信来源的 `JSON.parse` 结果直接当内部类型使用（必须过 zod schema）。
+## action 与权威
 
-## 信任边界（OrderOps 特有）
+- 是否核对已提交 surface 的 revision/hash、组件来源、action 声明、输入路径/值和参数 schema？客户端 context 与模型字段都不是业务事实。
+- 自定义 resolver/handler 是否能跳过 SDK 的基本准入？schema/hash/actionId 是否被误用为权限凭据？
+- HTTP 适配是否在执行、查询或恢复 surface/run 前执行宿主访问准入？本地演示放行是否显式配置？不规定宿主身份系统的实现。
+- 是否清晰区分 SDK 去重和领域幂等？failed/取消/断线后是否隐式重放可能已执行的业务操作？
 
-- `action.context` 客户端字段 ≠ 订单事实；案件归属只能经 `surface_bindings` 反查。
-- 过期 surface（case_version 不匹配）提交必须拒绝。
-- 模型输出只进受 schema 约束通道；证据 ID 必须属于工具快照。
-- `/internal/*` 路由必须有 token 校验，仅本机进程可达。
+## 状态、并发与流
 
-## 认证/授权/密钥
+- 调度是否覆盖快照读取、准入、handler 和提交？是否双锁、全局队列串扰、排队期间提前执行 handler？
+- 预览是否被隔离且不能 action？EOF 是否误判成功？done 是否只表示 UI 提交？
+- 提交前后失败能否正确报告 notCommitted/committed/unknown？history/观察者失败是否错误改写提交事实？
+- revision 不一致、缺失终态、晚到响应是否导致失同步却仍开放旧 action？恢复快照是否重新校验？
+- cancel/超时/dispose 是否关闭源、reader、监听器、timer 并释放锁？取消不能宣称撤销宿主事务。
 
-- 硬编码凭据、`.env` 提交、密钥进日志。
-- 越权：ID 直接来自请求而未校验归属（IDOR）。
-- 鉴权缺失的路由（本项目除 health 外的 API 在多用户前必须有 actor）。
+## 有界资源
 
-## 并发/竞态
-
-- check-then-act 无锁（先查后写窗口）。
-- 双击/重复提交：幂等键、唯一约束、ledger 是否兜底。
-- 异步完成后的状态覆盖（过期响应晚到覆盖新状态）。
-- SSE 流与业务事务的时序：事务先行，流失败不回滚。
-
-## 错误处理
-
-- 空 catch / 只打印不处理的异常吞噬。
-- 未捕获的 promise rejection（尤其 `void fetch(...)`、`.then` 无 `.catch`）。
-- 错误信息泄露内部细节（堆栈、SQL、路径）给客户端。
-
-## 资源与边界
-
-- 流/文件句柄未关闭；定时器/监听器未清理。
-- 无上限的缓冲（字符串拼接流、无 maxBytes 的请求体读取）。
-- 循环边界、`null`/`undefined` 访问、数组越界。
+- 请求、JSONL 行、SSE frame/总响应、组件树、队列、活动 run、错误 raw 和存储是否有真正执行的预算？明确 bytes 与代码单元。
+- 慢消费者是否产生无限缓冲？写流是否尊重背压？取消是否能打断排队与慢消费？
+- 保留条数是否被误称并发硬上限？运行中 ledger/run 是否被静默淘汰，导致重放保护失效？
+- 安全/隔离/幂等结论是否有真正触发失败路径的证伪测试？不要求审查接入方业务数据库或事务代码。

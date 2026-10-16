@@ -1,95 +1,50 @@
 ---
 name: code-review-expert
-description: "Expert code review of current git changes with a senior engineer lens. Detects SOLID violations, security risks, code smells, and boundary-condition bugs in diffs. Use PROACTIVELY when the user asks to review/评审/审查 code, before significant commits, or when a feature milestone (M0-M5) is declared complete."
+description: 评审 Nexus SDK 的代码、公开契约和架构边界，适用于 SDK review、显著变更提交前检查和里程碑验收；不评审接入方应用的内部工程或业务规则。
 ---
 
-# Code Review Expert
+# Nexus SDK Review
 
-对当前 git 变更做专家级代码评审：不改变行为的前提下找出 SOLID 违规、安全风险、坏味道与边界条件缺陷。**先评审、后动手：在用户明确确认前不要实施任何修复。**
+评审对象是 Nexus SDK 的正确性、安全、扩展性与可交付性。当前包、目标结构和任务状态以仓库文档为准，不把目标保证当作现有实现。
 
-来源：基于 [sanyuan0704/sanyuan-skills](https://github.com/sanyuan0704/sanyuan-skills) 的 `code-review-expert` 改写，加入 OrderOps 项目专项检查。
+## 范围与授权
 
-## Workflow
+- SDK 源码、公开入口、依赖、构建产物、测试、协议与设计文档属于范围。
+- 仓内示例、参考服务和独立验收夹具只检查其 SDK 公开入口消费、契约一致性，以及是否掩盖 SDK 缺陷；不审查其业务算法、数据模型、事务设计或应用分层。
+- 验证宿主与 Agent 尚未选定时，使用可替换的生成源、Catalog、transport 和 handler fixture。不能以缺少真实宿主为由阻塞 SDK 评审，也不能借评审替用户选定宿主工程。
+- 宿主身份、权限和业务事实属于边界：检查 SDK 是否提供并执行必要的准入回调、是否错误信任客户端或模型；不规定接入方采用某张表、领域幂等键、数据库或框架。
+- 默认只评审。用户已授权修复或文档调整时，直接完成授权范围；公共 API/依赖变化先说明影响。提交、推送和外部操作仍遵循会话授权与根 AGENTS.md。
 
-1. **Preflight**: 确认上下文 —— `git status`、`git diff`（不足时 `git log -p -3`）。理解系统架构与调用链（本项目的架构见 `docs/architecture.md`，接线见 `docs/design.md` §10 核查结论）。
-2. **SOLID & 架构扫描**: 对照 `references/solid-checklist.md`，标注违规（file:line + 违反的原则）。
-3. **删除/简化候选**: 对照 `references/removal-plan.md`，对每项给出删除收益与风险评估。
-4. **安全扫描**: 对照 `references/security-checklist.md`（XSS / 注入 / SSRF / 竞态 / 数据校验）+ 下方"OrderOps 专项"。
-5. **代码质量扫描**: 对照 `references/code-quality-checklist.md`（异常吞噬、资源泄漏、隐式耦合、并发问题）。
-6. **格式化输出**: 按 Output Format 分节输出中文报告；文件级 finding 用 `::code-comment` 指令内联标注。
-7. **Next Steps**: 给出修复选项（修 P0-P1 / 修到 P2 / 指定条目 / 仅报告），等用户确认。
+## 工作方式
 
-## Review-First Rule
+1. 读根 AGENTS.md、docs/tasks/CURRENT.md，按问题读取 docs/PRD.md → SPEC.md → ARCHITECTURE.md → DESIGN.md。核对源码，不复用旧快照作为本轮证据。
+2. 确认范围：改动评审查看 git status、staged/unstaged diff；方向评审追踪公开入口和完整数据流。保留已有工作区改动，不扩展到接入方工程。
+3. 按相关清单检查。代码评审覆盖四个维度；文档或架构评审只加载相关清单。通用准入与输入解释应可复用，组件扩展不应依赖业务名分支。
+   - [SOLID 与包边界](references/solid-checklist.md)：依赖、扩展点、公开 API 与框架耦合。
+   - [安全与可靠性](references/security-checklist.md)：不可信输入、action、状态、流与资源。
+   - [代码质量与验证](references/code-quality-checklist.md)：错误、所有权、兼容、证伪与产物。
+   - [删除与迭代](references/removal-plan.md)：SDK/示例隔离、迁移收益、风险和验收。
+4. 对每个 finding 给出可达路径、触发条件、后果和修复建议；绑定实际文件行。区分已证实问题、待验证风险与产品取舍。无法验证时说明缺失证据，不把猜测写成缺陷。
+5. 只运行与范围有关的只读检查或必要验证；遵守 Node/构建顺序。只评审不触发安装、改码或自动格式化；已授权实施时运行相应门禁。明确区分本轮结果与历史证据。
 
-默认只输出评审结论。用户说"直接修"、"fix it" 或在 Next Steps 中选择后才动手。若某个修复会改变公共 API 或引入新依赖，即使用户已确认也要先说明再实施。
+## 重点判断
 
-## OrderOps 专项检查（项目 overlay）
+- SDK 提供协议、Catalog、绑定、运行和交互机制；宿主提供业务规则。安全基线不随业务 Policy 的替换而被绕过。
+- 协议接受、UI 提交和宿主业务结果分别判断。流失败不证明业务失败；SDK 不自动重试业务 action 或回滚宿主副作用。
+- core、浏览器会话、React 视图和服务端运行各有职责；实际包数与 API 以当前源码为准。非默认 Catalog、自定义输入/action、两个 surface 与非框架消费能否通过公开契约接入，是扩展性证据。
+- 生产级声明依赖当前产物、失败反例和实际环境证据；不以示例运行成功或测试数量代替。
 
-通用 checklist 之外，本项目评审必须额外过一遍：
+## 输出
 
-### 信任边界（最重要）
+先给 APPROVE / REQUEST_CHANGES / COMMENT 与主要结论，再按 P0–P3 分组列出 findings（位置、触发条件、影响、建议），随后给删除/迭代计划和验证范围。无 actionable finding 时明确写出，并说明未验证项。
 
-- 浏览器回传的 `action.context` 字段**不得**被当作订单事实；案件归属必须经 `surfaceId → surface_bindings` 服务端反查（architecture.md §5.2）。
-- 过期 surface（`case_version` 不匹配）的提交必须被拒绝；Nexus 快照不感知案件版本，这道校验在 Host action handler 里。
-- Agent/模型输出只能进受 schema 约束的通道；证据 ID 必须属于工具快照；guard 拒绝的不算"已生成"。
+- P0：可达安全、数据丢失或严重正确性问题，阻断合并。
+- P1：逻辑错误、重大架构边界违反或性能回退，合并前应修。
+- P2：影响维护和演进的问题。
+- P3：非阻断的命名或风格建议。
 
-### SSE 与流式
+文件级问题逐条附 `::code-comment{title="[P1] 简短标题" body="触发条件、后果与建议" file="绝对路径" start=行号 priority=1}`，priority 对应 0–3；范围评审的整体决策无需强行绑定某行。
 
-- `done` 之前业务 action 必须禁用；流式预览不是可执行界面。
-- `error` 事件（服务端 guard 拒绝）与网络错误（fetch reject / EventSource onerror）必须区分处理。
-- 流中断后的恢复路径：查询 `GET /api/actions/:id` / 案件状态，不盲目重发写操作。
+用户仅要求评审时，结束前询问修复范围；用户已授权实施时完成授权工作并报告结果，不重复征求确认。不默认生成提交或 commit message。
 
-### 幂等与事务（M3 起）
-
-- 领域幂等键 `caseId + operationType`；唯一约束兜底；`request_key` 只识别客户端重放。
-- 事务必须先于流式输出完成；SSE/patch 失败不得回滚已提交事务。
-
-### 确定性
-
-- CI/回归只用 fixture 模式；真实模型调用只允许出现在显式冒烟测试。
-- 检测规则、严重度推导、乱序/缺失事件处理必须是纯代码，不得交给模型。
-
-### Nexus 约束
-
-- 只允许使用 `@nexus-ui/*` tarball 的公开导出（见 architecture.md §10.1）；禁止 import 内部路径。
-- 生产装配 `streamDelayMs: 0`；外部 Agent RPC `timeoutMs` 必须 ≥ 模型实际耗时（默认 15s 陷阱）。
-- `Button.disabled` 只能是字面布尔，不能 `{path}` 绑定。
-
-## Output Format
-
-```markdown
-## Summary
-用 2-3 句话向资深工程师同事总结变更质量与最大风险。
-
-## P0/P1/P2/P3 Findings
-| 级别 | 位置 | 问题 | 建议 |
-（P0=安全/数据丢失/正确性必须阻塞；P1=应尽快修；P2=重要不紧急；P3=值得注意）
-
-## 安全扫描
-覆盖 XSS / 注入 / SSRF / 竞态 / 数据校验，附通过项。
-
-## SOLID 评估
-突出严重违规，逐条标注 file:line 与违反原则。
-
-## 删除/简化候选
-每项给删除收益 + 风险。
-
-## 建议的 commit message
-按仓库惯例给 1-2 个 conventional commit 建议。
-
-## Next Steps
-1. 修复全部 P0-P1 问题
-2. 修复至全部 P2 清零
-3. 仅处理指定条目
-4. 仅输出报告，不修改代码
-```
-
-文件级 finding 同时用内联指令标注（ZCode 环境）：
-
-```
-::code-comment{title="[P1] 标题" body="说明" file="绝对路径" start=行号 priority=1}
-```
-
-## Verification
-
-除非用户在 Next Steps 中明确选择修复，否则不执行任何 lint/test/build。
+来源：参考 [sanyuan0704/sanyuan-skills](https://github.com/sanyuan0704/sanyuan-skills) 的 code-review-expert，按 Nexus SDK 范围重写。
