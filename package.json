@@ -12,10 +12,10 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev:web": "pnpm --filter @nexus-ui/playground dev",
-    "dev:server": "pnpm --filter @nexus-ui/server dev",
+    "dev:server": "pnpm --filter @nexus-ui/playground-server dev",
     "demo:standalone": "pnpm --filter @nexus-ui/standalone-host-demo dev",
     "build": "pnpm -r --workspace-concurrency=1 build",
-    "build:packages": "pnpm --filter \"./packages/*\" build",
+    "build:packages": "pnpm --filter \"./packages/*\" --workspace-concurrency=1 build",
     "build:web": "pnpm --filter @nexus-ui/playground build",
     "test": "pnpm -r --if-present test",
     "test:coverage": "pnpm --filter @nexus-ui/core test:coverage",

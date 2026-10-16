@@ -37,6 +37,15 @@ function hasUnsafeSegment(segments: string[]): boolean {
   return segments.some((seg) => UNSAFE_SEGMENTS.has(seg));
 }
 
+/**
+ * 单个键/路径段是否为保留段（__proto__/constructor/prototype）。
+ * dataModel、协议准入（validator）与渲染层（buildProps）共用此判断，
+ * 常量在定义处导出，避免多处复制造成口径漂移。
+ */
+export function isUnsafeSegment(segment: string): boolean {
+  return UNSAFE_SEGMENTS.has(segment);
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
   const proto = Object.getPrototypeOf(value);
@@ -226,6 +235,8 @@ export function resolveDynamic(value: unknown, model: unknown): unknown {
 /**
  * [seam] 批量解析 action.context 的 DynamicValue 键值对为真值（供 triggerAction 用）。
  * context 必须在 core 解析——数据模型在 core，宿主/渲染层不该碰。
+ * 保留段键（含 JSON.parse 注入的自有 __proto__）显式抛错：写入返回对象会命中
+ * `__proto__` 访问器，把返回对象的原型改写为攻击者值（原型污染）。
  */
 export function resolveContext(
   context: Record<string, DynamicValue> | undefined,
@@ -234,6 +245,9 @@ export function resolveContext(
   if (!context) return {};
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(context)) {
+    if (isUnsafeSegment(key)) {
+      throw new Error(`context 键包含保留段（__proto__/constructor/prototype）: ${key}`);
+    }
     out[key] = resolveDynamic(context[key], model);
   }
   return out;

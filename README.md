@@ -8,7 +8,7 @@ Nexus UI 是基于 A2UI v0.9 消息模型的受宿主约束的 Agent UI Runtime 
 
 Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard → SSE → 渲染 → action → 同 surface patch。Catalog Contract 带版本与 hash，可发现、校验并用于外部 Agent 接入。三包 `dist` 根入口可在 workspace 使用，当前仍为私有包；当前产物尚未通过完整的 SDK 发行门禁。内存 surface 快照和 action ledger 不代替业务事务。
 
-S0 文档与 SDK 评审规范已完成，运行代码尚待改造：按 S1 安全与中立默认值 → S2 Catalog v2/通用交互 → S3 通用 server runtime → S4 client/Provider/Surface → S5 仓外契约验收推进。目标四包 core/client/react/server，当前只有三包；SDK review 仅覆盖 SDK 及公开接入契约，不评审接入方业务工程。本次 Node 24 下 build/typecheck/lint/test 已通过；全仓格式检查仍有 13 个与 HEAD 一致的已有问题。最新任务、历史证据与门禁见 [CURRENT](docs/tasks/CURRENT.md)，历史数字不代表本轮已验证。
+S0 文档与 SDK 评审规范已完成；S1 安全基线与业务中立已实施：core 安全反例修复（保留段统一拒绝、媒体 URL 仅 http/https、schema.pattern 注册闸门 + 有界求值）、Adapter/guard 显式装配（registry 必填、policy 无默认、LLM 生成源须注入、catalogId 必填）、runs 查询宿主准入（`runsAccess` 未配置一律 403）、参考服务与演示 Catalog/LLM/Policy 迁至 `examples/playground-server/`。独立评审发现的四项已修复：组件/Catalog/renderMap 查表只读自有属性；渲染与 store 预算非法值立即报错；参考工厂显式接回演示 Policy；三包构建清理旧 dist 并校验文件清单。S1 已完成，提交记录见 Git 历史。后续按 S2 Catalog v2/通用交互 → S3 通用 server runtime → S4 client/Provider/Surface → S5 仓外契约验收推进。目标四包 core/client/react/server，当前 SDK 仍为三包；SDK review 仅覆盖 SDK 及公开接入契约，不评审接入方业务工程。本轮 Node 24 下 build/typecheck/lint/test 已通过；全仓格式检查仍有既有差异，本轮新增与修改文件另行定向检查。最新任务、历史证据与门禁见 [CURRENT](docs/tasks/CURRENT.md)。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
@@ -35,16 +35,17 @@ Nexus_UI/
 ├─ packages/            当前 SDK 三包（dist 根入口，私有）
 │  ├─ nexus-core        @nexus-ui/core    协议/Profile/Catalog 校验、surface 状态
 │  ├─ nexus-react       @nexus-ui/react   Provider / 17 标准组件 / renderMap
-│  └─ nexus-server      @nexus-ui/server  宿主装配 API ＋ 参考 Koa 服务（:3001）
-├─ web/nexus-playground 开发者试验台前端（vite proxy → :3001，与参考服务同属 playground 栈）
+│  └─ nexus-server      @nexus-ui/server  宿主装配 API、guard、SSE 传输（显式注入）
+├─ web/nexus-playground 开发者试验台前端（vite proxy → :3001）
 ├─ examples/
+│  ├─ playground-server/        参考服务（:3001）：演示 Catalog、LLM/mock 生成源、本地装配
 │  ├─ agent-demo/               Agent 宿主应用（占位，演示业务接入 SDK）
 │  └─ standalone-host-demo/     现有接入示例；后续 S5 契约验收参考
 ├─ specification/v0_9/  A2UI 官方上游快照（不进 workspace）
 └─ docs/                PRD → SPEC → ARCHITECTURE → DESIGN → tasks/CURRENT
 ```
 
-依赖单向：`core ← react / server`；`core + react ← playground`；业务宿主应用与 standalone-host-demo 只消费三包公开根入口，Nexus 不反向依赖业务。目标新增独立 client，参考服务迁至 `examples/playground-server/`；这些路径/API 尚未交付。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
+依赖单向：`core ← react / server`；`core + react ← playground`；`core + server ← playground-server`；业务宿主应用、standalone-host-demo 与 playground-server 只消费公开根入口，Nexus 不反向依赖业务。独立 client 尚未创建。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
 
 ## 本地运行
 
@@ -57,7 +58,7 @@ pnpm dev:server
 pnpm dev:web
 ```
 
-Workbench：`http://localhost:5173/`；参考 server health：`http://localhost:3001/health`。设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 可用真实 LLM；无 key 时走 fallback。`.env` 不入库。
+Workbench：`http://localhost:5173/`；参考服务 health：`http://localhost:3001/health`（`pnpm dev:server` 即 `examples/playground-server`，演示 Catalog/LLM 装配见其 [README](examples/playground-server/README.md)）。设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 可用真实 LLM；无 key 时走 fallback。`.env` 不入库。
 
 无 key 的独立宿主演示：
 

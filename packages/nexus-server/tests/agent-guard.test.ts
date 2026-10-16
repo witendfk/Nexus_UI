@@ -2,29 +2,43 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   createAgentStreamState,
-  validateAgentStreamFinal,
-  validateAgentStreamMessageDetailed,
   validateAgentSequence,
-  validateAgentStreamMessage,
+  validateAgentStreamFinalDetailed,
+  validateAgentStreamMessageDetailed,
 } from '../src/agent/agent-guard';
-import { BASIC_CATALOG, createWorkbenchFixture } from '../src/agent/mock-agent';
-import { NEXUS_BASIC_TASK_CATALOG, WORKBENCH_CATALOG } from '../src/agent/catalog';
-import { CatalogRegistry } from '@nexus-ui/core';
-import type { A2UIMessage, Component } from '@nexus-ui/core';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import type { A2UIMessage } from '@nexus-ui/core';
+
+const registry = createTestRegistry();
+
+function options(
+  overrides: Partial<Parameters<typeof validateAgentSequence>[2]> = {},
+): Parameters<typeof validateAgentSequence>[2] {
+  return {
+    kind: 'generate',
+    surfaceId: 'surface-1',
+    catalogId: TEST_CATALOG_ID,
+    registry,
+    supportedActions: ['submit'],
+    ...overrides,
+  };
+}
 
 const create = {
   version: 'v0.9',
-  createSurface: { surfaceId: 'surface-1', catalogId: BASIC_CATALOG },
+  createSurface: { surfaceId: 'surface-1', catalogId: TEST_CATALOG_ID },
 } as A2UIMessage;
 
 const update = {
   version: 'v0.9',
   updateDataModel: { surfaceId: 'surface-1', value: {} },
 } as A2UIMessage;
+
 const createWithWrongCatalog = {
   version: 'v0.9',
   createSurface: { surfaceId: 'surface-1', catalogId: 'custom-catalog' },
 } as A2UIMessage;
+
 const updateWithUnsupportedComponent = {
   version: 'v0.9',
   updateComponents: {
@@ -32,193 +46,15 @@ const updateWithUnsupportedComponent = {
     components: [{ id: 'input', component: 'TextInput' }],
   },
 } as A2UIMessage;
-const updateWithList = {
+
+const updateWithRoot = {
   version: 'v0.9',
   updateComponents: {
     surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'List', children: ['first'] },
-      { id: 'first', component: 'Text', text: 'First' },
-    ],
+    components: [{ id: 'root', component: 'Text', text: 'Root' }],
   },
 } as A2UIMessage;
-const updateWithTabs = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'root',
-        component: 'Tabs',
-        tabs: [
-          { title: 'Overview', child: 'overview' },
-          { title: 'Settings', child: 'settings' },
-        ],
-      },
-      { id: 'overview', component: 'Text', text: 'Overview' },
-      { id: 'settings', component: 'Text', text: 'Settings' },
-    ],
-  },
-} as A2UIMessage;
-const updateWithLegacyImage = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [{ id: 'root', component: 'Image', src: 'https://example.com/a.png', alt: '头像' }],
-  },
-} as A2UIMessage;
-const updateWithImage = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'root',
-        component: 'Image',
-        url: { path: '/avatar' },
-        description: '头像',
-        variant: 'avatar',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithInvalidImageVariant = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'root',
-        component: 'Image',
-        url: 'https://example.com/a.png',
-        description: '头像',
-        variant: 'circle',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithMedia = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Column', children: ['trailer', 'episode'] },
-      { id: 'trailer', component: 'Video', url: { path: '/trailerUrl' } },
-      {
-        id: 'episode',
-        component: 'AudioPlayer',
-        url: 'https://example.com/episode.mp3',
-        description: { path: '/episodeTitle' },
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithLegacyVideo = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'trailer',
-        component: 'Video',
-        src: 'https://example.com/trailer.mp4',
-        controls: true,
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithInvalidAudioDescription = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'episode',
-        component: 'AudioPlayer',
-        url: { path: '/audioUrl' },
-        description: 42,
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithUrlText = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'root',
-        component: 'Text',
-        text: '韩国艺人 | 头像: https://example.com/avatars/kim-so-hyun.jpg',
-      },
-    ],
-  },
-} as A2UIMessage;
-const createForStream = {
-  version: 'v0.9',
-  createSurface: { surfaceId: 'surface-1', catalogId: BASIC_CATALOG },
-} as A2UIMessage;
-const updateWithDynamicUrlText = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Card', child: 'avatarLabel' },
-      { id: 'avatarLabel', component: 'Text', text: { path: '/avatarUrl' } },
-    ],
-  },
-} as A2UIMessage;
-const updateWithAvatarImage = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Card', child: 'avatar' },
-      {
-        id: 'avatar',
-        component: 'Image',
-        url: { path: '/avatarUrl' },
-        description: '头像',
-        variant: 'avatar',
-        fit: 'cover',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithAvatarDataModel = {
-  version: 'v0.9',
-  updateDataModel: {
-    surfaceId: 'surface-1',
-    value: { avatarUrl: 'https://example.com/avatar.png' },
-  },
-} as A2UIMessage;
-const updateWithBioDataModel = {
-  version: 'v0.9',
-  updateDataModel: {
-    surfaceId: 'surface-1',
-    value: { bio: 'https://example.com/avatar.png' },
-  },
-} as A2UIMessage;
-const updateWithBioText = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Card', child: 'bio' },
-      { id: 'bio', component: 'Text', text: { path: '/bio' } },
-    ],
-  },
-} as A2UIMessage;
-const updateWithPlainText = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Card', child: 'plain' },
-      { id: 'plain', component: 'Text', text: '资源已生成' },
-    ],
-  },
-} as A2UIMessage;
+
 const updateWithUnsupportedAction = {
   version: 'v0.9',
   updateComponents: {
@@ -234,6 +70,7 @@ const updateWithUnsupportedAction = {
     ],
   },
 } as A2UIMessage;
+
 const updateWithActionOnText = {
   version: 'v0.9',
   updateComponents: {
@@ -243,1226 +80,146 @@ const updateWithActionOnText = {
         id: 'label',
         component: 'Text',
         text: '联系',
-        action: { event: { name: 'call', context: {} } },
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithValidTextField = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'keyword',
-        component: 'TextField',
-        label: '关键词',
-        value: { path: '/keyword' },
-        variant: 'shortText',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithLiteralTextFieldValue = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'keyword',
-        component: 'TextField',
-        label: '关键词',
-        value: 'A2UI',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithLongTextField = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'bio',
-        component: 'TextField',
-        label: '简介',
-        value: { path: '/bio' },
-        variant: 'longText',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithValidatedTextField = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'code',
-        component: 'TextField',
-        label: '编号',
-        value: { path: '/code' },
-        variant: 'obscured',
-        validationRegexp: '^[A-Z0-9]{6}$',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithBrokenValidationRegexp = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'code',
-        component: 'TextField',
-        label: '编号',
-        value: { path: '/code' },
-        validationRegexp: '[',
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithSearchForm = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      { id: 'root', component: 'Column', children: ['keyword', 'searchButton', 'searchResult'] },
-      {
-        id: 'keyword',
-        component: 'TextField',
-        label: '关键词',
-        value: { path: '/keyword' },
-        variant: 'shortText',
-      },
-      {
-        id: 'searchButton',
-        component: 'Button',
-        child: 'searchLabel',
-        action: {
-          event: { name: 'search', context: { keyword: { path: '/keyword' } } },
-        },
-      },
-      { id: 'searchLabel', component: 'Text', text: '搜索' },
-      { id: 'searchResult', component: 'Text', text: '等待搜索' },
-    ],
-  },
-} as A2UIMessage;
-const updateWithBrokenSearchForm = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: (
-      updateWithSearchForm as {
-        updateComponents: { components: Component[] };
-      }
-    ).updateComponents.components.map((component) =>
-      component.id === 'searchButton'
-        ? {
-            ...component,
-            action: { event: { name: 'search', context: { keyword: 'not-bound' } } },
-          }
-        : component,
-    ),
-  },
-} as A2UIMessage;
-const updateWithValidCheckBox = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'subscribed',
-        component: 'CheckBox',
-        label: '接收通知',
-        value: { path: '/subscribed' },
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithLiteralCheckBoxValue = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'subscribed',
-        component: 'CheckBox',
-        label: '接收通知',
-        value: false,
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithUnknownCheckBoxField = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'subscribed',
-        component: 'CheckBox',
-        label: '接收通知',
-        value: { path: '/subscribed' },
-        checked: true,
-      },
-    ],
-  },
-} as A2UIMessage;
-const updateWithCheckBoxAction = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'subscribed',
-        component: 'CheckBox',
-        label: '接收通知',
-        value: { path: '/subscribed' },
         action: { event: { name: 'submit', context: {} } },
       },
     ],
   },
 } as A2UIMessage;
-const updateWithSubmitForm = {
+
+const updateWithUrlText = {
   version: 'v0.9',
   updateComponents: {
     surfaceId: 'surface-1',
-    components: [
-      {
-        id: 'root',
-        component: 'Column',
-        children: ['name', 'subscribed', 'submitButton', 'submitResult'],
-      },
-      {
-        id: 'name',
-        component: 'TextField',
-        label: '姓名',
-        value: { path: '/name' },
-        variant: 'shortText',
-      },
-      {
-        id: 'subscribed',
-        component: 'CheckBox',
-        label: '接收通知',
-        value: { path: '/subscribed' },
-      },
-      {
-        id: 'submitButton',
-        component: 'Button',
-        child: 'submitLabel',
-        action: {
-          event: {
-            name: 'submit',
-            context: {
-              name: { path: '/name' },
-              subscribed: { path: '/subscribed' },
-            },
-          },
-        },
-      },
-      { id: 'submitLabel', component: 'Text', text: '提交' },
-      { id: 'submitResult', component: 'Text', text: '等待提交' },
-    ],
-  },
-} as A2UIMessage;
-const updateWithBrokenSubmitForm = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: (
-      updateWithSubmitForm as {
-        updateComponents: { components: Component[] };
-      }
-    ).updateComponents.components.map((component) =>
-      component.id === 'submitButton'
-        ? {
-            ...component,
-            action: {
-              event: { name: 'submit', context: { name: { path: '/name' } } },
-            },
-          }
-        : component,
-    ),
-  },
-} as A2UIMessage;
-const updateWithUnreachableSubmitForm = {
-  version: 'v0.9',
-  updateComponents: {
-    surfaceId: 'surface-1',
-    components: (
-      updateWithSubmitForm as {
-        updateComponents: { components: Component[] };
-      }
-    ).updateComponents.components.map((component) =>
-      component.id === 'root' ? { ...component, children: ['name', 'subscribed'] } : component,
-    ),
+    components: [{ id: 'root', component: 'Text', text: 'see https://example.com/a.png' }],
   },
 } as A2UIMessage;
 
-describe('validateAgentSequence', () => {
+describe('validateAgentSequence（通用 guard，宿主 registry 显式注入）', () => {
   it('生成流必须先 create 再 update', () => {
     assert.equal(
-      validateAgentSequence(update, 0, { kind: 'generate', surfaceId: 'surface-1' }),
+      validateAgentSequence(update, 0, options()),
       '生成流第一条消息必须是 createSurface',
     );
-    assert.equal(
-      validateAgentSequence(create, 0, { kind: 'generate', surfaceId: 'surface-1' }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(update, 1, { kind: 'generate', surfaceId: 'surface-1' }),
-      null,
-    );
+    assert.equal(validateAgentSequence(create, 0, options()), null);
+    assert.equal(validateAgentSequence(update, 1, options()), null);
   });
 
   it('action 响应不能创建或删除 surface', () => {
+    assert.equal(validateAgentSequence(update, 0, options({ kind: 'action' })), null);
     assert.equal(
-      validateAgentSequence(update, 0, { kind: 'action', surfaceId: 'surface-1' }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(create, 0, { kind: 'action', surfaceId: 'surface-1' }),
+      validateAgentSequence(create, 0, options({ kind: 'action' })),
       'action 响应只能包含 updateComponents 或 updateDataModel',
     );
   });
 
-  it('限制 catalog 与第一版标准组件子集', () => {
+  it('createSurface.catalogId 必须保持为序列声明的 catalog', () => {
     assert.equal(
-      validateAgentSequence(createWithWrongCatalog, 0, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      `createSurface.catalogId 必须保持为 ${NEXUS_BASIC_TASK_CATALOG}`,
+      validateAgentSequence(createWithWrongCatalog, 0, options()),
+      `createSurface.catalogId 必须保持为 ${TEST_CATALOG_ID}`,
     );
+  });
+
+  it('拒绝 registry 未声明的组件', () => {
     assert.equal(
-      validateAgentSequence(updateWithUnsupportedComponent, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
+      validateAgentSequence(updateWithUnsupportedComponent, 1, options()),
       '当前 Agent 线不支持组件: TextInput',
     );
   });
 
-  it('限制当前 Agent 线支持的 action 名称', () => {
+  it('拒绝 catalog 未声明的 action 名称', () => {
     assert.equal(
-      validateAgentSequence(updateWithUnsupportedAction, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
+      validateAgentSequence(updateWithUnsupportedAction, 1, options()),
       '当前 Agent 线不支持 action: refresh',
     );
   });
 
-  it('Basic Catalog TextField 必须使用双向绑定 value', () => {
-    assert.equal(
-      validateAgentSequence(updateWithValidTextField, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(updateWithLiteralTextFieldValue, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'TextField.value 必须是 { path } 绑定',
-    );
+  it('action 挂载组件不再按 Button/TaskButton 名称特判（Catalog v2 能力声明的目标见 SPEC §4）', () => {
+    assert.equal(validateAgentSequence(updateWithActionOnText, 1, options()), null);
   });
 
-  it('Basic Catalog TextField 支持官方输入变体与 validationRegexp', () => {
-    assert.equal(
-      validateAgentSequence(updateWithLongTextField, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(updateWithValidatedTextField, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(updateWithBrokenValidationRegexp, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'TextField.validationRegexp 必须是合法正则表达式',
+  it('消息 surfaceId 必须与序列一致', () => {
+    const wrongSurface = {
+      version: 'v0.9',
+      updateDataModel: { surfaceId: 'surface-other', value: {} },
+    } as A2UIMessage;
+    assert.match(
+      validateAgentSequence(wrongSurface, 1, options()) ?? '',
+      /消息 surfaceId 必须保持为 surface-1/,
     );
   });
+});
 
-  it('Basic Catalog CheckBox 必须使用双向绑定 value 且不能挂 action', () => {
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-    assert.equal(validateAgentSequence(updateWithValidCheckBox, 1, options), null);
-    assert.equal(
-      validateAgentSequence(updateWithLiteralCheckBoxValue, 1, options),
-      'CheckBox.value 必须是 { path } 绑定',
-    );
-    assert.equal(
-      validateAgentSequence(updateWithUnknownCheckBoxField, 1, options),
-      'CheckBox.checked 不是 Catalog Contract 允许的字段',
-    );
-    assert.equal(
-      validateAgentSequence(updateWithCheckBoxAction, 1, options),
-      'CheckBox.action 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog ChoicePicker 必须使用合法选项和双向绑定 value', () => {
-    const message = (component: unknown) =>
-      ({
-        version: 'v0.9',
-        updateComponents: { surfaceId: 'surface-1', components: [component] },
-      }) as A2UIMessage;
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-    const valid = {
-      id: 'priority',
-      component: 'ChoicePicker',
-      label: '优先级',
-      variant: 'mutuallyExclusive',
-      options: [
-        { label: '高', value: 'high' },
-        { label: '普通', value: 'normal' },
-      ],
-      value: { path: '/priority' },
-      displayStyle: 'chips',
-    };
-
-    assert.equal(validateAgentSequence(message(valid), 1, options), null);
-    assert.equal(
-      validateAgentSequence(message({ ...valid, value: ['normal'] }), 1, options),
-      'ChoicePicker.value 必须是 { path } 绑定',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'ChoicePicker.checks 不是 Catalog Contract 允许的字段',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({ ...valid, action: { event: { name: 'submit' } } }),
-        1,
-        options,
-      ),
-      'ChoicePicker.action 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog Slider 必须使用数字范围和双向绑定 value', () => {
-    const message = (component: unknown) =>
-      ({
-        version: 'v0.9',
-        updateComponents: { surfaceId: 'surface-1', components: [component] },
-      }) as A2UIMessage;
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-    const valid = {
-      id: 'threshold',
-      component: 'Slider',
-      label: '阈值',
-      min: 0,
-      max: 1,
-      value: { path: '/threshold' },
-    };
-
-    assert.equal(validateAgentSequence(message(valid), 1, options), null);
-    assert.equal(
-      validateAgentSequence(message({ ...valid, value: 0.5 }), 1, options),
-      'Slider.value 必须是 { path } 绑定',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, min: { path: '/min' } }), 1, options),
-      'Slider.min 不支持 { path } 绑定',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, max: undefined }), 1, options),
-      'Slider.max 必须是 number',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, min: 1 }), 1, options),
-      'Slider.min 必须小于 max',
-    );
-    assert.equal(validateAgentSequence(message({ ...valid, checks: [] }), 1, options), null);
-    assert.equal(
-      validateAgentSequence(
-        message({ ...valid, action: { event: { name: 'submit' } } }),
-        1,
-        options,
-      ),
-      'Slider.action 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog 只开放 TextField/Slider/Button 的最小 CheckRule 子集', () => {
-    const message = (component: unknown) =>
-      ({
-        version: 'v0.9',
-        updateComponents: { surfaceId: 'surface-1', components: [component] },
-      }) as A2UIMessage;
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-    const emailRule = {
-      condition: {
-        call: 'email',
-        args: { value: { path: '/email' } },
-        returnType: 'boolean',
-      },
-      message: '请输入合法邮箱',
-    };
-    const textField = {
-      id: 'email',
-      component: 'TextField',
-      label: '邮箱',
-      value: { path: '/email' },
-      checks: [emailRule],
-    };
-
-    assert.equal(validateAgentSequence(message(textField), 1, options), null);
-    assert.equal(
-      validateAgentSequence(
-        message({
-          id: 'threshold',
-          component: 'Slider',
-          label: '阈值',
-          min: 0,
-          max: 1,
-          value: { path: '/threshold' },
-          checks: [
-            {
-              condition: {
-                call: 'numeric',
-                args: { value: { path: '/threshold' }, min: 0 },
-                returnType: 'boolean',
-              },
-              message: '阈值不能小于 0',
-            },
-          ],
-        }),
-        1,
-        options,
-      ),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({
-          id: 'submit',
-          component: 'Button',
-          child: 'submitLabel',
-          checks: [
-            {
-              condition: {
-                call: 'required',
-                args: { value: { path: '/email' } },
-                returnType: 'boolean',
-              },
-              message: '邮箱必填',
-            },
-          ],
-        }),
-        1,
-        options,
-      ),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({
-          ...textField,
-          checks: [
-            {
-              condition: {
-                call: 'and',
-                args: { values: [] },
-                returnType: 'boolean',
-              },
-              message: '组合条件',
-            },
-          ],
-        }),
-        1,
-        options,
-      ),
-      'TextField.checks[0].condition.call 只支持 required/regex/length/numeric/email',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({
-          ...textField,
-          checks: [{ call: 'email', args: { value: { path: '/email' } }, message: '旧形状' }],
-        }),
-        1,
-        options,
-      ),
-      'TextField.checks[0] 必须是只包含 condition 和 message 的对象',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({
-          ...textField,
-          checks: [
-            {
-              condition: {
-                call: 'regex',
-                args: { value: { path: '/email' }, pattern: 'a'.repeat(257) },
-                returnType: 'boolean',
-              },
-              message: '格式错误',
-            },
-          ],
-        }),
-        1,
-        options,
-      ),
-      'TextField.checks[0].condition.args.pattern 必须是不超过 256 个字符的字符串',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({ ...textField, checks: [{ ...emailRule, message: 'x'.repeat(201) }] }),
-        1,
-        options,
-      ),
-      'TextField.checks[0].message 必须是 1-200 个字符',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({
-          id: 'subscribed',
-          component: 'CheckBox',
-          label: '订阅',
-          value: { path: '/subscribed' },
-          checks: [emailRule],
-        }),
-        1,
-        options,
-      ),
-      'CheckBox.checks 不是 Catalog Contract 允许的字段',
-    );
-
-    const workbenchOptions = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      catalogId: WORKBENCH_CATALOG,
-    };
-    assert.equal(
-      validateAgentSequence(message(textField), 1, workbenchOptions),
-      'TextField.checks 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog DateTimeInput 必须使用 ISO 时间和双向绑定 value', () => {
-    const message = (component: unknown) =>
-      ({
-        version: 'v0.9',
-        updateComponents: { surfaceId: 'surface-1', components: [component] },
-      }) as A2UIMessage;
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-    const valid = {
-      id: 'reminderAt',
-      component: 'DateTimeInput',
-      label: '提醒时间',
-      value: { path: '/reminderAt' },
-      enableDate: true,
-      enableTime: true,
-      min: '2026-01-01T00:00',
-      max: { path: '/maxReminderAt' },
-    };
-
-    assert.equal(validateAgentSequence(message(valid), 1, options), null);
-    assert.equal(
-      validateAgentSequence(message({ ...valid, value: '2026-09-20T10:00:00' }), 1, options),
-      'DateTimeInput.value 必须是 { path } 绑定',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({ ...valid, enableDate: false, enableTime: false }),
-        1,
-        options,
-      ),
-      'DateTimeInput.enableDate/enableTime 至少一个为 true',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, min: 'tomorrow' }), 1, options),
-      'DateTimeInput.min 必须是 ISO 8601 date/time/date-time 字符串',
-    );
-    assert.equal(
-      validateAgentSequence(
-        message({ ...valid, action: { event: { name: 'submit' } } }),
-        1,
-        options,
-      ),
-      'DateTimeInput.action 不是 Catalog Contract 允许的字段',
-    );
-    assert.equal(
-      validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'DateTimeInput.checks 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog action 只能挂载在 Button 组件上', () => {
-    assert.equal(
-      validateAgentSequence(updateWithActionOnText, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'Text.action 不是 Catalog Contract 允许的字段',
-    );
-  });
-
-  it('Basic Catalog 支持静态 children 的 List 组件', () => {
-    assert.equal(
-      validateAgentSequence(updateWithList, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-  });
-
-  it('Basic Catalog 支持静态 tabs 的 Tabs 组件', () => {
-    assert.equal(
-      validateAgentSequence(updateWithTabs, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-  });
-
-  it('Basic Catalog Image 必须使用协议字段 url / description', () => {
-    assert.equal(
-      validateAgentSequence(updateWithLegacyImage, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'Image.src 不是 Catalog Contract 允许的字段',
-    );
-    assert.equal(
-      validateAgentSequence(updateWithImage, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-  });
-
-  it('Basic Catalog Image 只允许 avatar 变体和合法 fit', () => {
-    assert.equal(
-      validateAgentSequence(updateWithInvalidImageVariant, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'Image.variant 只支持 "avatar"',
-    );
-  });
-
-  it('Basic Catalog Video 与 AudioPlayer 使用官方媒体字段', () => {
-    assert.equal(
-      validateAgentSequence(updateWithMedia, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      null,
-    );
-    assert.equal(
-      validateAgentSequence(updateWithLegacyVideo, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'Video.src 不是 Catalog Contract 允许的字段',
-    );
-    assert.equal(
-      validateAgentSequence(updateWithInvalidAudioDescription, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'AudioPlayer.description 必须是 string',
-    );
-  });
-
-  it('Basic Catalog Text 不能把媒体 URL 渲染成文字', () => {
-    assert.equal(
-      validateAgentSequence(updateWithUrlText, 1, {
-        kind: 'generate',
-        surfaceId: 'surface-1',
-      }),
-      'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
-    );
-  });
-
-  it('Basic Catalog Text 不能通过 dataModel 绑定渲染 URL', () => {
+describe('validateAgentStreamMessageDetailed（流式语义 + 宿主 policy 注入）', () => {
+  it('未注入 policy 时不施加任何业务规则（媒体关键词/URL 文本不再由 SDK 拦截）', () => {
     const state = createAgentStreamState();
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成头像 https://example.com/avatar.png',
-    };
-
-    assert.equal(
-      validateAgentStreamMessage(updateWithDynamicUrlText, 1, options, state),
-      'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
+    const issue = validateAgentStreamMessageDetailed(
+      updateWithUrlText,
+      1,
+      options({ message: '生成一张带头像的联系人卡片 https://example.com/a.png' }),
+      state,
     );
-
-    const noImageUrlOptions = { ...options, message: '生成联系人卡片' };
-    assert.equal(
-      validateAgentStreamMessage(updateWithDynamicUrlText, 1, noImageUrlOptions, state),
-      'Basic Catalog Text 不能绑定 URL 类字段；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
-    );
-
-    const missingImageState = createAgentStreamState();
-    assert.equal(
-      validateAgentStreamMessage(updateWithBioText, 1, options, missingImageState),
-      '请求图片内容的生成流必须包含 Basic Catalog Image 组件',
-    );
+    assert.equal(issue, null);
+    const finalIssue = validateAgentStreamFinalDetailed(options({ message: '搜索 表单 视频' }), {
+      ...createAgentStreamState(),
+      hasRoot: true,
+      componentsById: state.componentsById,
+    });
+    assert.equal(finalIssue, null);
   });
 
-  it('明确的视频和音频 URL 必须生成对应媒体组件', () => {
-    const videoOptions = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成视频卡片 https://example.com/trailer.mp4',
-    };
-    const missingVideoState = createAgentStreamState();
-    assert.equal(
-      validateAgentStreamMessage(updateWithBioText, 1, videoOptions, missingVideoState),
-      '请求视频内容的生成流必须包含 Basic Catalog Video 组件',
+  it('宿主 policy 的 validateComponent 结果标记为 POLICY_REJECTED', () => {
+    const issue = validateAgentStreamMessageDetailed(
+      updateWithRoot,
+      1,
+      options({
+        policy: {
+          name: 'host-policy',
+          validateComponent: () => 'host policy rejected',
+        },
+      }),
+      createAgentStreamState(),
     );
 
-    const videoState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(updateWithMedia, 1, videoOptions, videoState), null);
-
-    const audioOptions = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成音频播放器 https://example.com/episode.mp3',
-    };
-    const missingAudioState = createAgentStreamState();
-    assert.equal(
-      validateAgentStreamMessage(updateWithBioText, 1, audioOptions, missingAudioState),
-      '请求音频内容的生成流必须包含 Basic Catalog AudioPlayer 组件',
-    );
-
-    const audioState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(updateWithMedia, 1, audioOptions, audioState), null);
+    assert.deepEqual(issue, {
+      boundaryCode: 'POLICY_REJECTED',
+      message: 'host policy rejected',
+    });
   });
 
-  it('普通未知 URL 不强行猜测媒体组件类型', () => {
+  it('宿主 policy 的 validateFinal 结果标记为 POLICY_REJECTED', () => {
     const state = createAgentStreamState();
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成资源卡片 https://example.com/resource',
-    };
+    state.hasRoot = true;
+    state.componentsById.set('root', {
+      id: 'root',
+      component: 'Text',
+      text: 'final surface',
+    });
+    const issue = validateAgentStreamFinalDetailed(
+      options({
+        policy: {
+          name: 'host-policy',
+          validateFinal: () => 'workflow rejected',
+        },
+      }),
+      state,
+    );
 
-    assert.equal(validateAgentStreamMessage(updateWithPlainText, 1, options, state), null);
+    assert.deepEqual(issue, {
+      boundaryCode: 'POLICY_REJECTED',
+      message: 'workflow rejected',
+    });
   });
 
-  it('URL dataModel 只能绑定到 Image，不能后到绑定到 Text', () => {
+  it('流式状态在 updateDataModel 后保留组件表用于诊断', () => {
     const state = createAgentStreamState();
-    const options = { kind: 'generate' as const, surfaceId: 'surface-1' };
-
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, state), null);
-    assert.equal(validateAgentStreamMessage(updateWithAvatarImage, 1, options, state), null);
-    assert.equal(validateAgentStreamMessage(updateWithAvatarDataModel, 2, options, state), null);
-
-    const textState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, textState), null);
-    assert.equal(validateAgentStreamMessage(updateWithBioDataModel, 1, options, textState), null);
-    assert.equal(
-      validateAgentStreamMessage(updateWithBioText, 2, options, textState),
-      'Basic Catalog Text 不能承载 URL；媒体 URL 必须使用 Image/Video/AudioPlayer.url',
-    );
-  });
-
-  it('搜索请求必须形成 TextField -> search action -> searchResult 的闭环', () => {
-    const state = createAgentStreamState();
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成一个搜索卡片，包含关键词输入框',
-    };
-
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, state), null);
-    assert.equal(validateAgentStreamMessage(updateWithSearchForm, 1, options, state), null);
-    assert.equal(validateAgentStreamFinal(options, state), null);
-
-    const brokenState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, brokenState), null);
-    assert.equal(
-      validateAgentStreamMessage(updateWithBrokenSearchForm, 1, options, brokenState),
-      null,
-    );
-    assert.equal(
-      validateAgentStreamFinal(options, brokenState),
-      'search action 的 keyword.context 必须绑定 TextField.value 的同一个 path',
-    );
-  });
-
-  it('表单请求必须形成 TextField + CheckBox + submit + submitResult 的闭环', () => {
-    const state = createAgentStreamState();
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      message: '生成一个订阅表单卡片',
-    };
-
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, state), null);
-    assert.equal(validateAgentStreamMessage(updateWithSubmitForm, 1, options, state), null);
-    assert.equal(validateAgentStreamFinal(options, state), null);
-
-    const brokenState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, brokenState), null);
-    assert.equal(
-      validateAgentStreamMessage(updateWithBrokenSubmitForm, 1, options, brokenState),
-      null,
-    );
-    assert.equal(
-      validateAgentStreamFinal(options, brokenState),
-      'submit action 的 context 必须绑定 CheckBox.value 的同一个 path',
-    );
-
-    const unreachableState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(createForStream, 0, options, unreachableState), null);
-    assert.equal(
-      validateAgentStreamMessage(updateWithUnreachableSubmitForm, 1, options, unreachableState),
-      null,
-    );
-    assert.equal(
-      validateAgentStreamFinal(options, unreachableState),
-      '表单 UI 的 TextField/CheckBox/submit/submitResult 必须挂在 root 渲染树内',
-    );
-  });
-
-  it('通过注册表支持自定义 catalog 组件边界', () => {
-    const customCatalogId = 'https://example.com/catalogs/task/v1';
-    const registry = new CatalogRegistry([
-      {
-        catalogId: customCatalogId,
-        components: ['TaskSummary', 'TaskButton'],
-        componentSchemas: {
-          TaskSummary: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['title'],
-            properties: { title: { type: 'string', dynamic: 'required' } },
-          },
-          TaskButton: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['label'],
-            properties: { label: { type: 'string', dynamic: 'allowed' } },
-          },
-        },
-      },
-    ]);
-    const create = {
+    const dataModelUpdate = {
       version: 'v0.9',
-      createSurface: { surfaceId: 'surface-1', catalogId: customCatalogId },
+      updateDataModel: { surfaceId: 'surface-1', value: { ok: true } },
     } as A2UIMessage;
-    const update = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-1',
-        components: [{ id: 'root', component: 'TaskSummary', title: { path: '/title' } }],
-      },
-    } as A2UIMessage;
-    const invalidProps = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-1',
-        components: [{ id: 'root', component: 'TaskSummary', title: '字面量标题' }],
-      },
-    } as A2UIMessage;
-    const updateWithBasicComponent = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-1',
-        components: [{ id: 'root', component: 'Text' }],
-      },
-    } as A2UIMessage;
-
-    const options = {
-      kind: 'generate',
-      surfaceId: 'surface-1',
-      catalogId: customCatalogId,
-      registry,
-    } as const;
-
-    assert.equal(validateAgentSequence(create, 0, options), null);
-    assert.equal(validateAgentSequence(update, 1, options), null);
-    assert.equal(
-      validateAgentSequence(updateWithBasicComponent, 1, options),
-      '当前 Agent 线不支持组件: Text',
-    );
-    assert.equal(
-      validateAgentSequence(invalidProps, 1, options),
-      'TaskSummary.title 必须是 { path } 绑定',
-    );
-  });
-
-  it('自定义 catalog 动态绑定会跨消息校验 resolved value', () => {
-    const customCatalogId = 'https://example.com/catalogs/task/v2';
-    const registry = new CatalogRegistry([
-      {
-        catalogId: customCatalogId,
-        components: ['TaskSummary'],
-        componentSchemas: {
-          TaskSummary: {
-            type: 'object',
-            properties: { amount: { type: 'number', dynamic: 'allowed' } },
-          },
-        },
-      },
-    ]);
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-1',
-      catalogId: customCatalogId,
-      registry,
-    };
-    const create = {
-      version: 'v0.9',
-      createSurface: { surfaceId: 'surface-1', catalogId: customCatalogId },
-    } as A2UIMessage;
-    const updateComponent = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-1',
-        components: [{ id: 'root', component: 'TaskSummary', amount: { path: '/amount' } }],
-      },
-    } as A2UIMessage;
-    const updateWrongData = {
-      version: 'v0.9',
-      updateDataModel: { surfaceId: 'surface-1', value: { amount: '12' } },
-    } as A2UIMessage;
-
-    const componentFirstState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(create, 0, options, componentFirstState), null);
-    assert.equal(
-      validateAgentStreamMessage(updateComponent, 1, options, componentFirstState),
-      null,
-    );
-    assert.equal(
-      validateAgentStreamMessage(updateWrongData, 2, options, componentFirstState),
-      'TaskSummary.amount 必须是 number',
-    );
-    assert.equal(componentFirstState.dataModel, undefined);
-
-    const dataFirstState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(create, 0, options, dataFirstState), null);
-    assert.equal(validateAgentStreamMessage(updateWrongData, 1, options, dataFirstState), null);
-    assert.deepEqual(dataFirstState.dataModel, { amount: '12' });
-    assert.equal(
-      validateAgentStreamMessage(updateComponent, 2, options, dataFirstState),
-      'TaskSummary.amount 必须是 number',
-    );
-    assert.equal(dataFirstState.componentsById.size, 0);
-
-    const detailedState = createAgentStreamState();
-    assert.equal(validateAgentStreamMessage(create, 0, options, detailedState), null);
-    assert.equal(validateAgentStreamMessage(updateWrongData, 1, options, detailedState), null);
-    assert.deepEqual(
-      validateAgentStreamMessageDetailed(updateComponent, 2, options, detailedState),
-      {
-        message: 'TaskSummary.amount 必须是 number',
-        diagnostics: [
-          {
-            path: 'TaskSummary.amount',
-            message: 'TaskSummary.amount 必须是 number',
-            dataPath: '/amount',
-          },
-        ],
-      },
-    );
-  });
-
-  it('Workbench 流必须形成客户摘要、输入、时间选择和 submit 的业务闭环', () => {
-    const options = {
-      kind: 'generate' as const,
-      surfaceId: 'surface-workbench',
-      catalogId: WORKBENCH_CATALOG,
-      message: '帮我给华云科技创建一条客户跟进任务',
-    };
-    const state = createAgentStreamState();
-    createWorkbenchFixture('surface-workbench').forEach((message, index) => {
-      assert.equal(validateAgentStreamMessage(message as A2UIMessage, index, options, state), null);
-    });
-    assert.equal(validateAgentStreamFinal(options, state), null);
-
-    const invalidCustomer = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-workbench',
-        components: [
-          {
-            id: 'customer',
-            component: 'CustomerSummary',
-            customerName: '华云科技',
-            company: { path: '/customer/company' },
-            owner: { path: '/customer/owner' },
-            status: { path: '/status' },
-            recentNote: { path: '/customer/recentNote' },
-          },
-        ],
-      },
-    } as A2UIMessage;
-    assert.equal(
-      validateAgentSequence(invalidCustomer, 1, options),
-      'CustomerSummary.customerName 必须是 { path } 绑定',
-    );
-
-    const unsupportedComponent = {
-      version: 'v0.9',
-      updateComponents: {
-        surfaceId: 'surface-workbench',
-        components: [{ id: 'root', component: 'TaskSummary' }],
-      },
-    } as A2UIMessage;
-    assert.equal(
-      validateAgentSequence(unsupportedComponent, 1, options),
-      '当前 Agent 线不支持组件: TaskSummary',
-    );
-
-    const withoutReminderAt = createWorkbenchFixture('surface-workbench').map((candidate) => {
-      const message = candidate as A2UIMessage;
-      if (!('updateComponents' in message)) return message;
-      return {
-        ...message,
-        updateComponents: {
-          ...message.updateComponents,
-          components: message.updateComponents.components.filter(
-            (component) => component.id !== 'reminderAt',
-          ),
-        },
-      };
-    });
-    const missingReminderAtState = createAgentStreamState();
-    withoutReminderAt.forEach((message, index) => {
-      assert.equal(
-        validateAgentStreamMessage(message as A2UIMessage, index, options, missingReminderAtState),
-        null,
-      );
-    });
-    assert.equal(
-      validateAgentStreamFinal(options, missingReminderAtState),
-      'Workbench UI 的 reminderAt 必须是同时启用日期和时间的 DateTimeInput',
-    );
-
-    const withDateOnly = createWorkbenchFixture('surface-workbench').map((candidate) => {
-      const message = candidate as A2UIMessage;
-      if (!('updateComponents' in message)) return message;
-      return {
-        ...message,
-        updateComponents: {
-          ...message.updateComponents,
-          components: message.updateComponents.components.map((component) =>
-            component.id === 'reminderAt' ? { ...component, enableTime: false } : component,
-          ),
-        },
-      };
-    });
-    const dateOnlyState = createAgentStreamState();
-    withDateOnly.forEach((message, index) => {
-      assert.equal(
-        validateAgentStreamMessage(message as A2UIMessage, index, options, dateOnlyState),
-        null,
-      );
-    });
-    assert.equal(
-      validateAgentStreamFinal(options, dateOnlyState),
-      'Workbench UI 的 reminderAt 必须是同时启用日期和时间的 DateTimeInput',
-    );
-
-    const withWrongReminderPath = createWorkbenchFixture('surface-workbench').map((candidate) => {
-      const message = candidate as A2UIMessage;
-      if (!('updateComponents' in message)) return message;
-      return {
-        ...message,
-        updateComponents: {
-          ...message.updateComponents,
-          components: message.updateComponents.components.map((component) =>
-            component.id === 'reminderAt'
-              ? { ...component, value: { path: '/reminder-time' } }
-              : component,
-          ),
-        },
-      };
-    });
-    const wrongPathState = createAgentStreamState();
-    withWrongReminderPath.forEach((message, index) => {
-      assert.equal(
-        validateAgentStreamMessage(message as A2UIMessage, index, options, wrongPathState),
-        null,
-      );
-    });
-    assert.equal(
-      validateAgentStreamFinal(options, wrongPathState),
-      'Workbench UI 的 reminderAt 必须是同时启用日期和时间的 DateTimeInput',
-    );
-
-    const withoutPriority = createWorkbenchFixture('surface-workbench').map((candidate) => {
-      const message = candidate as A2UIMessage;
-      if (!('updateComponents' in message)) return message;
-      return {
-        ...message,
-        updateComponents: {
-          ...message.updateComponents,
-          components: message.updateComponents.components.filter(
-            (component) => component.id !== 'priority',
-          ),
-        },
-      };
-    });
-    const missingPriorityState = createAgentStreamState();
-    withoutPriority.forEach((message, index) => {
-      assert.equal(
-        validateAgentStreamMessage(message as A2UIMessage, index, options, missingPriorityState),
-        null,
-      );
-    });
-    assert.equal(
-      validateAgentStreamFinal(options, missingPriorityState),
-      'Workbench UI 的 priority 必须是绑定 /priority 的单选 ChoicePicker',
-    );
-
-    const withoutCustomerContext = createWorkbenchFixture('surface-workbench').map((candidate) => {
-      const message = candidate as A2UIMessage;
-      if (!('updateComponents' in message)) return message;
-      return {
-        ...message,
-        updateComponents: {
-          ...message.updateComponents,
-          components: message.updateComponents.components.map((component) =>
-            component.id === 'submitButton'
-              ? {
-                  ...component,
-                  action: {
-                    event: {
-                      ...component.action?.event,
-                      context: {
-                        taskTitle: { path: '/taskTitle' },
-                        reminderAt: { path: '/reminderAt' },
-                      },
-                    },
-                  },
-                }
-              : component,
-          ),
-        },
-      };
-    });
-    const missingContextState = createAgentStreamState();
-    withoutCustomerContext.forEach((message, index) => {
-      assert.equal(
-        validateAgentStreamMessage(message as A2UIMessage, index, options, missingContextState),
-        null,
-      );
-    });
-    assert.equal(
-      validateAgentStreamFinal(options, missingContextState),
-      'Workbench submit context 必须绑定 /taskTitle、/reminderAt、/priority 和 /customer/customerId',
-    );
+    assert.equal(validateAgentStreamMessageDetailed(updateWithRoot, 1, options(), state), null);
+    assert.equal(validateAgentStreamMessageDetailed(dataModelUpdate, 2, options(), state), null);
+    // applyDataModelUpdate 把 value 对象写入 dataModel。
+    assert.deepEqual(state.dataModel, { ok: true });
+    assert.ok(state.hasRoot);
   });
 });

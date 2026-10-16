@@ -19,6 +19,7 @@ describe('core public API surface', () => {
       'createCoreStore',
       'getByPath',
       'isA2UIMessage',
+      'isSafeMediaUrl',
       'removeAtPath',
       'resolveContext',
       'resolveDynamic',

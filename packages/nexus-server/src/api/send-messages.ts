@@ -10,7 +10,6 @@ import {
 import type { AgentSequenceOptions } from '../agent/agent-guard';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
-import { defaultAgentRunManager } from '../agent/run-manager';
 import type { AgentRunManager } from '../agent/run-manager';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
 
@@ -205,11 +204,15 @@ export function sendAgentRun(
   idPrefix: string,
   options: Omit<SendMessagesOptions, 'signal'> & {
     signal?: AbortSignal;
-    manager?: AgentRunManager;
+    /** Required run-records owner; hosts (or createAgentRouter) pass their instance explicitly. */
+    manager: AgentRunManager;
     dispose?: () => void;
-  } = {},
+  },
 ): Promise<SendMessagesResult> {
-  const manager = options.manager ?? defaultAgentRunManager;
+  if (!options?.manager) {
+    throw new Error('sendAgentRun 需要显式传入 manager（AgentRunManager）；SDK 不再内置全局单例');
+  }
+  const manager = options.manager;
   // Claim the run before anything consumes it: the per-surface lock from
   // prepareAction must only release after this queue settles commit/onError.
   run.streamClaimed = true;
@@ -281,4 +284,7 @@ export function sendAgentRun(
   return queued;
 }
 
+// Per-surface run queues are module-level until S3 moves dispatch ownership into
+// a per-runtime scheduler (SPEC §6); the run-record manager itself is now
+// explicitly owned by the host or the router instance.
 const surfaceRunQueues = new Map<string, Promise<SendMessagesResult>>();

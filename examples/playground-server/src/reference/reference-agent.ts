@@ -1,11 +1,17 @@
-import { AgentAdapter } from '../agent/adapter';
+import { AgentAdapter } from '@nexus-ui/server';
 import type {
   AgentActionHandler,
   AgentAdapterOptions,
   AgentGenerationCommitEvent,
   AgentGenerationSource,
-} from '../agent/adapter';
-import { NEXUS_BASIC_TASK_CATALOG, TASK_CATALOG, WORKBENCH_CATALOG } from '../agent/catalog';
+} from '@nexus-ui/server';
+import type { CatalogRegistry } from '@nexus-ui/core';
+import {
+  agentCatalogRegistry,
+  NEXUS_BASIC_TASK_CATALOG,
+  TASK_CATALOG,
+  WORKBENCH_CATALOG,
+} from '../agent/catalog';
 import {
   createActionResponse,
   createContactFixture,
@@ -14,10 +20,14 @@ import {
   createTaskFixture,
   createWorkbenchFixture,
 } from '../agent/mock-agent';
+import { isLlmAgentEnabled, streamLlmMessages } from '../agent/llm-agent';
+import { resolveAgentPolicy } from '../agent/policy';
 import { TaskStateStore, createTaskActionHandler } from '../agent/task-agent';
 import { WorkbenchTaskStore, createWorkbenchActionHandler } from '../agent/workbench-agent';
 
-export interface ReferenceAgentAdapterOptions extends AgentAdapterOptions {
+export interface ReferenceAgentAdapterOptions extends Omit<AgentAdapterOptions, 'registry'> {
+  /** Defaults to the playground demo registry; hosts inject their own. */
+  registry?: CatalogRegistry;
   taskStateStore?: TaskStateStore;
   workbenchTaskStore?: WorkbenchTaskStore;
 }
@@ -59,7 +69,9 @@ function createReferenceActionHandlers(
 
 /**
  * Assemble the repository's deterministic playground examples. This factory is
- * reference-server-only; hosts should inject their own sources and handlers.
+ * playground-server-only; hosts should inject their own sources and handlers.
+ * The demo catalog registry and model stream are wired explicitly here — the
+ * SDK no longer provides them implicitly.
  */
 export function createReferenceAgentAdapter(
   options: ReferenceAgentAdapterOptions = {},
@@ -80,7 +92,11 @@ export function createReferenceAgentAdapter(
 
   return new AgentAdapter({
     ...options,
+    registry: options.registry ?? agentCatalogRegistry,
+    policy: resolveAgentPolicy(options.policy),
     actionHandlers,
+    useLlm: options.useLlm ?? isLlmAgentEnabled,
+    streamLlm: options.streamLlm ?? streamLlmMessages,
     fallbackGeneration: options.fallbackGeneration ?? createReferenceFallbackGeneration(),
     defaultGenerationMessage: options.defaultGenerationMessage ?? DEFAULT_REFERENCE_MESSAGE,
     onGenerationCommitted,

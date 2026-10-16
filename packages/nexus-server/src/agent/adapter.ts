@@ -1,18 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { CatalogDefinition, CatalogRegistry } from '@nexus-ui/core';
-import {
-  agentCatalogRegistry,
-  NEXUS_BASIC_TASK_CATALOG,
-  getCatalogActions,
-  isOfficialBasicCatalog,
-  normalizeLegacyBasicCatalog,
-} from './catalog';
 import type { AgentSequenceOptions } from './agent-guard';
-import { resolveAgentPolicy, type AgentPolicy } from './policy';
-import type { AgentTurn } from './llm-agent';
-import { defaultSurfaceHistoryStore, findSurfaceCatalog } from './history';
+import type { AgentPolicy } from './policy';
+import type { AgentTurn } from './agent-turn';
+import { InMemorySurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
-import { isLlmAgentEnabled, streamLlmMessages } from './llm-agent';
+import { isOfficialBasicCatalog } from './catalog-identity';
 import { createCatalogContractReference } from './catalog-contract';
 import type { CatalogContractReference } from './catalog-contract';
 import {
@@ -90,6 +83,20 @@ export interface AgentGenerationCommitEvent {
   messages: readonly unknown[];
 }
 
+/** Host-injected model/LLM streaming seam; the SDK never constructs one itself. */
+export interface AgentLlmStreamRequest {
+  kind: 'generate' | 'action';
+  surfaceId: string;
+  message: string;
+  catalogId: string;
+  supportedComponents: readonly string[];
+  supportedActions: readonly string[];
+  history: readonly AgentTurn[];
+  signal?: AbortSignal;
+}
+
+export type AgentLlmStreamSource = (request: AgentLlmStreamRequest) => AgentMessageSource;
+
 export interface AgentActionContext {
   catalogId: string;
   catalog: CatalogDefinition;
@@ -112,14 +119,19 @@ export type AgentActionContextResolver = (
 ) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
 export interface AgentAdapterOptions {
-  registry?: CatalogRegistry;
+  /** Required host-owned catalog boundary; the SDK registers no default catalog. */
+  registry: CatalogRegistry;
   actionHandlers?: Map<string, AgentActionHandler>;
+  /** Optional host-injected store; each adapter creates its own isolated in-memory store by default. */
   historyStore?: SurfaceHistoryStore;
+  /** Defaults to always false; enabling it requires an explicit streamLlm seam. */
   useLlm?: () => boolean;
-  streamLlm?: typeof streamLlmMessages;
+  /** Host-provided model stream; required when useLlm returns true. */
+  streamLlm?: AgentLlmStreamSource;
   createGenerationSource?: AgentGenerationSource;
   fallbackGeneration?: AgentGenerationSource;
   createSurfaceId?: () => string;
+  /** Host policy; without one the SDK applies no business rules. */
   policy?: AgentPolicy;
   actionStateStore?: SurfaceActionStateStore;
   actionLedger?: SurfaceActionLedger;
@@ -135,17 +147,19 @@ function createActionHandlerKey(catalogId: string, actionName: string): string {
 /**
  * Transport-neutral seam for generation sources and business action handlers.
  * Koa stays responsible for HTTP envelopes; this class owns agent dispatch.
+ * Every dependency is explicit: no demo catalog, model SDK, business policy, or
+ * shared history singleton is selected implicitly.
  */
 export class AgentAdapter {
   private readonly registry: CatalogRegistry;
   private readonly actionHandlers: Map<string, AgentActionHandler>;
   private readonly historyStore: SurfaceHistoryStore;
   private readonly useLlm: () => boolean;
-  private readonly streamLlm: typeof streamLlmMessages;
+  private readonly streamLlm?: AgentLlmStreamSource;
   private readonly createGenerationSource?: AgentGenerationSource;
   private readonly fallbackGeneration?: AgentGenerationSource;
   private readonly createSurfaceId: () => string;
-  private readonly policy = resolveAgentPolicy();
+  private readonly policy?: AgentPolicy;
   private readonly actionStateStore: SurfaceActionStateStore;
   private readonly actionLedger: SurfaceActionLedger;
   private readonly resolveActionContext?: AgentActionContextResolver;
@@ -155,16 +169,22 @@ export class AgentAdapter {
   ) => void | Promise<void>;
   private readonly surfaceActionLocks = new Map<string, Promise<void>>();
 
-  constructor(options: AgentAdapterOptions = {}) {
-    this.registry = options.registry ?? agentCatalogRegistry;
-    this.policy = resolveAgentPolicy(options.policy);
+  constructor(options: AgentAdapterOptions) {
+    if (!options.registry) {
+      throw new Error(
+        'AgentAdapter 需要宿主显式注入 registry（CatalogRegistry）；SDK 不再内置示例 Catalog',
+      );
+    }
+    this.registry = options.registry;
+    this.policy = options.policy;
     this.actionHandlers = options.actionHandlers ?? new Map();
-    this.historyStore = options.historyStore ?? defaultSurfaceHistoryStore;
+    // Per-instance store on purpose: two adapters must never share surface history.
+    this.historyStore = options.historyStore ?? new InMemorySurfaceHistoryStore();
     this.actionStateStore = options.actionStateStore ?? new InMemorySurfaceActionStateStore();
     this.actionLedger = options.actionLedger ?? new InMemorySurfaceActionLedger();
     this.resolveActionContext = options.resolveActionContext;
-    this.useLlm = options.useLlm ?? isLlmAgentEnabled;
-    this.streamLlm = options.streamLlm ?? streamLlmMessages;
+    this.useLlm = options.useLlm ?? (() => false);
+    this.streamLlm = options.streamLlm;
     this.createGenerationSource = options.createGenerationSource;
     this.fallbackGeneration = options.fallbackGeneration;
     this.createSurfaceId = options.createSurfaceId ?? (() => `surface-${randomUUID()}`);
@@ -184,9 +204,14 @@ export class AgentAdapter {
     request: AgentGenerateRequest,
     options: AgentPrepareOptions = {},
   ): Promise<AgentPlan> {
-    const requestedCatalogId = request.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
-    const catalogId = normalizeLegacyBasicCatalog(requestedCatalogId);
-    if (isOfficialBasicCatalog(requestedCatalogId)) {
+    if (typeof request.catalogId !== 'string' || request.catalogId === '') {
+      return {
+        ok: false,
+        message: '生成请求必须显式提供 catalogId；SDK 不回落任何默认 Catalog',
+      };
+    }
+    const catalogId = request.catalogId;
+    if (isOfficialBasicCatalog(catalogId)) {
       return {
         ok: false,
         message:
@@ -204,7 +229,10 @@ export class AgentAdapter {
         ? request.message
         : this.defaultGenerationMessage;
     const useLlm = this.useLlm();
-    const supportedActions = getCatalogActions(catalogId, catalog);
+    if (useLlm && !this.createGenerationSource && !this.streamLlm) {
+      throw new Error('useLlm 启用时必须显式注入 streamLlm 生成源；SDK 不再默认绑定模型 SDK');
+    }
+    const supportedActions = catalog.actions ?? [];
     const catalogContract = createCatalogContractReference(catalog);
     const history = (await this.historyStore.getHistory(surfaceId)).map((turn) => ({ ...turn }));
     const sourceRequest: AgentGenerationSourceRequest = {
@@ -224,7 +252,7 @@ export class AgentAdapter {
       if (this.createGenerationSource) {
         source = this.createGenerationSource(sourceRequest);
       } else if (useLlm) {
-        source = this.streamLlm({
+        source = this.streamLlm!({
           kind: 'generate',
           surfaceId,
           message,
@@ -259,7 +287,7 @@ export class AgentAdapter {
           surfaceId,
           catalogId,
           registry: this.registry,
-          supportedActions: getCatalogActions(catalogId, catalog),
+          supportedActions,
           message,
           policy: this.policy,
         },
@@ -303,8 +331,7 @@ export class AgentAdapter {
       releaseLock();
       return { ok: false, message: `Action surface 不存在或已过期: ${action.surfaceId}` };
     }
-    const historyCatalogId = snapshot.catalogId;
-    const catalogId = normalizeLegacyBasicCatalog(historyCatalogId);
+    const catalogId = snapshot.catalogId;
     const catalog = this.registry.get(catalogId);
     if (!catalog) {
       releaseLock();
@@ -400,7 +427,7 @@ export class AgentAdapter {
       source = await handler(authoritativeAction, {
         catalogId,
         catalog,
-        supportedActions: getCatalogActions(catalogId, catalog),
+        supportedActions: catalog.actions ?? [],
         catalogContract: createCatalogContractReference(catalog),
         history,
         surfaceAction,
@@ -436,7 +463,7 @@ export class AgentAdapter {
         surfaceId: action.surfaceId,
         catalogId,
         registry: this.registry,
-        supportedActions: getCatalogActions(catalogId, catalog),
+        supportedActions: catalog.actions ?? [],
         policy: this.policy,
       },
       commit: async (messages) => {

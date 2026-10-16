@@ -10,29 +10,42 @@ describe('server host-assembly public API surface', () => {
       'AGENT_ONBOARDING_CONTRACT_VERSION',
       'AgentAdapter',
       'CATALOG_CONTRACT_VERSION',
+      'FileSurfaceHistoryStore',
       'InMemoryAgentRunManager',
       'InMemorySurfaceHistoryStore',
       'SERVER_API_VERSION',
       'VERSION',
       'createAgentOnboardingContract',
       'createAgentRouter',
+      'createAgentStreamState',
       'createCatalogContractHash',
       'createCatalogContractReference',
       'createExternalAgentActionHandler',
       'createExternalAgentGenerationSource',
       'fetchPublishedCatalogs',
-      'nexusAgentPolicy',
-      'resolveAgentPolicy',
       'sendAgentRun',
+      'validateAgentSequence',
+      'validateAgentStreamFinal',
+      'validateAgentStreamFinalDetailed',
+      'validateAgentStreamMessage',
+      'validateAgentStreamMessageDetailed',
       'verifyExternalAgentIntegration',
       'verifyExternalAgentOnboarding',
     ]);
   });
 
+  it('exposes no demo policy, reference server, or default singletons', () => {
+    assert.equal('nexusAgentPolicy' in publicApi, false);
+    assert.equal('resolveAgentPolicy' in publicApi, false);
+    assert.equal('app' in publicApi, false);
+    assert.equal('router' in publicApi, false);
+    assert.equal('defaultAgentRunManager' in publicApi, false);
+    assert.equal('defaultSurfaceHistoryStore' in publicApi, false);
+    assert.equal('agentCatalogRegistry' in publicApi, false);
+  });
+
   it('marks the limited assembly API without starting the reference server', () => {
     assert.equal(publicApi.VERSION, '0.1.0');
     assert.equal(publicApi.SERVER_API_VERSION, 1);
-    assert.equal('app' in publicApi, false);
-    assert.equal('router' in publicApi, false);
   });
 });

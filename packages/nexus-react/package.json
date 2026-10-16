@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "pnpm --filter @nexus-ui/core build && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
+    "build": "pnpm --filter @nexus-ui/core build && rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts,.tsx"

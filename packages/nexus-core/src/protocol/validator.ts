@@ -8,6 +8,8 @@
 import { PROTOCOL_VERSION } from './types';
 import type { A2UIError, A2UIMessage, ParseResult } from './types';
 import { MAX_REGEX_PATTERN_LENGTH, getRegexPatternRejection } from '../checks';
+import { isUnsafeSegment } from '../dataModel';
+import { isSafeMediaUrl } from './media-url';
 
 const MESSAGE_KEYS = [
   'createSurface',
@@ -143,6 +145,11 @@ function validateProtocolAction(value: unknown): string | null {
     }
     if (event.context !== undefined) {
       if (!isObject(event.context)) return 'action.event.context 必须是对象';
+      for (const contextKey of Object.keys(event.context)) {
+        if (isUnsafeSegment(contextKey)) {
+          return `action.event.context 键不得为保留段（__proto__/constructor/prototype）: ${contextKey}`;
+        }
+      }
       for (const contextValue of Object.values(event.context)) {
         const error = validateProtocolDynamicValue(contextValue);
         if (error) return `action.event.context ${error}`;
@@ -355,6 +362,17 @@ function containsUnsupportedFunctionCall(value: unknown, depth = 0): boolean {
   );
 }
 
+/** 组件结构键由各自规则校验；其余自有键属于 props 层。 */
+const STRUCTURAL_COMPONENT_KEYS = new Set([
+  'id',
+  'component',
+  'children',
+  'child',
+  'tabs',
+  'checks',
+  'action',
+]);
+
 function validateAction(value: unknown): string | null {
   if (!isObject(value) || !hasOnlyKeys(value, ['event', 'functionCall'])) {
     return 'action 结构非法';
@@ -367,6 +385,11 @@ function validateAction(value: unknown): string | null {
   if (typeof event.name !== 'string') return 'action.event.name 必须是字符串';
   if (event.context !== undefined) {
     if (!isStringRecord(event.context)) return 'action.event.context 必须是对象';
+    for (const contextKey of Object.keys(event.context)) {
+      if (isUnsafeSegment(contextKey)) {
+        return `action.event.context 键不得为保留段（__proto__/constructor/prototype）: ${contextKey}`;
+      }
+    }
     for (const contextValue of Object.values(event.context)) {
       if (!isSupportedDynamicValue(contextValue)) {
         return 'action.event.context 包含不支持的动态值';
@@ -621,24 +644,36 @@ function validateDateTimeInput(component: Record<string, unknown>): string | nul
   return null;
 }
 
+/** 媒体组件字面量 url 必须 http(s)；{ path } 绑定由渲染层在解析后用 isSafeMediaUrl 守卫。 */
+function validateMediaUrl(component: Record<string, unknown>, name: string): string | null {
+  if (!isDynamicString(component.url)) {
+    return `${name}.url 必须是字符串或 { path } 绑定`;
+  }
+  if (typeof component.url === 'string' && !isSafeMediaUrl(component.url)) {
+    return `${name}.url 必须是 http/https URL`;
+  }
+  return null;
+}
+
 function validateMediaComponent(component: Record<string, unknown>): string | null {
+  if (component.component === 'Image') {
+    if (component.url !== undefined) return validateMediaUrl(component, 'Image');
+    return null;
+  }
+
   if (component.component === 'Video') {
     if (!hasOnlyKeys(component, ['id', 'component', 'url'])) {
       return 'Video 只支持 id/component/url';
     }
-    if (!isDynamicString(component.url)) {
-      return 'Video.url 必须是字符串或 { path } 绑定';
-    }
-    return null;
+    return validateMediaUrl(component, 'Video');
   }
 
   if (component.component === 'AudioPlayer') {
     if (!hasOnlyKeys(component, ['id', 'component', 'url', 'description'])) {
       return 'AudioPlayer 只支持 id/component/url/description';
     }
-    if (!isDynamicString(component.url)) {
-      return 'AudioPlayer.url 必须是字符串或 { path } 绑定';
-    }
+    const urlError = validateMediaUrl(component, 'AudioPlayer');
+    if (urlError) return urlError;
     if (component.description !== undefined && !isDynamicString(component.description)) {
       return 'AudioPlayer.description 必须是字符串或 { path } 绑定';
     }
@@ -649,8 +684,16 @@ function validateMediaComponent(component: Record<string, unknown>): string | nu
 function validateComponent(value: unknown): string | null {
   if (!isObject(value)) return 'components[] 项必须是对象';
   if (typeof value.id !== 'string') return 'component.id 必须是字符串';
-  if (value.id === '__proto__') return 'component.id 不得为保留字 __proto__';
+  if (isUnsafeSegment(value.id)) {
+    return 'component.id 不得为保留字 __proto__/constructor/prototype';
+  }
   if (typeof value.component !== 'string') return 'component.component 必须是字符串';
+  for (const key of Object.keys(value)) {
+    if (STRUCTURAL_COMPONENT_KEYS.has(key)) continue;
+    if (isUnsafeSegment(key)) {
+      return `component.props 不得包含保留段键（__proto__/constructor/prototype）: ${key}`;
+    }
+  }
   if (value.checks !== undefined && !CHECKABLE_COMPONENTS.has(value.component)) {
     return `当前 Agent 线不支持 ${value.component}.checks`;
   }
@@ -720,7 +763,9 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'createSurface 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'createSurface.surfaceId 必须是字符串';
-    if (payload.surfaceId === '__proto__') return 'createSurface.surfaceId 不得为保留字 __proto__';
+    if (isUnsafeSegment(payload.surfaceId)) {
+      return 'createSurface.surfaceId 不得为保留字 __proto__/constructor/prototype';
+    }
     if (typeof payload.catalogId !== 'string') return 'createSurface.catalogId 必须是字符串';
     if (payload.theme !== undefined && !isObject(payload.theme))
       return 'createSurface.theme 必须是对象';
@@ -736,7 +781,9 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'updateComponents 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'updateComponents.surfaceId 必须是字符串';
-    if (payload.surfaceId === '__proto__') return 'updateComponents.surfaceId 不得为保留字 __proto__';
+    if (isUnsafeSegment(payload.surfaceId)) {
+      return 'updateComponents.surfaceId 不得为保留字 __proto__/constructor/prototype';
+    }
     if (!Array.isArray(payload.components) || payload.components.length === 0) {
       return 'updateComponents.components 必须是非空数组';
     }
@@ -752,7 +799,9 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
       return 'updateDataModel 包含未知字段';
     }
     if (typeof payload.surfaceId !== 'string') return 'updateDataModel.surfaceId 必须是字符串';
-    if (payload.surfaceId === '__proto__') return 'updateDataModel.surfaceId 不得为保留字 __proto__';
+    if (isUnsafeSegment(payload.surfaceId)) {
+      return 'updateDataModel.surfaceId 不得为保留字 __proto__/constructor/prototype';
+    }
     if (payload.path !== undefined && typeof payload.path !== 'string') {
       return 'updateDataModel.path 必须是字符串';
     }
@@ -761,7 +810,9 @@ function validatePayload(key: MessageKey, payload: unknown): string | null {
 
   if (!hasOnlyKeys(payload, ['surfaceId'])) return 'deleteSurface 包含未知字段';
   if (typeof payload.surfaceId !== 'string') return 'deleteSurface.surfaceId 必须是字符串';
-  if (payload.surfaceId === '__proto__') return 'deleteSurface.surfaceId 不得为保留字 __proto__';
+  if (isUnsafeSegment(payload.surfaceId)) {
+    return 'deleteSurface.surfaceId 不得为保留字 __proto__/constructor/prototype';
+  }
   return null;
 }
 

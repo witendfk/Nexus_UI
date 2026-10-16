@@ -7,6 +7,7 @@ import { createCatalogPromptContract } from '@nexus-ui/core';
 import { AgentAdapter, createAgentRouter } from '../src/index';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
+import { CatalogRegistry } from '@nexus-ui/core';
 
 process.env.NODE_ENV = 'test';
 delete process.env.OPENAI_API_KEY;
@@ -29,7 +30,7 @@ const catalog: CatalogDefinition = {
 
 const app = new Koa();
 const router = createAgentRouter({
-  adapter: new AgentAdapter({ useLlm: () => false }),
+  adapter: new AgentAdapter({ registry: new CatalogRegistry([catalog]), useLlm: () => false }),
   catalogContracts: [catalog],
   agentOnboarding: {
     rpcEndpoint: 'https://agent.example.internal/a2ui',
@@ -158,7 +159,10 @@ describe('catalog contract route', () => {
   it('returns an empty discovery list when the host publishes nothing', async () => {
     const app = new Koa();
     const router = createAgentRouter({
-      adapter: new AgentAdapter({ useLlm: () => false }),
+      adapter: new AgentAdapter({
+        registry: new CatalogRegistry([catalog]),
+        useLlm: () => false,
+      }),
     });
     app.use(router.routes());
     app.use(router.allowedMethods());
@@ -209,7 +213,10 @@ describe('catalog contract route', () => {
     assert.throws(
       () =>
         createAgentRouter({
-          adapter: new AgentAdapter({ useLlm: () => false }),
+          adapter: new AgentAdapter({
+            registry: new CatalogRegistry([catalog]),
+            useLlm: () => false,
+          }),
           catalogContracts: [catalog, catalog],
         }),
       /Catalog contract 重复公开/,

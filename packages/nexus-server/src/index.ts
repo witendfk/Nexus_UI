@@ -12,6 +12,8 @@ export type {
   AgentGenerationSource,
   AgentGenerationSourceRequest,
   AgentGenerationCommitEvent,
+  AgentLlmStreamRequest,
+  AgentLlmStreamSource,
   AgentMessageSource,
   AgentPlan,
   AgentRun,
@@ -30,6 +32,8 @@ export {
 export type { CatalogContractReference } from './agent/catalog-contract';
 export { InMemorySurfaceHistoryStore } from './agent/history';
 export type { InMemorySurfaceHistoryStoreOptions, SurfaceHistoryStore } from './agent/history';
+export { FileSurfaceHistoryStore } from './agent/file-history';
+export type { FileSurfaceHistoryStoreOptions } from './agent/file-history';
 export { InMemoryAgentRunManager } from './agent/run-manager';
 export type { AgentRunManager, AgentRunRecord, AgentRunState } from './agent/run-manager';
 export type {
@@ -39,7 +43,20 @@ export type {
   SurfaceActionSnapshot,
   SurfaceActionStateStore,
 } from './agent/surface-action-state';
-export type { AgentTurn } from './agent/llm-agent';
+export type { AgentTurn } from './agent/agent-turn';
+export {
+  createAgentStreamState,
+  validateAgentSequence,
+  validateAgentStreamFinal,
+  validateAgentStreamFinalDetailed,
+  validateAgentStreamMessage,
+  validateAgentStreamMessageDetailed,
+} from './agent/agent-guard';
+export type {
+  AgentSequenceOptions,
+  AgentStreamState,
+  AgentStreamValidationIssue,
+} from './agent/agent-guard';
 export { verifyExternalAgentIntegration } from './agent/verification';
 export type {
   ExternalAgentVerificationOptions,
@@ -58,7 +75,6 @@ export type {
   RequiredMediaPolicy,
   ResolvedAgentPolicy,
 } from './agent/policy';
-export { nexusAgentPolicy, resolveAgentPolicy } from './agent/policy';
 export { createAgentRouter } from './api/routes';
 export type {
   AgentRunListPayload,

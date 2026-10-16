@@ -5,6 +5,9 @@ import type Koa from 'koa';
 import { AgentAdapter } from '../src/agent/adapter';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { sendAgentRun } from '../src/api/send-messages';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+
+const registry = createTestRegistry();
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -30,13 +33,14 @@ describe('agent run manager', () => {
   it('records queued, running, and completed states', async () => {
     const manager = new InMemoryAgentRunManager();
     const adapter = new AgentAdapter({
+      registry,
       createSurfaceId: () => 'surface-run-success',
       createGenerationSource: () => [
         {
           version: 'v0.9',
           createSurface: {
             surfaceId: 'surface-run-success',
-            catalogId: 'https://example.com/catalogs/nexus-basic-task/v1',
+            catalogId: TEST_CATALOG_ID,
           },
         },
         {
@@ -48,7 +52,10 @@ describe('agent run manager', () => {
         },
       ],
     });
-    const plan = await adapter.prepareGeneration({ message: '创建运行状态' });
+    const plan = await adapter.prepareGeneration({
+      message: '创建运行状态',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(plan.ok);
 
     const result = await sendAgentRun(createSseContext(), plan.run, 'run-success', {
@@ -69,6 +76,7 @@ describe('agent run manager', () => {
     const events: string[] = [];
     const surfaceId = 'surface-run-serial';
     const adapter = new AgentAdapter({
+      registry,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () =>
         (async function* () {
@@ -77,7 +85,7 @@ describe('agent run manager', () => {
             version: 'v0.9',
             createSurface: {
               surfaceId,
-              catalogId: 'https://example.com/catalogs/nexus-basic-task/v1',
+              catalogId: TEST_CATALOG_ID,
             },
           };
           await sleep(20);
@@ -91,8 +99,11 @@ describe('agent run manager', () => {
           events.push('end');
         })(),
     });
-    const first = await adapter.prepareGeneration({ message: 'first' });
-    const second = await adapter.prepareGeneration({ message: 'second' });
+    const first = await adapter.prepareGeneration({ message: 'first', catalogId: TEST_CATALOG_ID });
+    const second = await adapter.prepareGeneration({
+      message: 'second',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(first.ok);
     assert.ok(second.ok);
 
@@ -117,11 +128,33 @@ describe('agent run manager', () => {
     );
   });
 
+  it('缺 manager 时 sendAgentRun 显式报错，不再回退全局单例', async () => {
+    const ctx = createSseContext();
+    const run = {
+      source: [
+        { version: 'v0.9', updateDataModel: { surfaceId: 'surface-no-manager', value: {} } },
+      ],
+      sequence: {
+        kind: 'action' as const,
+        surfaceId: 'surface-no-manager',
+        catalogId: TEST_CATALOG_ID,
+        registry,
+        supportedActions: ['submit'],
+      },
+      commit: () => undefined,
+    };
+    assert.throws(
+      () => sendAgentRun(ctx, run, 'no-manager', {} as Parameters<typeof sendAgentRun>[3]),
+      /manager/,
+    );
+  });
+
   it('marks an interrupted run canceled', async () => {
     const manager = new InMemoryAgentRunManager();
     const controller = new AbortController();
     const surfaceId = 'surface-run-cancel';
     const adapter = new AgentAdapter({
+      registry,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () =>
         (async function* () {
@@ -129,7 +162,7 @@ describe('agent run manager', () => {
             version: 'v0.9',
             createSurface: {
               surfaceId,
-              catalogId: 'https://example.com/catalogs/nexus-basic-task/v1',
+              catalogId: TEST_CATALOG_ID,
             },
           };
           await sleep(20);
@@ -143,7 +176,7 @@ describe('agent run manager', () => {
         })(),
     });
     const plan = await adapter.prepareGeneration(
-      { message: '取消测试' },
+      { message: '取消测试', catalogId: TEST_CATALOG_ID },
       {
         signal: controller.signal,
       },

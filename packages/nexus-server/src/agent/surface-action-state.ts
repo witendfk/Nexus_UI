@@ -1,4 +1,5 @@
 import { applyDataModelUpdate, resolveContext } from '@nexus-ui/core';
+import { assertPositiveSafeInteger } from './limits';
 import type {
   Component,
   DynamicValue,
@@ -61,7 +62,8 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
   private readonly maxSurfaces: number;
 
   constructor(options: InMemorySurfaceActionStateStoreOptions = {}) {
-    this.maxSurfaces = options.maxSurfaces ?? 256;
+    this.maxSurfaces = options.maxSurfaces === undefined ? 256 : options.maxSurfaces;
+    assertPositiveSafeInteger('maxSurfaces', this.maxSurfaces);
   }
 
   async get(surfaceId: string): Promise<SurfaceActionSnapshot | undefined> {
@@ -121,6 +123,7 @@ export class InMemorySurfaceActionLedger implements SurfaceActionLedger {
   private readonly maxRecords: number;
 
   constructor({ maxRecords = 1_024 }: { maxRecords?: number } = {}) {
+    assertPositiveSafeInteger('maxRecords', maxRecords);
     this.maxRecords = maxRecords;
   }
 

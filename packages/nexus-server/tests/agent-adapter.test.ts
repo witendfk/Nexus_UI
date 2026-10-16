@@ -8,23 +8,19 @@ import type {
   AgentAction,
   AgentActionContext,
   AgentGenerationSourceRequest,
+  AgentLlmStreamRequest,
+  AgentMessageSource,
   AgentRun,
 } from '../src/agent/adapter';
-import type { AgentMessageSource } from '../src/agent/adapter';
-import {
-  BASIC_CATALOG,
-  LEGACY_BASIC_TASK_CATALOG,
-  OFFICIAL_BASIC_CATALOG,
-  TASK_CATALOG,
-  WORKBENCH_CATALOG,
-} from '../src/agent/catalog';
+import { OFFICIAL_BASIC_CATALOG } from '../src/agent/catalog-identity';
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
-import type { LlmAgentRequest } from '../src/agent/llm-agent';
+import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { InMemorySurfaceActionStateStore } from '../src/agent/surface-action-state';
 import type { SurfaceActionStateStore } from '../src/agent/surface-action-state';
-import { WorkbenchTaskStore } from '../src/agent/workbench-agent';
-import { createReferenceAgentAdapter } from '../src/reference/reference-agent';
 import { sendAgentRun } from '../src/api/send-messages';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+
+const registry = createTestRegistry();
 
 async function collect(source: AgentMessageSource): Promise<unknown[]> {
   const messages: unknown[] = [];
@@ -95,28 +91,116 @@ function createActionRun(commit: AgentRun['commit']): AgentRun {
     sequence: {
       kind: 'action',
       surfaceId: 'surface-commit',
-      supportedActions: ['refresh'],
+      catalogId: TEST_CATALOG_ID,
+      registry,
+      supportedActions: ['submit'],
     },
     commit,
   };
 }
 
-describe('AgentAdapter', () => {
+describe('AgentAdapter 显式装配', () => {
+  it('缺 registry 时构造必须显式报错，不再回退示例 Catalog 注册表', () => {
+    assert.throws(
+      () => new AgentAdapter({} as ConstructorParameters<typeof AgentAdapter>[0]),
+      /registry/i,
+    );
+  });
+
+  it('generate 请求缺 catalogId 必须显式报错，不回落示例 Catalog', async () => {
+    const adapter = new AgentAdapter({
+      registry,
+      useLlm: () => false,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId: 'surface-no-catalog', catalogId: TEST_CATALOG_ID },
+        },
+      ],
+    });
+    const plan = await adapter.prepareGeneration({ message: '缺 catalogId' });
+    assert.ok(!plan.ok);
+    assert.match(plan.message, /catalogId/);
+  });
+
+  it('useLlm=true 而 streamLlm 缺失必须在 prepare 时显式报错', async () => {
+    const adapter = new AgentAdapter({ registry, useLlm: () => true });
+    await assert.rejects(
+      () => adapter.prepareGeneration({ message: '无 streamLlm', catalogId: TEST_CATALOG_ID }),
+      /streamLlm/,
+    );
+  });
+
+  it('未注入 historyStore 的 adapter 实例各自持有隔离 history', async () => {
+    const surfaceId = 'surface-isolation';
+    const seenHistories: unknown[] = [];
+    const createSource = (): AgentMessageSource => [
+      {
+        version: 'v0.9',
+        createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
+      },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId,
+          components: [{ id: 'root', component: 'Text', text: 'isolated' }],
+        },
+      },
+    ];
+    const first = new AgentAdapter({
+      registry,
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: (request) => {
+        seenHistories.push(request.history);
+        return createSource();
+      },
+    });
+    const second = new AgentAdapter({
+      registry,
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: (request) => {
+        seenHistories.push(request.history);
+        return createSource();
+      },
+    });
+
+    const firstPlan = await first.prepareGeneration({
+      message: '第一条',
+      catalogId: TEST_CATALOG_ID,
+    });
+    assert.ok(firstPlan.ok);
+    await firstPlan.run.commit(await collect(firstPlan.run.source));
+
+    const secondPlan = await second.prepareGeneration({
+      message: '第二条',
+      catalogId: TEST_CATALOG_ID,
+    });
+    assert.ok(secondPlan.ok);
+
+    assert.deepEqual(seenHistories[1], [], '两个 adapter 实例不得共享 history（模块级单例已删除）');
+  });
+
   it('keeps deterministic fallback and example actions out of the generic adapter', async () => {
-    const generic = new AgentAdapter({ useLlm: () => false });
-    const missingSource = await generic.prepareGeneration({ message: '创建任务面' });
+    const generic = new AgentAdapter({ registry, useLlm: () => false });
+    const missingSource = await generic.prepareGeneration({
+      message: '创建任务面',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(!missingSource.ok);
     assert.match(missingSource.message, /Generation source 未配置/);
 
     const surfaceId = 'surface-no-reference-defaults';
     const adapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -140,7 +224,10 @@ describe('AgentAdapter', () => {
         },
       ],
     });
-    const generation = await adapter.prepareGeneration({ message: '创建任务面' });
+    const generation = await adapter.prepareGeneration({
+      message: '创建任务面',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const messages = await collect(generation.run.source);
     await generation.run.commit(messages);
@@ -158,6 +245,7 @@ describe('AgentAdapter', () => {
     const actionContexts: Array<{ action: AgentAction; context: AgentActionContext }> = [];
     const surfaceId = 'surface-host-generation';
     const adapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       createSurfaceId: () => surfaceId,
       createGenerationSource: (request) => {
@@ -165,7 +253,7 @@ describe('AgentAdapter', () => {
         return [
           {
             version: 'v0.9',
-            createSurface: { surfaceId: request.surfaceId, catalogId: BASIC_CATALOG },
+            createSurface: { surfaceId: request.surfaceId, catalogId: TEST_CATALOG_ID },
           },
           {
             version: 'v0.9',
@@ -191,7 +279,7 @@ describe('AgentAdapter', () => {
         ];
       },
     });
-    adapter.registerActionHandler(BASIC_CATALOG, 'call', (action, context) => {
+    adapter.registerActionHandler(TEST_CATALOG_ID, 'call', (action, context) => {
       actionContexts.push({ action, context });
       return [
         {
@@ -206,13 +294,17 @@ describe('AgentAdapter', () => {
       ];
     });
 
-    const generation = await adapter.prepareGeneration({ message: '创建宿主任务面' });
+    const generation = await adapter.prepareGeneration({
+      message: '创建宿主任务面',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
     const generationResult = await sendAgentRun(
       generationTransport.ctx,
       generation.run,
       'host-source',
+      { manager: new InMemoryAgentRunManager() },
     );
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
 
@@ -224,13 +316,13 @@ describe('AgentAdapter', () => {
     await collect(action.run.source);
 
     assert.equal(generationRequests.length, 1);
-    assert.equal(generationRequests[0]?.catalogId, BASIC_CATALOG);
+    assert.equal(generationRequests[0]?.catalogId, TEST_CATALOG_ID);
     assert.ok(generationRequests[0]?.supportedComponents.includes('Text'));
     assert.deepEqual(generationRequests[0]?.history, []);
     assert.equal(actionContexts.length, 1);
     assert.deepEqual(actionContexts[0]?.action.context, {});
     assert.deepEqual(actionContexts[0]?.context.clientContext, {});
-    assert.equal(actionContexts[0]?.context.catalogId, BASIC_CATALOG);
+    assert.equal(actionContexts[0]?.context.catalogId, TEST_CATALOG_ID);
     assert.ok(actionContexts[0]?.context.catalog.components.includes('Text'));
     assert.equal(actionContexts[0]?.context.history[0]?.content, '创建宿主任务面');
     assert.match(actionContexts[0]?.context.history[1]?.content ?? '', /Host agent surface/);
@@ -239,6 +331,7 @@ describe('AgentAdapter', () => {
   it('自定义生成源的非法输出仍被 SSE guard 拒绝且不提交 history', async () => {
     let committed = false;
     const adapter = new AgentAdapter({
+      registry,
       createSurfaceId: () => 'surface-host-invalid',
       createGenerationSource: (request) => [
         {
@@ -247,14 +340,19 @@ describe('AgentAdapter', () => {
         },
       ],
     });
-    const plan = await adapter.prepareGeneration({ message: '非法输出' });
+    const plan = await adapter.prepareGeneration({
+      message: '非法输出',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(plan.ok);
     plan.run.commit = () => {
       committed = true;
     };
 
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'host-invalid');
+    const result = await sendAgentRun(transport.ctx, plan.run, 'host-invalid', {
+      manager: new InMemoryAgentRunManager(),
+    });
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -303,7 +401,9 @@ describe('AgentAdapter', () => {
     const plan = await adapter.prepareGeneration({ catalogId: customCatalogId });
     assert.ok(plan.ok);
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'diagnostics');
+    const result = await sendAgentRun(transport.ctx, plan.run, 'diagnostics', {
+      manager: new InMemoryAgentRunManager(),
+    });
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -330,6 +430,7 @@ describe('AgentAdapter', () => {
         commitFinished = true;
       }),
       'commit-success',
+      { manager: new InMemoryAgentRunManager() },
     );
 
     assert.equal(success.ok, true);
@@ -346,6 +447,7 @@ describe('AgentAdapter', () => {
         throw new Error('history store unavailable');
       }),
       'commit-failure',
+      { manager: new InMemoryAgentRunManager() },
     );
 
     assert.equal(failure.ok, false);
@@ -359,13 +461,14 @@ describe('AgentAdapter', () => {
     const historyStore = new InMemorySurfaceHistoryStore();
     const actionContexts: AgentActionContext[] = [];
     const adapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       historyStore,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -390,7 +493,7 @@ describe('AgentAdapter', () => {
         },
       ],
     });
-    adapter.registerActionHandler(BASIC_CATALOG, 'submit', (_action, context) => {
+    adapter.registerActionHandler(TEST_CATALOG_ID, 'submit', (_action, context) => {
       actionContexts.push(context);
       return [
         {
@@ -400,12 +503,15 @@ describe('AgentAdapter', () => {
       ];
     });
 
-    const generation = await adapter.prepareGeneration({ message: '注入 history store' });
+    const generation = await adapter.prepareGeneration({
+      message: '注入 history store',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const messages = await collect(generation.run.source);
     await generation.run.commit(messages);
 
-    assert.equal(await historyStore.getCatalogId(surfaceId), BASIC_CATALOG);
+    assert.equal(await historyStore.getCatalogId(surfaceId), TEST_CATALOG_ID);
     assert.equal((await historyStore.getHistory(surfaceId)).length, 2);
 
     const action = await adapter.prepareAction({
@@ -420,200 +526,53 @@ describe('AgentAdapter', () => {
     assert.equal(actionContexts[0]?.history[0]?.content, '注入 history store');
   });
 
-  it('按 catalog 选择 fallback 生成源并生成 surfaceId', async () => {
-    const adapter = createReferenceAgentAdapter({
-      createSurfaceId: () => 'surface-task-adapter',
-    });
-    const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
-
-    assert.ok(plan.ok);
-    assert.equal(plan.run.sequence.surfaceId, 'surface-task-adapter');
-    assert.equal(plan.run.sequence.catalogId, TASK_CATALOG);
-  });
-
   it('LLM 生成源接收 catalog 组件边界', async () => {
-    const requests: LlmAgentRequest[] = [];
+    const requests: AgentLlmStreamRequest[] = [];
+    const llmCatalogId = 'https://example.com/catalogs/llm-probe/v1';
     const adapter = new AgentAdapter({
+      registry: new CatalogRegistry([
+        {
+          catalogId: llmCatalogId,
+          components: ['TaskSummary', 'TaskButton'],
+          actions: ['start', 'complete'],
+        },
+      ]),
       useLlm: () => true,
       createSurfaceId: () => 'surface-llm-adapter',
-      streamLlm: async function* (request) {
+      streamLlm: (request) => {
         requests.push(request);
-        yield {
-          version: 'v0.9',
-          createSurface: {
-            surfaceId: request.surfaceId,
-            catalogId: TASK_CATALOG,
+        return [
+          {
+            version: 'v0.9',
+            createSurface: {
+              surfaceId: request.surfaceId,
+              catalogId: request.catalogId,
+            },
           },
-        };
+        ];
       },
     });
-    const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
+    const plan = await adapter.prepareGeneration({ catalogId: llmCatalogId });
     assert.ok(plan.ok);
     await collect(plan.run.source);
 
     assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.catalogId, TASK_CATALOG);
+    assert.equal(requests[0]?.catalogId, llmCatalogId);
     assert.deepEqual(requests[0]?.supportedComponents, ['TaskSummary', 'TaskButton']);
     assert.deepEqual(requests[0]?.supportedActions, ['start', 'complete']);
-  });
-
-  it('action 按 surface 记录的 catalog 分发 handler', async () => {
-    const adapter = createReferenceAgentAdapter({
-      createSurfaceId: () => 'surface-action-adapter',
-    });
-    const generation = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
-    assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await generation.run.commit(messages);
-
-    const start = await adapter.prepareAction(
-      createAction('start', generation.run.sequence.surfaceId),
-    );
-    assert.ok(start.ok);
-    assert.equal(start.run.sequence.catalogId, TASK_CATALOG);
-    const startResponse = await collect(start.run.source);
-    assert.match(JSON.stringify(startResponse), /进行中/);
-    assert.match(JSON.stringify(startResponse), /"name":"complete"/);
-    await start.run.commit(startResponse);
-
-    const complete = await adapter.prepareAction({
-      ...createAction('complete', generation.run.sequence.surfaceId),
-      timestamp: '2026-09-21T00:00:01.000Z',
-    });
-    assert.ok(complete.ok);
-    const completeResponse = await collect(complete.run.source);
-    assert.match(JSON.stringify(completeResponse), /已完成/);
-    assert.match(JSON.stringify(completeResponse), /"disabled":true/);
-    await complete.run.commit(completeResponse);
-
-    const duplicate = await adapter.prepareAction({
-      ...createAction('complete', generation.run.sequence.surfaceId),
-      timestamp: '2026-09-21T00:00:01.000Z',
-    });
-    assert.ok(!duplicate.ok);
-    assert.match(duplicate.message, /Action 重放或重复提交已被拒绝/);
-  });
-
-  it('Workbench 生成后 submit action 创建任务并原地关闭提交入口', async () => {
-    const workbenchStore = new WorkbenchTaskStore();
-    const adapter = createReferenceAgentAdapter({
-      createSurfaceId: () => 'surface-workbench',
-      workbenchTaskStore: workbenchStore,
-      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
-    });
-    const generation = await adapter.prepareGeneration({ catalogId: WORKBENCH_CATALOG });
-    assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await generation.run.commit(messages);
-
-    assert.match(
-      JSON.stringify(messages),
-      /"catalogId":"https:\/\/example\.com\/catalogs\/nexus-workbench\/v1"/,
-    );
-    assert.match(JSON.stringify(messages), /"component":"CustomerSummary"/);
-    assert.match(JSON.stringify(messages), /"component":"ChoicePicker"/);
-    assert.match(JSON.stringify(messages), /"component":"DateTimeInput"/);
-
-    const empty = await adapter.prepareAction({
-      name: 'submit',
-      surfaceId: 'surface-workbench',
-      sourceComponentId: 'submitButton',
-      timestamp: new Date().toISOString(),
-      context: { taskTitle: '', reminderAt: '', customerId: 'customer-1024' },
-    });
-    assert.ok(!empty.ok);
-    assert.equal(empty.message, '请输入跟进任务标题');
-
-    for (const priority of [[], ['urgent'], ['high', 'low']]) {
-      const invalid = await adapter.prepareAction({
-        name: 'submit',
-        surfaceId: 'surface-workbench',
-        sourceComponentId: 'submitButton',
-        timestamp: new Date().toISOString(),
-        context: {
-          taskTitle: '发送方案修订版',
-          priority,
-          reminderAt: '2026-09-20T10:00:00',
-          customerId: 'customer-1024',
-          customerName: '华云科技',
-        },
-      });
-      assert.ok(!invalid.ok);
-      assert.equal(invalid.message, '请选择有效的任务优先级');
-    }
-
-    for (const [reminderAt, message] of [
-      ['', '请选择提醒时间'],
-      ['not-a-date', '请输入有效的提醒时间'],
-    ] as const) {
-      const invalid = await adapter.prepareAction({
-        name: 'submit',
-        surfaceId: 'surface-workbench',
-        sourceComponentId: 'submitButton',
-        timestamp: new Date().toISOString(),
-        context: {
-          taskTitle: '发送方案修订版',
-          priority: ['high'],
-          reminderAt,
-          customerId: 'customer-1024',
-          customerName: '华云科技',
-        },
-      });
-      assert.ok(!invalid.ok);
-      assert.equal(invalid.message, message);
-    }
-
-    const plan = await adapter.prepareAction({
-      name: 'submit',
-      surfaceId: 'surface-workbench',
-      sourceComponentId: 'submitButton',
-      timestamp: new Date().toISOString(),
-      context: {
-        taskTitle: '发送方案修订版',
-        priority: ['high'],
-        reminderAt: '2026-09-20T10:00',
-        customerId: 'customer-1024',
-        customerName: '华云科技',
-      },
-    });
-    assert.ok(plan.ok);
-    assert.equal(plan.run.sequence.catalogId, WORKBENCH_CATALOG);
-    const response = await collect(plan.run.source);
-    const serialized = JSON.stringify(response);
-
-    assert.match(serialized, /followup-0001/);
-    assert.match(serialized, /发送方案修订版/);
-    assert.match(serialized, /优先级：高/);
-    assert.match(serialized, /提醒时间：2026-09-20T10:00:00/);
-    assert.match(serialized, /"disabled":true/);
-    assert.match(serialized, /"surfaceId":"surface-workbench"/);
-
-    const duplicate = await adapter.prepareAction({
-      name: 'submit',
-      surfaceId: 'surface-workbench',
-      sourceComponentId: 'submitButton',
-      timestamp: new Date().toISOString(),
-      context: {
-        taskTitle: '再次提交',
-        priority: ['low'],
-        reminderAt: '2026-09-21T10:00:00',
-        customerId: 'customer-1024',
-      },
-    });
-    assert.ok(!duplicate.ok);
-    assert.equal(duplicate.message, '该客户的跟进任务已创建，不能重复提交');
   });
 
   it('支持异步业务 action handler 并拒绝未注册 action', async () => {
     const surfaceId = 'surface-custom';
     const adapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -633,7 +592,7 @@ describe('AgentAdapter', () => {
         },
       ],
     });
-    adapter.registerActionHandler(BASIC_CATALOG, 'submit', async (action) => [
+    adapter.registerActionHandler(TEST_CATALOG_ID, 'submit', async (action) => [
       {
         version: 'v0.9',
         updateDataModel: {
@@ -643,7 +602,10 @@ describe('AgentAdapter', () => {
       },
     ]);
 
-    const generation = await adapter.prepareGeneration({ message: 'create action surface' });
+    const generation = await adapter.prepareGeneration({
+      message: 'create action surface',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationMessages = await collect(generation.run.source);
     await generation.run.commit(generationMessages);
@@ -667,197 +629,25 @@ describe('AgentAdapter', () => {
     assert.match(unknown.message, /与服务端 surface 状态不匹配/);
   });
 
-  it('Basic search action 返回包含用户输入值的原地更新', async () => {
-    const surfaceId = 'surface-search';
-    const adapter = createReferenceAgentAdapter({
-      useLlm: () => false,
-      createSurfaceId: () => surfaceId,
-      createGenerationSource: () => [
-        {
-          version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
-        },
-        {
-          version: 'v0.9',
-          updateComponents: {
-            surfaceId,
-            components: [
-              {
-                id: 'root',
-                component: 'Column',
-                children: ['keyword', 'searchButton', 'searchLabel'],
-              },
-              {
-                id: 'keyword',
-                component: 'TextField',
-                label: 'Keyword',
-                value: { path: '/keyword' },
-              },
-              {
-                id: 'searchButton',
-                component: 'Button',
-                child: 'searchLabel',
-                action: {
-                  event: { name: 'search', context: { keyword: { path: '/keyword' } } },
-                },
-              },
-              { id: 'searchLabel', component: 'Text', text: 'Search' },
-            ],
-          },
-        },
-      ],
-      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
-    });
-    const generation = await adapter.prepareGeneration({ message: '创建查询界面' });
-    assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
-    const action = await adapter.prepareAction({
-      ...createAction('search', surfaceId),
-      sourceComponentId: 'searchButton',
-      context: { keyword: 'A2UI Runtime' },
-    });
-
-    assert.ok(action.ok, action.ok ? undefined : action.message);
-    const response = await collect(action.run.source);
-    assert.deepEqual(response, [
-      {
-        version: 'v0.9',
-        updateComponents: {
-          surfaceId: 'surface-search',
-          components: [
-            {
-              id: 'searchResult',
-              component: 'Text',
-              text: '搜索：A2UI Runtime',
-              variant: 'body',
-            },
-          ],
-        },
-      },
-    ]);
-  });
-
-  it('Basic submit action 返回文本与布尔输入的原地更新', async () => {
-    const surfaceId = 'surface-form';
-    const adapter = createReferenceAgentAdapter({
-      useLlm: () => false,
-      createSurfaceId: () => surfaceId,
-      createGenerationSource: () => [
-        {
-          version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
-        },
-        {
-          version: 'v0.9',
-          updateComponents: {
-            surfaceId,
-            components: [
-              { id: 'root', component: 'Column', children: ['submitButton', 'submitLabel'] },
-              {
-                id: 'submitButton',
-                component: 'Button',
-                child: 'submitLabel',
-                action: { event: { name: 'submit', context: {} } },
-              },
-              { id: 'submitLabel', component: 'Text', text: 'Submit' },
-            ],
-          },
-        },
-      ],
-      resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
-    });
-    const generation = await adapter.prepareGeneration({ message: '创建操作界面' });
-    assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
-    const action = await adapter.prepareAction({
-      ...createAction('submit', surfaceId),
-      sourceComponentId: 'submitButton',
-      context: { name: 'A2UI Runtime', subscribed: true },
-    });
-
-    assert.ok(action.ok, action.ok ? undefined : action.message);
-    const response = await collect(action.run.source);
-    assert.deepEqual(response, [
-      {
-        version: 'v0.9',
-        updateComponents: {
-          surfaceId: 'surface-form',
-          components: [
-            {
-              id: 'submitResult',
-              component: 'Text',
-              text: '已提交：name=A2UI Runtime，subscribed=true',
-              variant: 'body',
-            },
-          ],
-        },
-      },
-    ]);
-  });
-
-  it('normalizes the legacy Basic Task catalog ID to the canonical Nexus profile', async () => {
-    const generationRequests: AgentGenerationSourceRequest[] = [];
-    const surfaceId = 'surface-legacy-basic';
-    const adapter = new AgentAdapter({
-      actionHandlers: new Map(),
-      createSurfaceId: () => surfaceId,
-      createGenerationSource: (request) => {
-        generationRequests.push(request);
-        return [
-          {
-            version: 'v0.9',
-            createSurface: {
-              surfaceId: request.surfaceId,
-              catalogId: request.catalogId,
-            },
-          },
-        ];
-      },
-    });
-
-    const plan = await adapter.prepareGeneration({ catalogId: LEGACY_BASIC_TASK_CATALOG });
-    assert.ok(plan.ok);
-    assert.equal(plan.run.sequence.catalogId, BASIC_CATALOG);
-    assert.equal(generationRequests[0]?.catalogId, BASIC_CATALOG);
-
-    const source = await collect(plan.run.source);
-    assert.equal(
-      findCreateCatalogId(source),
-      BASIC_CATALOG,
-      'new generations must carry the canonical Nexus profile ID',
-    );
-  });
-
   it('keeps the official Basic Catalog identity unregistered', async () => {
-    const adapter = new AgentAdapter({ useLlm: () => false });
+    const adapter = new AgentAdapter({ registry, useLlm: () => false });
     const plan = await adapter.prepareGeneration({ catalogId: OFFICIAL_BASIC_CATALOG });
 
     assert.ok(!plan.ok);
     assert.match(plan.message, /Nexus 不注册官方 Basic Catalog/);
   });
 
-  it('rejects actions when only the legacy history record exists', async () => {
-    const historyStore = new InMemorySurfaceHistoryStore();
-    await historyStore.commitGeneration('surface-legacy-action', LEGACY_BASIC_TASK_CATALOG, []);
-    const adapter = new AgentAdapter({ historyStore, useLlm: () => false });
-
-    const action = await adapter.prepareAction(createAction('search', 'surface-legacy-action'));
-    assert.ok(!action.ok);
-    assert.match(action.message, /Action surface 不存在或已过期/);
-  });
-
   it('serializes concurrent handler execution for the same surface', async () => {
     const surfaceId = 'surface-serial-action';
     const executionOrder: string[] = [];
     const adapter = new AgentAdapter({
+      registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -878,7 +668,7 @@ describe('AgentAdapter', () => {
       ],
       actionHandlers: new Map([
         [
-          `${BASIC_CATALOG}:submit`,
+          `${TEST_CATALOG_ID}:submit`,
           async function* () {
             executionOrder.push('handler-start');
             await firstDelay(30);
@@ -891,7 +681,10 @@ describe('AgentAdapter', () => {
         ],
       ]),
     });
-    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    const generation = await adapter.prepareGeneration({
+      message: 'setup',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationMessages = await collect(generation.run.source);
     await generation.run.commit(generationMessages);
@@ -932,12 +725,13 @@ describe('AgentAdapter', () => {
   it('rolls back the action snapshot when the generation commit hook fails', async () => {
     const surfaceId = 'surface-rollback-generation';
     const adapter = new AgentAdapter({
+      registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -951,7 +745,10 @@ describe('AgentAdapter', () => {
         throw new Error('host success hook failed');
       },
     });
-    const generation = await adapter.prepareGeneration({ message: 'rollback test' });
+    const generation = await adapter.prepareGeneration({
+      message: 'rollback test',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const messages = await collect(generation.run.source);
     await assert.rejects(
@@ -970,12 +767,13 @@ describe('AgentAdapter', () => {
   it('marks the action ledger as failed when the stream fails before commit', async () => {
     const surfaceId = 'surface-ledger-fail';
     const adapter = new AgentAdapter({
+      registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -996,7 +794,7 @@ describe('AgentAdapter', () => {
       ],
       actionHandlers: new Map([
         [
-          `${BASIC_CATALOG}:submit`,
+          `${TEST_CATALOG_ID}:submit`,
           async function* () {
             yield {
               version: 'v0.9',
@@ -1006,7 +804,10 @@ describe('AgentAdapter', () => {
         ],
       ]),
     });
-    const generation = await adapter.prepareGeneration({ message: 'ledger test' });
+    const generation = await adapter.prepareGeneration({
+      message: 'ledger test',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationMessages = await collect(generation.run.source);
     await generation.run.commit(generationMessages);
@@ -1036,12 +837,13 @@ describe('AgentAdapter', () => {
   it('rejects action context fields not declared on the surface', async () => {
     const surfaceId = 'surface-undeclared-fields';
     const adapter = new AgentAdapter({
+      registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -1074,7 +876,7 @@ describe('AgentAdapter', () => {
       ],
       actionHandlers: new Map([
         [
-          `${BASIC_CATALOG}:submit`,
+          `${TEST_CATALOG_ID}:submit`,
           async function* () {
             yield {
               version: 'v0.9',
@@ -1084,7 +886,10 @@ describe('AgentAdapter', () => {
         ],
       ]),
     });
-    const generation = await adapter.prepareGeneration({ message: 'field test' });
+    const generation = await adapter.prepareGeneration({
+      message: 'field test',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationMessages = await collect(generation.run.source);
     await generation.run.commit(generationMessages);
@@ -1128,13 +933,14 @@ describe('AgentAdapter', () => {
     };
 
     const adapter = new AgentAdapter({
+      registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       actionStateStore: actionStore,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -1161,7 +967,7 @@ describe('AgentAdapter', () => {
       ],
       actionHandlers: new Map([
         [
-          `${BASIC_CATALOG}:submit`,
+          `${TEST_CATALOG_ID}:submit`,
           async function* (action: AgentAction) {
             const counter = Number((action.context as { counter?: number }).counter ?? -1);
             observed.push(counter);
@@ -1173,7 +979,10 @@ describe('AgentAdapter', () => {
         ],
       ]),
     });
-    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    const generation = await adapter.prepareGeneration({
+      message: 'setup',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationMessages = await collect(generation.run.source);
     await generation.run.commit(generationMessages);
@@ -1188,6 +997,7 @@ describe('AgentAdapter', () => {
     // The handler body is lazy: it runs at the first pull inside the queue.
     const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, 'commit-visibility-a', {
       streamDelayMs: 0,
+      manager: new InMemoryAgentRunManager(),
     });
     await firstDelay(20);
     assert.ok(commitEntered, 'first commit is now gated inside sendAgentRun');
@@ -1235,13 +1045,14 @@ describe('AgentAdapter', () => {
 
     const historyStore = new FlakyHistoryStore();
     const adapter = new AgentAdapter({
+      registry,
       historyStore,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -1262,7 +1073,7 @@ describe('AgentAdapter', () => {
       ],
       actionHandlers: new Map([
         [
-          `${BASIC_CATALOG}:submit`,
+          `${TEST_CATALOG_ID}:submit`,
           async function* () {
             yield {
               version: 'v0.9',
@@ -1272,7 +1083,10 @@ describe('AgentAdapter', () => {
         ],
       ]),
     });
-    const generation = await adapter.prepareGeneration({ message: 'setup' });
+    const generation = await adapter.prepareGeneration({
+      message: 'setup',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     await generation.run.commit(await collect(generation.run.source));
 
@@ -1297,13 +1111,3 @@ describe('AgentAdapter', () => {
     await collect(retryPlan.run.source);
   });
 });
-
-function findCreateCatalogId(messages: unknown[]): string | undefined {
-  for (const message of messages) {
-    const candidate = message as {
-      createSurface?: { catalogId?: string };
-    };
-    if (candidate.createSurface?.catalogId) return candidate.createSurface.catalogId;
-  }
-  return undefined;
-}

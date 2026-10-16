@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { JSONLBuffer } from '@nexus-ui/core';
+import type { AgentTurn } from '@nexus-ui/server';
 import {
   BASIC_CATALOG_ACTIONS,
   BASIC_CATALOG_COMPONENTS,
@@ -10,10 +11,7 @@ import {
   WORKBENCH_CATALOG_COMPONENTS,
 } from './catalog';
 
-export interface AgentTurn {
-  role: 'user' | 'assistant';
-  content: string;
-}
+export type { AgentTurn };
 
 export interface LlmAgentRequest {
   kind: 'generate' | 'action';

@@ -11,6 +11,8 @@
     "examples/**/*.ts",
     "examples/**/*.tsx",
     "tests/**/*.ts",
-    "tests/**/*.tsx"
+    "tests/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx"
   ]
 }

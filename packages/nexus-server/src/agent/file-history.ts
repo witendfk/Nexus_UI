@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { AgentTurn } from './llm-agent';
+import type { AgentTurn } from './agent-turn';
 import type { SurfaceHistoryStore } from './history';
+import { assertPositiveSafeInteger } from './limits';
 
 interface SurfaceRecord {
   surfaceId: string;
@@ -127,8 +128,14 @@ export class FileSurfaceHistoryStore implements SurfaceHistoryStore {
   constructor(filePath: string, options: FileSurfaceHistoryStoreOptions = {}) {
     if (filePath.trim().length === 0) throw new Error('Surface history 文件路径不能为空');
     this.filePath = resolve(filePath);
-    this.maxSurfaces = options.maxSurfaces ?? DEFAULT_MAX_SURFACES;
-    this.maxTurnsPerSurface = options.maxTurnsPerSurface ?? DEFAULT_MAX_TURNS_PER_SURFACE;
+    this.maxSurfaces =
+      options.maxSurfaces === undefined ? DEFAULT_MAX_SURFACES : options.maxSurfaces;
+    this.maxTurnsPerSurface =
+      options.maxTurnsPerSurface === undefined
+        ? DEFAULT_MAX_TURNS_PER_SURFACE
+        : options.maxTurnsPerSurface;
+    assertPositiveSafeInteger('maxSurfaces', this.maxSurfaces);
+    assertPositiveSafeInteger('maxTurnsPerSurface', this.maxTurnsPerSurface);
   }
 
   initialize(): Promise<void> {

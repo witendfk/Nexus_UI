@@ -40,9 +40,18 @@ export class ReactRenderer {
 
   /** 渲染 VNode 根树为 React 节点；root 为 null 返回 null。 */
   renderTree(root: VNode | null, ctx: RenderContext, options: RenderTreeOptions = {}): ReactNode {
+    const limit = options.maxElements === undefined ? DEFAULT_MAX_ELEMENTS : options.maxElements;
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new Error('maxElements 必须是正安全整数');
+    }
     if (!root) return null;
-    const limit = options.maxElements ?? DEFAULT_MAX_ELEMENTS;
-    return this.renderBounded(root, ctx, { remaining: limit, reported: false }, limit, options.onLimit);
+    return this.renderBounded(
+      root,
+      ctx,
+      { remaining: limit, reported: false },
+      limit,
+      options.onLimit,
+    );
   }
 
   /** 渲染单个 VNode（不设预算——正常路径请走 renderTree，由预算统一兜底）。 */
@@ -75,8 +84,10 @@ export class ReactRenderer {
     if (vnode.type === '__placeholder__') {
       return createElement('div', { key: vnode.id, style: placeholderStyle }, '…');
     }
-    const fn = this.renderMap[vnode.type];
-    if (!fn) {
+    const fn = Object.prototype.hasOwnProperty.call(this.renderMap, vnode.type)
+      ? this.renderMap[vnode.type]
+      : undefined;
+    if (typeof fn !== 'function') {
       return createElement(
         'div',
         { key: vnode.id, style: unknownStyle },

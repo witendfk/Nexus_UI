@@ -3,6 +3,7 @@ import { PassThrough } from 'stream';
 import type { A2UIErrorCode, A2UIMessage, CatalogDefinition, Component } from '@nexus-ui/core';
 import { CatalogRegistry, applyDataModelUpdate, resolveContext } from '@nexus-ui/core';
 import type { AgentPolicy } from './policy';
+import { InMemoryAgentRunManager } from './run-manager';
 import { AgentAdapter } from './adapter';
 import { InMemorySurfaceHistoryStore } from './history';
 import {
@@ -155,7 +156,9 @@ function parseSseRun(output: string): SseRun {
 async function sendAgentMessages(run: AgentRun, idPrefix: string): Promise<SseRun> {
   const { ctx, getOutput } = createSseContext();
   try {
-    const result = await sendAgentRun(ctx, run, idPrefix);
+    const result = await sendAgentRun(ctx, run, idPrefix, {
+      manager: new InMemoryAgentRunManager(),
+    });
     const parsed = parseSseRun(getOutput());
     if (!result.ok && !parsed.error) {
       parsed.error = { message: 'Agent verification stream failed' };

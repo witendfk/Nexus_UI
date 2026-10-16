@@ -13,9 +13,10 @@
  *     计入），maxDepth 限制链式深度——React 消费路径按引用展开的成本由此有界。
  *   - 任一预算耗尽后其余引用以占位呈现，onLimit 恰好上报一次。
  */
-import { resolveDynamic } from '../dataModel';
+import { isUnsafeSegment, resolveDynamic } from '../dataModel';
 import { getFirstFailedCheck } from '../checks';
 import type { Component, VNode } from '../protocol/types';
+import { validateRenderLimits } from './limits';
 
 const PLACEHOLDER_TYPE = '__placeholder__';
 const SKIP_KEYS = new Set(['id', 'component', 'children', 'child', 'checks']);
@@ -57,7 +58,10 @@ export function buildTree(
   model: unknown,
   options: BuildTreeOptions = {},
 ): VNode | null {
-  const root = components['root'];
+  validateRenderLimits(options);
+  const root = Object.prototype.hasOwnProperty.call(components, 'root')
+    ? components['root']
+    : undefined;
   if (!root) return null;
 
   const maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
@@ -85,6 +89,9 @@ export function buildTree(
     const props: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(component)) {
       if (SKIP_KEYS.has(k)) continue;
+      // 运行层防御：保留段键（含 JSON.parse 注入的自有 __proto__）一律不写入，
+      // 否则 `props[k] = v` 触发 __proto__ 访问器改写 props 的原型（继承属性攻击）。
+      if (isUnsafeSegment(k)) continue;
       props[k] =
         k === 'tabs' && Array.isArray(v)
           ? v.map((tab) =>
@@ -126,9 +133,7 @@ export function buildTree(
 
   const rootVNode = buildShell(root);
   inPath.add(root.id);
-  const stack: Frame[] = [
-    { childIds: childIdsOf(root), index: 0, vnode: rootVNode, depth: 1 },
-  ];
+  const stack: Frame[] = [{ childIds: childIdsOf(root), index: 0, vnode: rootVNode, depth: 1 }];
 
   while (stack.length > 0) {
     const frame = stack[stack.length - 1]!;
@@ -151,7 +156,9 @@ export function buildTree(
       frame.vnode.children!.push(memoized); // 共享子树（DAG 合法）
       continue;
     }
-    const childComponent = components[childId];
+    const childComponent = Object.prototype.hasOwnProperty.call(components, childId)
+      ? components[childId]
+      : undefined;
     if (!childComponent) {
       frame.vnode.children!.push(allocatePlaceholder(childId)); // 未到达
       continue;
@@ -171,7 +178,12 @@ export function buildTree(
     const childVNode = buildShell(childComponent);
     frame.vnode.children!.push(childVNode);
     inPath.add(childId);
-    stack.push({ childIds: childIdsOf(childComponent), index: 0, vnode: childVNode, depth: childDepth });
+    stack.push({
+      childIds: childIdsOf(childComponent),
+      index: 0,
+      vnode: childVNode,
+      depth: childDepth,
+    });
   }
 
   return rootVNode;

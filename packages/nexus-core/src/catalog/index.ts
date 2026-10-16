@@ -112,11 +112,17 @@ export class CatalogRegistry {
   }
 
   getComponentSchema(catalogId: string, component: string): ComponentPropsSchema | undefined {
-    return this.get(catalogId)?.componentSchemas?.[component];
+    const schemas = this.get(catalogId)?.componentSchemas;
+    return schemas && Object.prototype.hasOwnProperty.call(schemas, component)
+      ? schemas[component]
+      : undefined;
   }
 
   getComponentPolicy(catalogId: string, component: string): CatalogComponentPolicy | undefined {
-    return this.get(catalogId)?.componentPolicies?.[component];
+    const policies = this.get(catalogId)?.componentPolicies;
+    return policies && Object.prototype.hasOwnProperty.call(policies, component)
+      ? policies[component]
+      : undefined;
   }
 
   getComponentDiagnostics(

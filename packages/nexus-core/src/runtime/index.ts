@@ -14,6 +14,7 @@ import { JSONLBuffer, MAX_JSONL_LINE_LENGTH } from '../buffer';
 import type { CoreStore } from '../state';
 import { createCoreStore } from '../state';
 import { buildTree } from '../render';
+import { validateRenderLimits } from '../render/limits';
 import { buildActionEvent } from '../action';
 import { validateNexusProfileMessage, validateProtocolMessage } from '../protocol/validator';
 import type {
@@ -68,7 +69,8 @@ export class A2UIRuntime {
   private readonly options: RuntimeOptions;
 
   constructor(options: RuntimeOptions = {}) {
-    this.options = options;
+    validateRenderLimits(options);
+    this.options = { ...options };
   }
 
   /** 喂入一段流文本（可含多条 JSONL，或跨 chunk 的半行）。 */
@@ -273,8 +275,8 @@ export class A2UIRuntime {
           state.dataModelBySurface[surfaceId],
           message.updateDataModel,
         );
-        diagnostics = Object.values(state.componentsBySurface[surfaceId] ?? {}).flatMap((component) =>
-          registry.getComponentDiagnostics(catalogId, component, nextDataModel),
+        diagnostics = Object.values(state.componentsBySurface[surfaceId] ?? {}).flatMap(
+          (component) => registry.getComponentDiagnostics(catalogId, component, nextDataModel),
         );
       }
 

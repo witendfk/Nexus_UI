@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { createCatalogPromptContract } from '@nexus-ui/core';
 import type { AgentAdapter, AgentPlan } from '../agent/adapter';
-import { isLlmAgentEnabled } from '../agent/llm-agent';
 import { InMemoryAgentRunManager } from '../agent/run-manager';
 import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
 import { parseClientActionMessage } from './client-event';
@@ -41,6 +40,14 @@ export interface AgentRouterOptions {
   streamDelayMs?: number;
   /** Host-replaceable run observability store. */
   runManager?: AgentRunManager;
+  /**
+   * Host access predicate for `GET /api/a2ui/runs`. It receives the queried
+   * surfaceId and must decide from the trusted request context whether the
+   * caller may read that surface's run records. When absent, the route denies
+   * every query with 403 RUNS_ACCESS_NOT_CONFIGURED; the SDK never allows
+   * surfaceId enumeration by default.
+   */
+  runsAccess?: (surfaceId: string, ctx: Koa.Context) => boolean | Promise<boolean>;
 }
 
 export interface CatalogContractPayload {
@@ -136,7 +143,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       status: 'ok',
       service: '@nexus-ui/server',
       version: '0.1.0',
-      agentMode: options.healthAgentMode ?? (isLlmAgentEnabled() ? 'llm' : 'fallback'),
+      agentMode: options.healthAgentMode ?? 'default',
       actionMode: options.healthActionMode ?? 'adapter',
     };
   });
@@ -244,10 +251,30 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
     } satisfies PublishedCatalogsPayload;
   });
 
-  router.get('/api/a2ui/runs', (ctx) => {
+  router.get('/api/a2ui/runs', async (ctx) => {
     const surfaceId = ctx.query.surfaceId;
     if (typeof surfaceId !== 'string' || surfaceId === '') {
       invalidRequest(ctx, 'surfaceId 必须是非空字符串');
+      return;
+    }
+
+    // Runs expose failure messages and surface activity: access is deny-by-default.
+    // surfaceId is not a credential; the host decides from its trusted request context.
+    if (!options.runsAccess) {
+      ctx.status = 403;
+      ctx.body = {
+        error: 'RUNS_ACCESS_NOT_CONFIGURED',
+        message: '宿主必须配置 runsAccess 准入回调后，/api/a2ui/runs 才会返回运行记录',
+      };
+      return;
+    }
+    const allowed = await options.runsAccess(surfaceId, ctx);
+    if (allowed !== true) {
+      ctx.status = 403;
+      ctx.body = {
+        error: 'RUNS_ACCESS_DENIED',
+        message: '该 surface 的运行记录查询被宿主准入策略拒绝',
+      };
       return;
     }
 

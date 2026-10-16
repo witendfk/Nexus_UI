@@ -1,16 +1,7 @@
 import type { Component } from '@nexus-ui/core';
-import { NEXUS_BASIC_TASK_CATALOG, WORKBENCH_CATALOG } from '../catalog';
-import { validateComponentPolicy, getDataBindingPath } from './component-policy';
-import {
-  getRequiredMediaPolicy,
-  validateDynamicMediaPolicy,
-  validateLiteralMediaPolicy,
-  type MediaComponent,
-  type RequiredMediaPolicy,
-} from './media-policy';
-import { validateWorkflowPolicy } from './workflow-policy';
 
-export type { MediaComponent, RequiredMediaPolicy };
+export type MediaComponent = 'Image' | 'Video' | 'AudioPlayer';
+export type RequiredMediaPolicy = Record<MediaComponent, boolean>;
 
 export interface AgentPolicyContext {
   readonly kind: 'generate' | 'action';
@@ -33,59 +24,24 @@ export interface AgentPolicy {
   validateFinal?(context: AgentPolicyContext, components: readonly Component[]): string | null;
 }
 
-export type ResolvedAgentPolicy = Required<AgentPolicy>;
-
-function validateWorkbenchButtonPolicy(component: Component): string | null {
-  if (component.component !== 'Button') return null;
-  const allowedKeys = new Set(['id', 'component', 'child', 'disabled', 'action']);
-  if (!Object.keys(component).every((key) => allowedKeys.has(key))) {
-    return 'Workbench Button 只支持 id/component/child/disabled/action';
-  }
-  if (typeof component.child !== 'string') return 'Workbench Button.child 必须是组件 id';
-  if (component.disabled !== undefined && typeof component.disabled !== 'boolean') {
-    return 'Workbench Button.disabled 必须是布尔值';
-  }
-  if (component.action?.event === undefined) return 'Workbench Button 必须挂载 submit action';
-  return null;
-}
-
-function isMediaPolicyCatalog(catalogId: string): boolean {
-  return catalogId === NEXUS_BASIC_TASK_CATALOG || catalogId === WORKBENCH_CATALOG;
-}
-
-export const nexusAgentPolicy: ResolvedAgentPolicy = {
-  name: 'nexus-default',
-  validateComponent(component, context) {
-    if (context.catalogId === WORKBENCH_CATALOG) {
-      const workbenchError = validateWorkbenchButtonPolicy(component);
-      if (workbenchError) return workbenchError;
-    }
-    if (isMediaPolicyCatalog(context.catalogId)) {
-      return validateComponentPolicy(component);
-    }
-    return null;
-  },
-  validateLiteralMedia(component, context) {
-    if (!isMediaPolicyCatalog(context.catalogId)) return null;
-    return validateLiteralMediaPolicy(component);
-  },
-  validateDynamicMedia(component, dataModel) {
-    return validateDynamicMediaPolicy(component, dataModel);
-  },
-  getRequiredMedia(context) {
-    if (context.catalogId !== NEXUS_BASIC_TASK_CATALOG) {
-      return { Image: false, Video: false, AudioPlayer: false };
-    }
-    return getRequiredMediaPolicy(context.message);
-  },
-  validateFinal(context, components) {
-    return validateWorkflowPolicy(context, [...components]);
-  },
+/** Fully resolved hooks; the diagnostic label stays optional. */
+export type ResolvedAgentPolicy = Omit<Required<AgentPolicy>, 'name'> & {
+  readonly name?: string;
 };
 
-/** Host policies may override any subset; unset hooks retain Nexus defaults. */
-export function resolveAgentPolicy(policy?: AgentPolicy): ResolvedAgentPolicy {
-  return { ...nexusAgentPolicy, ...policy };
-}
+/**
+ * The SDK ships no business rules: an unset policy rejects nothing and requires
+ * no media. Hosts pass their own AgentPolicy (per adapter, run, or verifier).
+ */
+const neutralPolicy: ResolvedAgentPolicy = {
+  validateComponent: () => null,
+  validateLiteralMedia: () => null,
+  validateDynamicMedia: () => null,
+  getRequiredMedia: () => ({ Image: false, Video: false, AudioPlayer: false }),
+  validateFinal: () => null,
+};
 
-export { getDataBindingPath };
+/** Merge a host policy over the neutral no-op defaults. Internal SDK seam. */
+export function resolveAgentPolicy(policy?: AgentPolicy): ResolvedAgentPolicy {
+  return { ...neutralPolicy, ...policy };
+}

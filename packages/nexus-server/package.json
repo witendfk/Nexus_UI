@@ -2,7 +2,7 @@
   "name": "@nexus-ui/server",
   "version": "0.1.0",
   "private": true,
-  "description": "Nexus UI server host-assembly API and reference Koa service.",
+  "description": "Nexus UI server SDK：Agent 装配、guard、SSE 传输与宿主显式注入契约（参考服务在 examples/playground-server）。",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -17,18 +17,15 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "pnpm --filter @nexus-ui/core build && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
-    "test": "tsx --test tests/*.test.ts",
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts",
-    "lint": "eslint src --ext .ts"
+    "build": "pnpm --filter @nexus-ui/core build && rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
+    "test": "tsx --test tests/*.test.ts test/**/*.test.ts test/*.test.ts",
+    "lint": "eslint src tests test --ext .ts"
   },
   "dependencies": {
     "@nexus-ui/core": "workspace:*",
     "@koa/cors": "^5.0.0",
     "@koa/router": "^12.0.1",
-    "koa": "^2.15.3",
-    "openai": "^4.56.0"
+    "koa": "^2.15.3"
   },
   "devDependencies": {
     "@types/koa": "^2.15.0",

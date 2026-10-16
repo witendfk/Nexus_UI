@@ -4,18 +4,20 @@
 
 ## 决策索引
 
-| 决策 | 选择                                            | 状态                            |
-| ---- | ----------------------------------------------- | ------------------------------- |
-| D1   | Protocol / Profile / Catalog / Host Policy 分层 | 保留；默认示例规则按 D4 迁出    |
-| D2   | 以独立接入和 SDK 门禁验收                       | 更新；业务应用不再是发行前置    |
-| D3   | Koa 适配器调用时同步占用 SSE 响应               | 保留已有修复，限定在 Koa 适配层 |
-| D4   | SDK 中立默认值与显式宿主装配                    | 已决策，待改造                  |
-| D5   | 区分消息状态、运行提交与业务结果                | 已决策，待改造                  |
-| D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建         |
-| D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                  |
-| D8   | 声明式输入与 action 能力                        | 已决策，待改造                  |
-| D9   | 单一运行调度与有界资源                          | 已决策，待改造                  |
-| D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施          |
+| 决策 | 选择                                            | 状态                                    |
+| ---- | ----------------------------------------------- | --------------------------------------- |
+| D1   | Protocol / Profile / Catalog / Host Policy 分层 | 保留；默认示例规则按 D4 迁出            |
+| D2   | 以独立接入和 SDK 门禁验收                       | 更新；业务应用不再是发行前置            |
+| D3   | Koa 适配器调用时同步占用 SSE 响应               | 保留已有修复，限定在 Koa 适配层         |
+| D4   | SDK 中立默认值与显式宿主装配                    | server 侧已实施（含 runs 准入默认拒绝） |
+| D5   | 区分消息状态、运行提交与业务结果                | 已决策，待改造                          |
+| D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
+| D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
+| D8   | 声明式输入与 action 能力                        | 已决策，待改造                          |
+| D9   | 单一运行调度与有界资源                          | 已决策，待改造                          |
+| D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
+| D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
+| D12  | 按职责分包，通过层内高层 API 聚合接入能力       | 已决策，暂不新增总门面包                |
 
 ## D1. 分层准入
 
@@ -41,9 +43,9 @@
 
 ## D4. SDK 默认行为保持业务中立
 
-**选择**：生成源、Catalog、Host Policy 和 handler 显式注入。缺少必需依赖显式报错；未声明 action 不继承示例白名单；未声明业务 Policy 不继承搜索、表单或客户跟进规则。模型 key 不改变通用 runtime 的生成源选择。
+**选择**：生成源、Catalog、Host Policy 和 handler 显式注入。缺少必需依赖显式报错；未声明 action 不继承示例白名单；未声明业务 Policy 不继承搜索、表单或客户跟进规则。模型 key 不改变通用 runtime 的生成源选择。runs 查询访问控制默认拒绝：宿主未配置 `runsAccess` 时 `GET /api/a2ui/runs` 一律 403，`surfaceId` 不作为凭据。
 
-**依据**：当前 Adapter 仍引用内置 Catalog/LLM，默认 Policy 按业务关键词决定组件结构。示例 handler 已经部分分离，但默认行为尚未完成隔离。
+**实施状态（2026-10-16，server 侧）**：`AgentAdapterOptions.registry` 必填；`historyStore` 缺省为每实例隔离新建，模块级全局单例已删除；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，legacy URL 不再静默归一；guard 序列选项 `catalogId`/`registry`/`supportedActions` 必填，Button/TaskButton 挂载特判删除（归 Catalog v2 声明能力）；`sendAgentRun` 必须显式传 `manager`；参考 Catalog/LLM/prompt/演示 handler/环境读取/listener 迁至 `examples/playground-server/`。上述行为均有先失败后通过的证伪测试。
 
 **保留与迁出**：标准组件契约、安全 URL 使用约束、原型防护、正则与资源限制保留。联系人/任务/Workbench Catalog、流程 Policy、prompt、模型调用、模拟 handler、环境读取和 listener 迁至参考应用。外部 RPC helper 作为可选适配保留，不引入 Agent 编排或业务模型。
 
@@ -100,3 +102,21 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 **构建方向**：源码使用显式 `.js` 模块路径，以 TypeScript NodeNext 检查 Node ESM 可解析性；浏览器包同时验证现代构建工具接入。当前 `scripts/fix-esm-imports.mjs` 是三包构建中的产物修补步骤，先保留；完成路径迁移、构建与原生 Node 加载验收后删除，不要求宿主运行该脚本。
 
 **代价与验收**：源码路径需要统一迁移，兼顾类型导出和包边界；S5 用当前构建产物验证 Node、浏览器打包和 TS 消费。source map 若发布须包含可用的源码映射，不发布指向缺失源文件的调试资源。此决策不代表当前已有独立 CSS 或 NodeNext 配置。
+
+## D11. 保留段、媒体 URL 与正则求值的统一安全口径
+
+**选择**：`__proto__`/`constructor`/`prototype` 为 SDK 唯一保留段口径，判断逻辑在 dataModel 定义处导出（`isUnsafeSegment`），准入与运行层共用。准入侧：`action.event.context` 键与组件 props 层自有键含保留段拒绝；`component.id` 与四处 `surfaceId` 三段全拒。运行侧纵深防御：`resolveContext` 遇保留段键抛错（写返回对象会触发 `__proto__` 访问器改写原型），`buildProps` 静默跳过保留段键。媒体组件 Image/Video/AudioPlayer 的字面量 `url` 准入时必须经 `isSafeMediaUrl` 判定为 http(s)（URL 解析后读 protocol，不做字符串前缀匹配——前缀写法可被大小写与协议相对形式绕过）；`{ path }` 绑定无法在准入层判定真值，React 渲染层解析后复用同一 util 守卫，非法时不输出 `src` 并渲染带说明性 alt/aria 的占位。Catalog schema `pattern` 与 checks 路径同口径：注册闸门强制长度上限并拒绝嵌套量词，求值统一走 `compileSafeRegExp` 有界线性引擎（checks 的 safe-regex 为唯一正则求值实现），编译失败产生 schema 诊断。
+
+**评审补充**：安全闭环还覆盖组件表、Catalog schema/Policy 表和 renderMap 的自有属性查找；不通过黑名单代替正确查表，显式自有注册仍可使用同名组件。renderMap 值不是函数时降级。渲染与 store 容量须为正安全整数，空树也校验，避免 NaN/Infinity 关闭预算或负数导致无限淘汰循环。业务中立不意味着参考应用丢失自己的规则：参考工厂显式接回演示 Policy。SDK 三包 build 清除旧 dist，再验证当前源码对应的产物清单。
+
+**依据**：三条路径的原有实现各自为政——dataModel 三段全拦、validator 只拦 `__proto__`、schema.pattern 裸用原生 RegExp（`(a|aa)+$` 类歧义 pattern 在失败值上指数回溯）。证伪测试确认均可复现污染、注入或挂起；统一口径后规则只有一份定义，准入拒绝与运行降级各司其职，避免下游消费方再自行推断边界。
+
+**代价**：准入口径收紧属破坏性收敛——含保留段键/组件 id 的历史消息（含经 `JSON.parse` 注入的自有 `__proto__`）与字面量非 http(s) 媒体 URL 从放行变为拒绝；原生 RegExp 可编译但超出有界引擎兼容子集（环视、反向引用、超大重复计数）的 pattern 在匹配时产生「无法求值」诊断而非原生语义。误报场景按 Profile 兼容范围声明处理，不做静默兼容。
+
+## D12. 高层接入 API 与包边界
+
+**选择**：保留 core/client/react/server 的目标分包，暂不新增统一重导出四包的总门面包。各包通过公开根入口及职责内的高层 API 简化接入：client 会话控制器聚合生成/action、订阅、取消与恢复；React 提供 Provider/Surface/hooks；server 运行工厂装配准入、调度、生成源与 handler。名称与精确类型按对应实现切片定型。
+
+**依据**：宿主按环境与框架选用能力。浏览器入口不重导出 Node server，框架无关入口不引入 React/后续 Vue，不依靠 tree shaking 消除跨环境解析与可选依赖问题。统一文档和兼容说明可以提供一致接入体验；减少重复接线比减少包名更有价值。
+
+**代价与重评条件**：消费方需要安装其使用的包；SDK 须保证跨包类型兼容与组合示例完整。只有实际接入证明安装/组合仍有明显成本时，才评估薄便捷包，并验证环境隔离、依赖和产物加载。当前不为该可能性预建新包。

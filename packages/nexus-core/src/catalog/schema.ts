@@ -1,5 +1,6 @@
 import type { A2UIDiagnostic, Component } from '../protocol/types';
 import { getByPath } from '../dataModel/index';
+import { MAX_REGEX_PATTERN_LENGTH, compileSafeRegExp, hasNestedQuantifierRisk } from '../checks';
 
 export type SchemaValueType =
   | 'string'
@@ -403,6 +404,13 @@ function validateSchemaNode(node: unknown, path: string, depth = 0): string | nu
 
   if (node.pattern !== undefined) {
     if (typeof node.pattern !== 'string') return `${path}.pattern 必须是字符串`;
+    // 注册闸门与 checks 路径（validator）口径一致：长度上限 + 灾难性回溯启发式。
+    if (node.pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+      return `${path}.pattern 长度不得超过 ${MAX_REGEX_PATTERN_LENGTH}`;
+    }
+    if (hasNestedQuantifierRisk(node.pattern)) {
+      return `${path}.pattern 含嵌套量词，属不安全正则`;
+    }
     try {
       new RegExp(node.pattern);
     } catch {
@@ -493,8 +501,15 @@ function collectLiteralErrors(
     if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) {
       add(path, `${path} 长度不能超过 ${schema.maxLength}`, dataPath);
     }
-    if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
-      add(path, `${path} 不符合 schema.pattern`, dataPath);
+    if (schema.pattern !== undefined) {
+      // 匹配走有界引擎（与 checks 一致）：不裸 new RegExp——歧义 pattern 的指数
+      // 回溯会挂起主线程；编译失败（超限/不受支持语法）产生 schema 诊断。
+      const compiled = compileSafeRegExp(schema.pattern);
+      if (compiled === null) {
+        add(path, `${path}.pattern 不安全或包含不受支持的语法，无法求值`, dataPath);
+      } else if (!compiled.test(value)) {
+        add(path, `${path} 不符合 schema.pattern`, dataPath);
+      }
     }
   }
 

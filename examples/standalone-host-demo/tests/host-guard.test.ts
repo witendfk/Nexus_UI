@@ -8,7 +8,7 @@ import type Koa from 'koa';
 import { A2UIRuntime } from '@nexus-ui/core';
 import type { ActionEvent, VNode } from '@nexus-ui/core';
 import { ReactRenderer } from '@nexus-ui/react';
-import { sendAgentRun } from '@nexus-ui/server';
+import { InMemoryAgentRunManager, sendAgentRun } from '@nexus-ui/server';
 import { createStandaloneHostAdapter } from '../src/host/adapter';
 import { createStandaloneHostApp } from '../src/host/app';
 import { DEMO_AGENT_ACTION, DEMO_AGENT_CATALOG_ID } from '../src/contract';
@@ -232,6 +232,7 @@ describe('standalone host example', () => {
       generationTransport.ctx,
       generation.run,
       'standalone-generation',
+      { manager: new InMemoryAgentRunManager() },
     );
 
     assert.equal(generationResult.ok, true);
@@ -263,7 +264,9 @@ describe('standalone host example', () => {
     });
     assert.ok(action.ok);
     const actionTransport = createSseContext();
-    const actionResult = await sendAgentRun(actionTransport.ctx, action.run, 'standalone-action');
+    const actionResult = await sendAgentRun(actionTransport.ctx, action.run, 'standalone-action', {
+      manager: new InMemoryAgentRunManager(),
+    });
 
     assert.equal(actionResult.ok, true);
     assert.match(actionTransport.getOutput(), /event: done/);
@@ -300,7 +303,9 @@ describe('standalone host example', () => {
     assert.equal(generation.run.sequence.policy?.name, 'standalone-host-policy');
 
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, generation.run, 'standalone-policy');
+    const result = await sendAgentRun(transport.ctx, generation.run, 'standalone-policy', {
+      manager: new InMemoryAgentRunManager(),
+    });
     assert.equal(result.ok, false);
     assert.match(transport.getOutput(), /host policy rejected Text/);
     assert.match(transport.getOutput(), /"boundaryCode":"POLICY_REJECTED"/);
@@ -341,7 +346,9 @@ describe('standalone host example', () => {
       },
     ];
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, generation.run, 'invalid-action');
+    const result = await sendAgentRun(transport.ctx, generation.run, 'invalid-action', {
+      manager: new InMemoryAgentRunManager(),
+    });
 
     assert.equal(result.ok, false);
     assert.match(transport.getOutput(), /当前 Agent 线不支持 action: reject/);

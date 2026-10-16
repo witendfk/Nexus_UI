@@ -15,5 +15,5 @@
   },
   "//": "react build 使用 core 的 dist 声明，避免把 workspace TS 源码拉进本包 rootDir。",
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["tests", "src/**/*.test.ts", "src/**/*.test.tsx"]
+  "exclude": ["tests", "test", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

@@ -1,4 +1,4 @@
-import type { AgentAction, AgentActionHandler } from './adapter';
+import type { AgentAction, AgentActionHandler } from '@nexus-ui/server';
 
 export type TaskStatus = 'pending' | 'active' | 'completed';
 
@@ -45,8 +45,6 @@ export class TaskStateStore {
   }
 }
 
-export const taskStateStore = new TaskStateStore();
-
 function createTaskUpdate(
   surfaceId: string,
   status: string,
@@ -86,9 +84,7 @@ function createTaskUpdate(
   ];
 }
 
-export function createTaskActionHandler(
-  store: TaskStateStore = taskStateStore,
-): AgentActionHandler {
+export function createTaskActionHandler(store: TaskStateStore): AgentActionHandler {
   return (action: AgentAction) => {
     if (action.name === 'start') {
       store.start(action.surfaceId);

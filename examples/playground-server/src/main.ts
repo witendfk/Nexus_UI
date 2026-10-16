@@ -1,21 +1,22 @@
 /**
- * Reference server executable. Keep this file side-effectful; src/index.ts is
- * the importable host-assembly API and must not start a listener.
+ * Playground server executable — the local demo backend for web/nexus-playground.
+ * Keep this file side-effectful; it is an example, not the SDK import surface.
+ * All SDK capability comes from the @nexus-ui/server public entry.
  */
 import Koa from 'koa';
 import cors from '@koa/cors';
-import { createAgentRouter } from './api/routes';
-import { defaultSurfaceHistoryStore } from './agent/history';
-import { FileSurfaceHistoryStore } from './agent/file-history';
+import { createAgentRouter, FileSurfaceHistoryStore, InMemorySurfaceHistoryStore } from '@nexus-ui/server';
+import type { SurfaceHistoryStore } from '@nexus-ui/server';
 import { loadProjectEnv } from './config/env';
+import { isLlmAgentEnabled } from './agent/llm-agent';
 import { createReferenceAgentAdapter } from './reference/reference-agent';
 
 loadProjectEnv();
 
 const historyFile = process.env.NEXUS_HISTORY_FILE;
-const surfaceHistoryStore = historyFile
+const surfaceHistoryStore: SurfaceHistoryStore = historyFile
   ? new FileSurfaceHistoryStore(historyFile)
-  : defaultSurfaceHistoryStore;
+  : new InMemorySurfaceHistoryStore();
 const agentAdapter = createReferenceAgentAdapter({ historyStore: surfaceHistoryStore });
 const app = new Koa();
 
@@ -26,6 +27,9 @@ const router = createAgentRouter({
   adapter: agentAdapter,
   maxRequestBodyBytes,
   requestBodyTimeoutMs,
+  healthAgentMode: isLlmAgentEnabled() ? 'llm' : 'fallback',
+  // 本地开发试验台显式放开 runs 查询；真实宿主必须换成基于可信请求上下文的准入。
+  runsAccess: () => true,
 });
 
 app.use(cors());
@@ -41,7 +45,7 @@ if (process.env.NODE_ENV !== 'test') {
       app.listen(PORT, () => {
         // eslint-disable-next-line no-console
         console.log(
-          `@nexus-ui/server on http://localhost:${PORT}  (POST /api/a2ui/generate, POST /api/a2ui/event)`,
+          `@nexus-ui/playground-server on http://localhost:${PORT}  (POST /api/a2ui/generate, POST /api/a2ui/event)`,
         );
       });
     })

@@ -24,16 +24,19 @@ Nexus_UI/
 ├─ packages/
 │  ├─ nexus-core/             现有协议、Catalog、状态与绑定内核
 │  ├─ nexus-react/            现有 Provider、renderer、17 标准组件
-│  └─ nexus-server/           现有 SDK 装配；参考 Koa 程序仍在 src/main.ts
-├─ web/nexus-playground/      开发者试验台前端，连接参考服务
+│  └─ nexus-server/           SDK 装配、guard、SSE 传输（参考服务已迁出，无 src/main.ts）
+├─ web/nexus-playground/      开发者试验台前端，/api 代理到参考服务 3001
 ├─ examples/
+│  ├─ playground-server/      参考服务：演示 Catalog、LLM/mock 生成源、本地 Koa 装配（只经公开入口消费）
 │  ├─ standalone-host-demo/   公开入口接入与后续仓外验收载体
 │  └─ agent-demo/             业务应用占位，由应用自行定义场景
 ├─ specification/v0_9/        上游协议与指南快照
 └─ docs/                     PRD / SPEC / ARCHITECTURE / DESIGN / tasks/CURRENT
 ```
 
-当前依赖为 `react → core`、`server → core`；浏览器流处理散在 playground 与 standalone-host-demo。client 包尚不存在。参考服务移出 server 包、自定义交互和非 Koa 接入均尚未完成。
+当前依赖为 `react → core`、`server → core`、`playground-server → core + server`；浏览器流处理散在 playground 与 standalone-host-demo。client 包尚不存在。自定义交互和非 Koa 接入尚未完成。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
+
+三包构建先清理各自 dist，再编译并完成现有 ESM import 修补；根 build/build:packages 串行执行，避免依赖包清理竞态；产物清单对照当前 src，防止源码迁出后遗留旧 listener、模型 SDK、业务模块或测试。此为 S1 产物卫生检查，不替代 S5 的仓外发行验收。
 
 ### 2.1 已决策的目标包图
 
@@ -52,9 +55,11 @@ flowchart TB
 
 箭头为代码依赖；虚线为通信。client 与 server 不互相 import 实现，React 不强依赖 client。共享的纯消息、运行元数据与组件能力类型放在 core；请求读取、SSE framing 和 HTTP 对象留在适配层。
 
-目标新增 `packages/nexus-client/`，先只提供浏览器会话与 fetch/SSE。参考程序迁至 `examples/playground-server/`，通过 SDK 根入口消费三包/后续四包。现有 web 路径可以保留，不为整齐重命名无关目录；根 dev/递归脚本随真实迁移更新。
+目标新增 `packages/nexus-client/`，先只提供浏览器会话与 fetch/SSE。参考程序已在 `examples/playground-server/`，只通过 SDK 根入口消费三包/后续四包。现有 web 路径保留，不为整齐重命名无关目录；根 dev/递归脚本已随迁移更新。
 
 不额外拆分 guard、Catalog、Policy 或 Agent 包。Node server 的根入口不启动 listener、不读取项目环境、不隐式依赖模型 SDK；Koa/RPC 适配为显式可选能力。实际产物验证框架无关入口的可加载性。
+
+统一接入通过各包公开根入口和职责内高层 API 实现，暂不新增总门面包（DESIGN D12）。浏览器入口不重导出 Node server，框架无关入口不引入 React/后续 Vue；环境隔离不依赖 tree shaking。
 
 ### 2.2 模块职责与验收归属
 

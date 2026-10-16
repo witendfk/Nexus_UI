@@ -7,7 +7,7 @@ import type {
   AgentGenerationSource,
   AgentMessageSource,
 } from './adapter';
-import type { AgentTurn } from './llm-agent';
+import type { AgentTurn } from './agent-turn';
 
 export interface ExternalAgentRpcConfig {
   endpoint: string;

@@ -29,40 +29,44 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 
 不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束，当前自定义输入/action 仍受硬编码限制。
 
+安全准入基线：`__proto__`/`constructor`/`prototype` 为保留段。`action.event.context` 的键与组件 props 层（非结构键）的自有键含保留段一律拒绝；`component.id` 与四处 `surfaceId` 三段全拒。Image/Video/AudioPlayer 的字面量 `url` 必须是 http(s) URL（core 公开 `isSafeMediaUrl`，经 URL 解析判定 protocol，不做字符串前缀匹配）；`{ path }` 绑定放行准入，由 React 三个媒体组件在解析后复用同一判定守卫，非法时不输出 `src` 并渲染带说明性 alt/aria 的占位。运行层防御与准入同口径：`resolveContext` 遇保留段键显式抛错，`buildProps` 跳过保留段键不写入 props。
+
+组件表、Catalog schema/Policy 表与 renderMap 查表只读取自有属性；renderMap 条目须为函数，未知或非法条目降级为占位，不调用原型链成员。`maxNodes`、`maxDepth`、`maxElements` 与各 store 的容量预算必须为正安全整数；非法值在 runtime/store 初始化或直接渲染调用时显式抛错，空树不跳过配置校验，零不表示关闭限制。
+
 校验链为 Protocol → Profile → Catalog → 显式 Host Policy。已有诊断码为 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`FEATURE_UNSUPPORTED`、`CATALOG_UNSUPPORTED`、`POLICY_REJECTED`。诊断可带 `path`、`message`、`dataPath`。client→server 消息由服务端 action 边界处理，不属于 core 的 server→client 流入。
 
 官方用例历史基线（2026-09-30）：9 份用例，33 pass、47 已决策偏差、0 fail，位置为 `packages/nexus-core/tests/conformance-baseline.json`。偏差为 profile-unsupported 16、profile-catches-protocol-loose 23、degraded-value-constraint 5、scope-client-to-server 3。这个分类结果不代表完整协议一致性；当前改动须重跑 conformance 后才能声明无回归。
 
 ## 2. 当前 Catalog 与公开 API
 
-CatalogDefinition 目前包含 `catalogId`、`components`、可选 `actions`、`componentSchemas` 和 `componentPolicies`。schema 是明确受限的 JSON-Schema-like 子集；`dynamic` 描述字面值/绑定约束，不能当作任意 JSON Schema 引擎。
+CatalogDefinition 目前包含 `catalogId`、`components`、可选 `actions`、`componentSchemas` 和 `componentPolicies`。schema 是明确受限的 JSON-Schema-like 子集；`dynamic` 描述字面值/绑定约束，不能当作任意 JSON Schema 引擎。`pattern` 与 checks 路径同口径：注册闸门强制长度上限（200）并拒绝嵌套量词；求值统一走 `compileSafeRegExp` 有界线性引擎，编译失败（超限/不受支持语法）产生 schema 诊断，不再裸用原生 RegExp。
 
 `createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v1 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：core 在 `actions` 缺省时不执行 action 名称白名单检查，server 的 helper 则可能回退到示例 actions；未声明 schema 的组件可仅做名称检查；默认 Policy 仍包含示例流程。不得把“所有未声明能力均被拒绝”作为当前统一保证。目标见 §4。
+**当前差距**：core 在 `actions` 缺省时不执行 action 名称白名单检查；未声明 schema 的组件可仅做名称检查。不得把“所有未声明能力均被拒绝”作为当前统一保证。目标见 §4。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
-server 根入口提供 AgentAdapter、router、Policy 注入、Catalog/discovery、RPC、verifier、history/run 与 `sendAgentRun` 等装配能力。内置参考工厂不从根入口导出，但 Adapter 默认仍关联内置 Catalog/LLM/Policy，根导出隔离尚不等于默认行为已中立。
+server 根入口提供 AgentAdapter、router、guard 校验函数、Policy 注入、Catalog contract/discovery、RPC、verifier、history/run 实现与 `sendAgentRun` 等装配能力。装配依赖全部显式：`registry` 必填；`historyStore` 缺省为每 adapter 实例隔离新建；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，不回落默认 Catalog；`sendAgentRun` 必须显式传入 `manager`。SDK 根入口无 listener、不读取项目环境、不依赖模型 SDK。参考工厂自行装配演示 Policy，局部覆盖仅替换对应 hook；SDK 不继承这些默认值。三包构建先清理旧 dist，产物清单必须与当前 src 对应，已迁出模块和测试不得残留。
 
 ## 3. 当前 HTTP、RPC 与提交语义
 
 当前参考 HTTP 路由：
 
-| 路由                                        | 当前行为                                    |
-| ------------------------------------------- | ------------------------------------------- |
-| `POST /api/a2ui/generate`                   | 接收 `message?`、`catalogId?`，返回 SSE     |
-| `POST /api/a2ui/event`                      | 接收 v0.9 action 信封，返回同 surface patch |
-| `GET /api/a2ui/catalog-contract?catalogId=` | 返回已发布 Catalog Contract                 |
-| `GET /api/a2ui/published-catalogs`          | 返回显式发布的 Catalog 摘要与 URL           |
-| `GET /api/a2ui/agent-onboarding?catalogId=` | 返回 Agent 接入约束与验收描述               |
-| `GET /api/a2ui/runs?surfaceId=`             | 查询进程内运行记录；访问控制仍需宿主接线    |
+| 路由                                        | 当前行为                                             |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `POST /api/a2ui/generate`                   | 接收 `message?`、`catalogId`（必填），返回 SSE       |
+| `POST /api/a2ui/event`                      | 接收 v0.9 action 信封，返回同 surface patch          |
+| `GET /api/a2ui/catalog-contract?catalogId=` | 返回已发布 Catalog Contract                          |
+| `GET /api/a2ui/published-catalogs`          | 返回显式发布的 Catalog 摘要与 URL                    |
+| `GET /api/a2ui/agent-onboarding?catalogId=` | 返回 Agent 接入约束与验收描述                        |
+| `GET /api/a2ui/runs?surfaceId=`             | 运行记录查询；宿主 `runsAccess` 准入，未配置默认 403 |
 
 当前 action 要求 name、surfaceId、sourceComponentId、可解析 timestamp 和对象 context；解析器支持可选 actionId。顺序为 surface 锁 → 快照与 action 声明核对 → handler 查找 → ledger → resolver → handler → patch guard → UI 快照提交。
 
 默认 resolver 从服务端快照解析参数，无法取得浏览器后续输入；自定义 resolver 完全接管时，字段/路径/类型拒绝须宿主自行实现。ledger 只在进程内去重，failed 记录可能再次进入，不能作为业务重试依据。
 
-SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成功后发送，`error` 表示运行失败。现有浏览器示例未完整落实终态识别与预览门控。当前 `sendAgentRun` 接受 Koa Context，调用时同步占用响应并自行 pipe，宿主 await/void 均逐条下发；此保证属于 Koa 适配行为。
+SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成功后发送，`error` 表示运行失败。现有浏览器示例未完整落实终态识别与预览门控。当前 `sendAgentRun` 接受 Koa Context 与必填的宿主（或 router 实例）`manager`，调用时同步占用响应并自行 pipe，宿主 await/void 均逐条下发；此保证属于 Koa 适配行为。
 
 | 资源                        | 当前默认值 / 已知限制                                                  |
 | --------------------------- | ---------------------------------------------------------------------- |
@@ -154,3 +158,7 @@ React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 
 首发每包交付可原生加载的 ESM `.js` 与 `.d.ts`；建议 `.js.map`，发布时保证源码映射可用。视图包可提供显式公开的样式入口，宿主按需引入；当前 React 仍在 import 时注入动画，独立 CSS 尚未交付。不提供 CJS、UMD 或 IIFE；包内不重复捆绑 React/Vue，框架依赖以 peer dependency 声明，内部包按依赖关系消费。
 
 当前构建仍使用 `fix-esm-imports.mjs` 补齐相对路径。目标以显式 `.js` 源码路径和 NodeNext 配置在编译时保证 Node ESM 可解析性；通过产物原生加载、类型解析和浏览器打包验证后才移除脚本。宿主通过公开包入口消费，不运行 SDK 构建脚本。
+
+### 8.2 公开入口与高层 API（目标）
+
+目标各包提供独立公开根入口，宿主按环境与框架安装选用；暂不提供统一重导出四包的总门面包。高层接入能力在职责内聚合：client 管会话，React 管视图，server 管运行装配，core 保持可独立消费。浏览器入口不重导出 Node server；框架无关入口不引入 React/后续 Vue。精确 API 随实现切片定型，兼容与产物门禁须验证层间组合，不以 tree shaking 替代环境边界。

@@ -1,0 +1,31 @@
+{
+  "name": "@nexus-ui/playground-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexus UI playground 参考服务：演示 Catalog、LLM/mock 生成源与本地 Koa 装配，只经公开 SDK 入口消费。",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts test/**/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src tests test --ext .ts"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/router": "^12.0.1",
+    "@nexus-ui/core": "workspace:*",
+    "@nexus-ui/server": "workspace:*",
+    "koa": "^2.15.3",
+    "openai": "^4.56.0"
+  },
+  "devDependencies": {
+    "@types/koa": "^2.15.0",
+    "@types/koa__cors": "^5.0.0",
+    "@types/koa__router": "^12.0.4",
+    "@types/node": "^18.19.50",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}

@@ -6,7 +6,9 @@ import type { AddressInfo } from 'node:net';
 import type Koa from 'koa';
 import { AgentAdapter } from '../src/agent/adapter';
 import type { AgentMessageSource } from '../src/agent/adapter';
-import { BASIC_CATALOG, agentCatalogRegistry } from '../src/agent/catalog';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+
+const registry = createTestRegistry();
 import {
   createExternalAgentActionHandler,
   createExternalAgentGenerationSource,
@@ -14,6 +16,7 @@ import {
 import { createCatalogContractReference } from '../src/agent/catalog-contract';
 import { CATALOG_CONTRACT_VERSION } from '../src/agent/catalog-contract';
 import { sendAgentRun } from '../src/api/send-messages';
+import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 
 interface CapturedRequest {
   method?: string;
@@ -128,7 +131,7 @@ describe('external agent RPC', () => {
         const messages = [
           {
             version: 'v0.9',
-            createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+            createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
           },
           {
             version: 'v0.9',
@@ -165,6 +168,7 @@ describe('external agent RPC', () => {
       );
     });
     const adapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -177,7 +181,7 @@ describe('external agent RPC', () => {
       resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
     });
     adapter.registerActionHandler(
-      BASIC_CATALOG,
+      TEST_CATALOG_ID,
       'submit',
       createExternalAgentActionHandler({
         endpoint,
@@ -186,17 +190,22 @@ describe('external agent RPC', () => {
       }),
     );
 
-    const generation = await adapter.prepareGeneration({ message: '创建外部任务面' });
+    const generation = await adapter.prepareGeneration({
+      message: '创建外部任务面',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(generationTransport, generation.run, 'external');
+    const generationResult = await sendAgentRun(generationTransport, generation.run, 'external', {
+      manager: new InMemoryAgentRunManager(),
+    });
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
     assert.deepEqual(
       generationResult.messages.map((message) => message),
       [
         {
           version: 'v0.9',
-          createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
         },
         {
           version: 'v0.9',
@@ -235,7 +244,9 @@ describe('external agent RPC', () => {
       context: { keyword: 'A2UI Runtime' },
     });
     assert.ok(action.ok);
-    const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action');
+    const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action', {
+      manager: new InMemoryAgentRunManager(),
+    });
     assert.equal(actionResult.ok, true);
     assert.match(JSON.stringify(actionResult.messages), /External action done/);
 
@@ -245,7 +256,7 @@ describe('external agent RPC', () => {
     assert.equal(generationRequest.version, 1);
     assert.equal(generationRequest.kind, 'generate');
     assert.equal(generationRequest.surfaceId, surfaceId);
-    assert.equal(generationRequest.catalogId, BASIC_CATALOG);
+    assert.equal(generationRequest.catalogId, TEST_CATALOG_ID);
     assert.ok((generationRequest.supportedComponents as string[]).includes('Text'));
     assert.ok((generationRequest.supportedActions as string[]).includes('submit'));
     const generationContract = generationRequest.catalogContract as Record<string, unknown>;
@@ -253,7 +264,7 @@ describe('external agent RPC', () => {
     assert.deepEqual(generationContract.version, CATALOG_CONTRACT_VERSION);
     assert.equal(
       generationContract.hash,
-      createCatalogContractReference(agentCatalogRegistry.get(BASIC_CATALOG)!).hash,
+      createCatalogContractReference(registry.get(TEST_CATALOG_ID)!).hash,
     );
     assert.equal(
       generationContract.url,
@@ -281,13 +292,13 @@ describe('external agent RPC', () => {
       kind: 'generate',
       surfaceId: 'surface-error',
       message: '请求失败',
-      catalogId: BASIC_CATALOG,
-      catalog: { catalogId: BASIC_CATALOG, components: ['Text'] },
+      catalogId: TEST_CATALOG_ID,
+      catalog: { catalogId: TEST_CATALOG_ID, components: ['Text'] },
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
       catalogContract: createCatalogContractReference({
-        catalogId: BASIC_CATALOG,
+        catalogId: TEST_CATALOG_ID,
         components: ['Text'],
       }),
     });
@@ -308,13 +319,13 @@ describe('external agent RPC', () => {
       kind: 'generate',
       surfaceId: 'surface-timeout',
       message: '请求超时',
-      catalogId: BASIC_CATALOG,
-      catalog: { catalogId: BASIC_CATALOG, components: ['Text'] },
+      catalogId: TEST_CATALOG_ID,
+      catalog: { catalogId: TEST_CATALOG_ID, components: ['Text'] },
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
       catalogContract: createCatalogContractReference({
-        catalogId: BASIC_CATALOG,
+        catalogId: TEST_CATALOG_ID,
         components: ['Text'],
       }),
     });

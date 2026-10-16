@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
     "test": "NODE_OPTIONS='--import tsx --no-warnings' mocha",
     "test:coverage": "NODE_OPTIONS='--import tsx --no-warnings' c8 mocha",
     "lint": "eslint src --ext .ts"

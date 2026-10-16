@@ -2,20 +2,17 @@ import type { A2UIErrorCode, A2UIMessage, Component } from '@nexus-ui/core';
 import type { CatalogRegistry } from '@nexus-ui/core';
 import { applyDataModelUpdate } from '@nexus-ui/core';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
-import {
-  BASIC_CATALOG_ACTIONS,
-  NEXUS_BASIC_TASK_CATALOG,
-  TASK_CATALOG,
-  agentCatalogRegistry,
-} from './catalog';
 import { resolveAgentPolicy, type AgentPolicy } from './policy';
 
 export interface AgentSequenceOptions {
   kind: 'generate' | 'action';
   surfaceId: string;
-  catalogId?: string;
-  registry?: CatalogRegistry;
-  supportedActions?: readonly string[];
+  /** Required host-owned catalog identity; no default catalog is assumed. */
+  catalogId: string;
+  /** Required host-owned registry; no default registry is assumed. */
+  registry: CatalogRegistry;
+  /** Required catalog-declared action whitelist; no demo fallback actions. */
+  supportedActions: readonly string[];
   message?: string;
   policy?: AgentPolicy;
 }
@@ -45,9 +42,9 @@ function validateAgentSequenceDetailed(
 ): AgentSequenceValidationIssue | null {
   const kind = sequence.kind;
   const surfaceId = sequence.surfaceId;
-  const catalogId = sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
-  const registry = sequence.registry ?? agentCatalogRegistry;
-  const supportedActions = sequence.supportedActions ?? BASIC_CATALOG_ACTIONS;
+  const catalogId = sequence.catalogId;
+  const registry = sequence.registry;
+  const supportedActions = sequence.supportedActions;
   const resolvedPolicy = resolveAgentPolicy(sequence.policy);
   const policyContext = {
     kind,
@@ -107,15 +104,8 @@ function validateAgentSequenceDetailed(
           message: `当前 Agent 线不支持 action: ${actionName}`,
         };
       }
-      if (actionName !== undefined) {
-        const actionComponent = catalogId === TASK_CATALOG ? 'TaskButton' : 'Button';
-        if (component.component !== actionComponent) {
-          return {
-            boundaryCode: 'CATALOG_UNSUPPORTED',
-            message: `当前 Agent 线 action 只能挂载在 ${actionComponent} 组件上`,
-          };
-        }
-      }
+      // Action-mount capability becomes a declarative Catalog v2 concern (SPEC §4);
+      // the catalog-specific Button/TaskButton special case is gone.
     }
   }
   if (kind === 'action') {
@@ -178,8 +168,8 @@ function collectCatalogDiagnostics(
   dataModel: unknown,
   sequence: AgentSequenceOptions,
 ): ComponentSchemaDiagnostic[] {
-  const registry = sequence.registry ?? agentCatalogRegistry;
-  const catalogId = sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG;
+  const registry = sequence.registry;
+  const catalogId = sequence.catalogId;
   const diagnostics: ComponentSchemaDiagnostic[] = [];
 
   for (const component of components) {
@@ -218,7 +208,7 @@ export function validateAgentStreamMessageDetailed(
   const policyContext = {
     kind: sequence.kind,
     surfaceId: sequence.surfaceId,
-    catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
+    catalogId: sequence.catalogId,
     message: sequence.message,
   };
   const sequenceError = validateAgentSequenceDetailed(message, index, sequence);
@@ -338,7 +328,7 @@ export function validateAgentStreamFinalDetailed(
   const policyContext = {
     kind: sequence.kind,
     surfaceId: sequence.surfaceId,
-    catalogId: sequence.catalogId ?? NEXUS_BASIC_TASK_CATALOG,
+    catalogId: sequence.catalogId,
     message: sequence.message,
   };
   const finalError = resolveAgentPolicy(sequence.policy).validateFinal(policyContext, [

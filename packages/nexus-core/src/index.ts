@@ -15,6 +15,7 @@ export const CORE_API_VERSION = 1;
 export {
   PROTOCOL_VERSION,
   isA2UIMessage,
+  isSafeMediaUrl,
   validateA2UIMessage,
   validateNexusProfileMessage,
   validateProtocolMessage,

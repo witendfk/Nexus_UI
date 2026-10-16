@@ -4,8 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { AgentAdapter } from '../src/agent/adapter';
-import { BASIC_CATALOG } from '../src/agent/catalog';
 import { FileSurfaceHistoryStore } from '../src/agent/file-history';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+
+const registry = createTestRegistry();
 
 async function collectMessages(
   messages: AsyncIterable<unknown> | Iterable<unknown>,
@@ -19,7 +21,7 @@ function createGeneration(surfaceId: string): unknown[] {
   return [
     {
       version: 'v0.9',
-      createSurface: { surfaceId, catalogId: BASIC_CATALOG },
+      createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
     },
     {
       version: 'v0.9',
@@ -38,17 +40,22 @@ describe('FileSurfaceHistoryStore', () => {
     const surfaceId = 'surface-file-history';
     const firstStore = new FileSurfaceHistoryStore(historyFile);
     const firstAdapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       historyStore: firstStore,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () => createGeneration(surfaceId),
     });
-    const generation = await firstAdapter.prepareGeneration({ message: '重启前生成' });
+    const generation = await firstAdapter.prepareGeneration({
+      message: '重启前生成',
+      catalogId: TEST_CATALOG_ID,
+    });
     assert.ok(generation.ok);
     await generation.run.commit(await collectMessages(generation.run.source));
 
     const secondStore = new FileSurfaceHistoryStore(historyFile);
     const secondAdapter = new AgentAdapter({
+      registry,
       actionHandlers: new Map(),
       historyStore: secondStore,
       createSurfaceId: () => `unused-${surfaceId}`,
@@ -62,7 +69,7 @@ describe('FileSurfaceHistoryStore', () => {
     });
     assert.ok(!action.ok);
     assert.match(action.message, /Action surface 不存在或已过期/);
-    assert.equal(await secondStore.getCatalogId(surfaceId), BASIC_CATALOG);
+    assert.equal(await secondStore.getCatalogId(surfaceId), TEST_CATALOG_ID);
     assert.equal((await secondStore.getHistory(surfaceId)).length, 2);
   });
 

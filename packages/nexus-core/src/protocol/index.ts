@@ -5,3 +5,4 @@ export {
   validateNexusProfileMessage,
   validateProtocolMessage,
 } from './validator';
+export { isSafeMediaUrl } from './media-url';

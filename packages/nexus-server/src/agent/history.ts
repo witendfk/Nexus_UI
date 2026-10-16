@@ -1,4 +1,5 @@
-import type { AgentTurn } from './llm-agent';
+import type { AgentTurn } from './agent-turn';
+import { assertPositiveSafeInteger } from './limits';
 
 export interface SurfaceHistoryStore {
   getHistory(surfaceId: string): Promise<readonly AgentTurn[]>;
@@ -33,6 +34,8 @@ export class InMemorySurfaceHistoryStore implements SurfaceHistoryStore {
     maxSurfaces = DEFAULT_MAX_SURFACES,
     maxTurnsPerSurface = DEFAULT_MAX_TURNS_PER_SURFACE,
   }: InMemorySurfaceHistoryStoreOptions = {}) {
+    assertPositiveSafeInteger('maxSurfaces', maxSurfaces);
+    assertPositiveSafeInteger('maxTurnsPerSurface', maxTurnsPerSurface);
     this.maxSurfaces = maxSurfaces;
     this.maxTurnsPerSurface = maxTurnsPerSurface;
   }
@@ -72,9 +75,6 @@ export class InMemorySurfaceHistoryStore implements SurfaceHistoryStore {
     }
   }
 }
-
-const defaultSurfaceHistoryStore = new InMemorySurfaceHistoryStore();
-export { defaultSurfaceHistoryStore };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

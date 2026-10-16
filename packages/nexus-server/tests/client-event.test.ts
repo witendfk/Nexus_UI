@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseClientActionMessage } from '../src/api/client-event';
-import { createActionResponse } from '../src/agent/mock-agent';
 
 const validMessage = {
   version: 'v0.9',
@@ -38,17 +37,5 @@ describe('parseClientActionMessage', () => {
 
     const extraField = { ...validMessage, extra: true };
     assert.equal(parseClientActionMessage(extraField), null);
-  });
-});
-
-describe('createActionResponse', () => {
-  it('返回同 surface 的 dataModel 与 components 更新', () => {
-    type UpdateMessage = {
-      updateDataModel?: { surfaceId: string };
-      updateComponents?: { surfaceId: string };
-    };
-    const messages = createActionResponse('contact') as UpdateMessage[];
-    assert.equal(messages[0]?.updateDataModel?.surfaceId, 'contact');
-    assert.equal(messages[1]?.updateComponents?.surfaceId, 'contact');
   });
 });

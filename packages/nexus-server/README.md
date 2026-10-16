@@ -1,23 +1,23 @@
 # @nexus-ui/server
 
-Agent 线 MVP 的传输与 Agent 服务。它通过 Agent Adapter 选择生成源、分发业务 action、校验 A2UI 输出，并通过 SSE 下发消息。
+Nexus UI server SDK：Agent 装配、准入 guard、SSE 传输与宿主显式注入契约。它通过 Agent Adapter 接宿主生成源、分发业务 action、校验 A2UI 输出，并通过 SSE 下发消息。参考服务（演示 Catalog、LLM/mock 生成源、本地 Koa 装配）在 [examples/playground-server](../../examples/playground-server/)。
 
 ## 源码结构
 
 ```text
 src/
-  index.ts        服务组合根：配置加载、Koa 装配、端口监听
-  api/            请求解析、client action 解析、路由与 SSE 响应流
-  agent/          Agent Adapter、LLM/mock 生成源、业务 action handler、guard、会话 history
-  config/         环境变量加载
-  transport/      SSE event 序列化与响应头
+  index.ts          服务组合根：宿主装配 API（不启动 listener、不读取项目环境）
+  api/              请求解析、client action 解析、路由与 SSE 响应流
+  agent/            Agent Adapter、guard、catalog contract、RPC helper、history/run 实现、policy 类型
+  transport/        SSE event 序列化与响应头
 ```
 
 ## 接口
 
-- `GET /health`：健康检查，返回当前 `agentMode`。
-- `POST /api/a2ui/generate`：接收 `{ message?, catalogId? }`，流式返回初始 UI。
+- `GET /health`：健康检查；`agentMode`/`actionMode` 来自宿主显式配置，默认值不读取环境或模型 key。
+- `POST /api/a2ui/generate`：接收 `{ message?, catalogId }`；`catalogId` 必填，缺失即 400，不回落默认 Catalog。
 - `POST /api/a2ui/event`：接收 v0.9 client-to-server action 消息，流式返回同 surface 更新。
+- `GET /api/a2ui/runs?surfaceId=`：运行记录查询；必须配置 `runsAccess` 宿主准入回调，未配置时一律 403（`RUNS_ACCESS_NOT_CONFIGURED`），回调拒绝为 403（`RUNS_ACCESS_DENIED`）。
 
 SSE 事件：
 
@@ -25,51 +25,40 @@ SSE 事件：
 - `error`：Agent、模型或协议校验失败。
 - `done`：Agent 输出和生成 history 提交均成功后的流结束事件。
 
-## Agent 模式
+## 显式装配契约
 
-- 配置 `OPENAI_API_KEY` 时使用 LLM streaming。
-- 未配置 key 时使用确定性联系人卡片 fallback。
-- 宿主可注入进程内 generation source；Agent Adapter 负责 surfaceId 生成、catalog 解析、生成源选择和 LLM / 宿主 source 成功流后的 surface history 提交。
-- 宿主可通过异步 `historyStore` 注入独立 surface history 存储；catalog 与 turn 由一次 `commitGeneration` 提交，便于数据库实现使用事务。默认实现为进程内内存，保留最近 64 个 surface、每 surface 最近 20 条 turn，并以只读拷贝提供给生成源和 action handler。配置 `NEXUS_HISTORY_FILE` 后启用本地单进程文件持久化，重启后可恢复 catalog 与 history。
-- 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；当前提供 Nexus Basic Task Profile 的 `call / search / submit`、Task `start / complete` 和 Workbench `submit`。
-- `AgentAdapterOptions.policy` 支持注入部分或完整 host policy，可覆盖组件语义、媒体安全、必需媒体分类和 final workflow；未声明的 hook 使用 `nexusAgentPolicy` 默认实现。注入策略仍然运行在协议、Profile、Catalog 和生命周期 guard 之后。
+- `AgentAdapterOptions.registry` 必填：宿主注入自己的 `CatalogRegistry`，SDK 不注册任何默认 Catalog；官方 A2UI Basic Catalog 身份显式拒绝。
+- 生成源必须显式提供之一：`createGenerationSource`、`fallbackGeneration`，或 `useLlm: () => true` 加 `streamLlm` 注入（`useLlm` 默认恒为 false；启用而缺 `streamLlm` 在 prepare 时报错）。SDK 不内置模型 SDK，也不读取 `OPENAI_*` 环境变量。
+- `historyStore` 可选注入；缺省时每个 adapter 实例新建独立的内存 store，实例之间互不可见。不再存在模块级全局 history 单例。
+- `catalogId` 在每次 generate 请求必填；旧版 legacy URL 不再静默归一，按未注册 catalog 明确报错。
+- 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；SDK 不提供任何演示 handler。
+- `AgentAdapterOptions.policy` 支持注入部分或完整 host policy；未注入时 SDK 施加零条业务规则（无媒体关键词、无搜索/表单/Workbench 流程校验）。注入策略仍然运行在协议、Profile、Catalog 和生命周期 guard 之后。
+- Agent guard 的序列选项 `catalogId`/`registry`/`supportedActions` 必填；action 挂载组件不再按 Button/TaskButton 名称特判（声明式能力归属 Catalog v2，见 SPEC §4）。
+- `sendAgentRun` 必须显式传入 `manager`（`AgentRunManager`）；`createAgentRouter` 缺省时为每个 router 实例新建，宿主也可注入。
 - `external-agent.ts` 提供最小 HTTP JSONL RPC helper，可把初始生成与业务 action 转发给宿主自有 Agent；输出仍必须通过同一 Agent guard。
-- 仓库根部 [examples/standalone-host-demo](../../examples/standalone-host-demo/README.md) 负责独立宿主与 LLM 外部 Agent 链路验证；server 只维护参考服务与可复用 Agent Adapter / RPC 能力。
-- 未注册 action 在进入 SSE 前返回 400，避免半流失败。
-- LLM 输出必须是 A2UI JSONL。
-- 每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard。
-- 生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`。
-- Agent guard 基于 `CatalogRegistry` 校验组件、props、capability policy 和 action 边界；自定义 catalog 可通过 `componentPolicies` 声明字段 / 绑定 / checks / action 契约，并通过 `actions` 声明宿主 action 白名单。generate 默认 Nexus Basic Task Profile（`https://example.com/catalogs/nexus-basic-task/v1`），也可显式选择已注册 task / Workbench catalog。旧 URL 会归一化到该 Profile；官方 Basic Catalog ID 不注册，因此不会被当作官方 conformance 边界。
-- action 响应只能 `updateComponents` / `updateDataModel`。
-- Task 样例使用进程内状态维护 `pending -> active -> completed`；重复迁移返回 400，重启后状态重置。
-- 失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
-- 外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
+
+未注册 action 在进入 SSE 前返回 400，避免半流失败。每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard；生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`；action 响应只能 `updateComponents` / `updateDataModel`。失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
+
+外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
 
 ## 配置
 
-本地开发使用仓库根目录 `.env`，参考 `.env.example`。`.env` 已被 git 忽略；部署环境变量优先，便于后续把 key 移到服务器环境。
+SDK 根入口不读取项目环境。请求边界由 router options 显式配置：
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `OPENAI_API_KEY` | 无 | 配置后启用真实 LLM |
-| `OPENAI_BASE_URL` | 无 | OpenAI-compatible 服务地址 |
-| `OPENAI_MODEL` | `gpt-4o-mini` | 模型名 |
-| `PORT` | `3001` | HTTP 端口 |
-| `NEXUS_HISTORY_FILE` | 无 | 显式配置后启用本地单进程 surface history 持久化；未配置则只在内存中保存 |
-| `NEXUS_MAX_REQUEST_BODY_BYTES` | `1048576` | JSON 请求体字节上限；超限 Content-Length 会先拒绝，流式字节也持续计数 |
-| `NEXUS_REQUEST_TIMEOUT_MS` | `10000` | JSON 请求体读取超时 |
+| router options         | 默认      | 说明                                                                  |
+| ---------------------- | --------- | --------------------------------------------------------------------- |
+| `maxRequestBodyBytes`  | `1048576` | JSON 请求体字节上限；超限 Content-Length 会先拒绝，流式字节也持续计数 |
+| `requestBodyTimeoutMs` | `10000`   | JSON 请求体读取超时                                                   |
+| `streamDelayMs`        | `200`     | 演示 pacing；生产装配应省略                                           |
 
-`NEXUS_HISTORY_FILE` 使用同目录临时文件加 `rename` 的原子写入方式，仅适用于单进程部署。它不是数据库、多实例协调、租户隔离或审计方案。
-
-JSON API 只接受 `application/json` 或 `+json` Content-Type。上述请求边界用于降低慢请求和超大请求的本地拒绝服务风险；认证、公网限流和租户策略仍由宿主部署层负责。
+`runManager` 可注入宿主自己的运行记录存储（实现 `InMemoryAgentRunManager` 同款接口）；runs 查询的访问控制由 `runsAccess` 决定，`surfaceId` 不是凭据，认证主体必须来自宿主可信请求上下文。
 
 ## 命令
 
 ```bash
-pnpm --filter @nexus-ui/server dev
 pnpm --filter @nexus-ui/server test
 pnpm --filter @nexus-ui/server typecheck
 pnpm --filter @nexus-ui/server build
 ```
 
-测试环境不会加载仓库 `.env`，因此 route 测试不会读取开发 key 或请求真实 LLM。
+参考服务（本地 3001 端口、playground 前端代理目标）的运行方式见 [examples/playground-server](../../examples/playground-server/README.md)；独立宿主与 LLM 外部 Agent 链路验证见 [examples/standalone-host-demo](../../examples/standalone-host-demo/README.md)。

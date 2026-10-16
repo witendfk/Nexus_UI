@@ -2,203 +2,141 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { TASK_CATALOG } from '../src/agent/catalog';
+import Koa from 'koa';
+import { AgentAdapter, createAgentRouter } from '../src/index';
+import { InMemoryAgentRunManager } from '../src/agent/run-manager';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
 
-process.env.NODE_ENV = 'test';
-delete process.env.OPENAI_API_KEY;
+const registry = createTestRegistry();
 
-const { app } = await import('../src/main');
-const server = app.listen(0) as Server;
-const { port } = server.address() as AddressInfo;
-const baseUrl = `http://127.0.0.1:${port}`;
+function createAdapter(): AgentAdapter {
+  return new AgentAdapter({
+    registry,
+    useLlm: () => false,
+    createGenerationSource: (request) => [
+      {
+        version: 'v0.9',
+        createSurface: { surfaceId: request.surfaceId, catalogId: request.catalogId },
+      },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId: request.surfaceId,
+          components: [{ id: 'root', component: 'Text', text: 'Generated', variant: 'body' }],
+        },
+      },
+    ],
+  });
+}
 
-after(() => {
-  server.close();
+// 无 runsAccess：SDK 默认拒绝一切 runs 查询。
+const defaultApp = new Koa();
+defaultApp.use(createAgentRouter({ adapter: createAdapter() }).routes());
+const defaultServer = defaultApp.listen(0, '127.0.0.1') as Server;
+await new Promise<void>((resolve) => defaultServer.once('listening', resolve));
+const defaultPort = (defaultServer.address() as AddressInfo).port;
+
+// 有 runsAccess：宿主按可信上下文决定放行范围。
+const gatedRunManager = new InMemoryAgentRunManager();
+const gatedApp = new Koa();
+gatedApp.use(
+  createAgentRouter({
+    adapter: createAdapter(),
+    runManager: gatedRunManager,
+    streamDelayMs: 0,
+    runsAccess: (surfaceId) =>
+      surfaceId.startsWith('surface-open') || !surfaceId.includes('secret'),
+  }).routes(),
+);
+const gatedServer = gatedApp.listen(0, '127.0.0.1') as Server;
+await new Promise<void>((resolve) => gatedServer.once('listening', resolve));
+const gatedPort = (gatedServer.address() as AddressInfo).port;
+
+after(async () => {
+  defaultServer.closeAllConnections?.();
+  gatedServer.closeAllConnections?.();
+  await Promise.all([
+    new Promise<void>((resolve) => defaultServer.close(() => resolve())),
+    new Promise<void>((resolve) => gatedServer.close(() => resolve())),
+  ]);
 });
 
-describe('Agent line routes', () => {
-  it('无 LLM key 时使用联系人卡片 fallback', async () => {
-    const response = await fetch(`${baseUrl}/api/a2ui/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: '生成一张联系人卡片' }),
-    });
-    const text = await response.text();
+describe('createAgentRouter（通用装配）', () => {
+  it('health 报告宿主显式配置的运行模式，默认值不读取环境或模型 key', async () => {
+    const response = await fetch(`http://127.0.0.1:${defaultPort}/health`);
+    const payload = (await response.json()) as { agentMode?: string; actionMode?: string };
 
     assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
-    assert.match(text, /createSurface/);
-    assert.match(text, /David Park/);
-    assert.match(text, /event: done/);
+    assert.equal(payload.agentMode, 'default');
+    assert.equal(payload.actionMode, 'adapter');
   });
 
-  it('拒绝生成请求未知字段', async () => {
-    const response = await fetch(`${baseUrl}/api/a2ui/generate`, {
+  it('generate 缺 catalogId 返回 400 且不回落默认 Catalog', async () => {
+    const response = await fetch(`http://127.0.0.1:${defaultPort}/api/a2ui/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'hi', extra: true }),
+      body: JSON.stringify({ message: '没有 catalogId' }),
     });
 
     assert.equal(response.status, 400);
+    assert.match(await response.text(), /catalogId/);
   });
 
-  it('拒绝未注册的请求级 catalog', async () => {
-    const response = await fetch(`${baseUrl}/api/a2ui/generate`, {
+  it('generate 拒绝未知字段与未注册 catalog', async () => {
+    const extra = await fetch(`http://127.0.0.1:${defaultPort}/api/a2ui/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'hi', catalogId: TEST_CATALOG_ID, extra: true }),
+    });
+    assert.equal(extra.status, 400);
+
+    const unknown = await fetch(`http://127.0.0.1:${defaultPort}/api/a2ui/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ catalogId: 'unknown-catalog' }),
     });
+    assert.equal(unknown.status, 400);
+    assert.match(await unknown.text(), /Agent catalog 未注册/);
+  });
 
+  it('未配置 runsAccess 时 runs 查询 403 并说明需宿主配置', async () => {
+    const response = await fetch(
+      `http://127.0.0.1:${defaultPort}/api/a2ui/runs?surfaceId=surface-any`,
+    );
+
+    assert.equal(response.status, 403, '未配置准入时不得默认放行');
+    const body = (await response.json()) as { error?: string };
+    assert.equal(body.error, 'RUNS_ACCESS_NOT_CONFIGURED');
+  });
+
+  it('runs 缺 surfaceId 仍是 400', async () => {
+    const response = await fetch(`http://127.0.0.1:${defaultPort}/api/a2ui/runs`);
     assert.equal(response.status, 400);
   });
 
-  it('action 回流返回同 surface 更新', async () => {
-    const generated = await (
-      await fetch(`${baseUrl}/api/a2ui/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-    ).text();
-    const surfaceId = /"surfaceId":"(surface-[^"]+)"/.exec(generated)?.[1];
-    assert.ok(surfaceId);
+  it('配置 runsAccess 后按回调拒绝', async () => {
+    const response = await fetch(
+      `http://127.0.0.1:${gatedPort}/api/a2ui/runs?surfaceId=surface-secret-1`,
+    );
 
-    const response = await fetch(`${baseUrl}/api/a2ui/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'call',
-          surfaceId,
-          sourceComponentId: 'callBtn',
-          timestamp: new Date().toISOString(),
-          context: {},
-        },
-      }),
-    });
-    const text = await response.text();
-
-    assert.equal(response.status, 200);
-    assert.match(text, new RegExp(surfaceId));
-    assert.match(text, /联系请求已发送/);
-    assert.match(text, /event: done/);
+    assert.equal(response.status, 403);
+    const body = (await response.json()) as { error?: string };
+    assert.equal(body.error, 'RUNS_ACCESS_DENIED');
   });
 
-  it('task catalog 通过业务状态完成 start / complete 闭环', async () => {
+  it('配置 runsAccess 放行后可查询本实例 run 记录', async () => {
     const generated = await (
-      await fetch(`${baseUrl}/api/a2ui/generate`, {
+      await fetch(`http://127.0.0.1:${gatedPort}/api/a2ui/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ catalogId: TASK_CATALOG }),
-      })
-    ).text();
-    const surfaceId = /"surfaceId":"(surface-[^"]+)"/.exec(generated)?.[1];
-    assert.ok(surfaceId);
-    assert.match(generated, new RegExp(`"catalogId":"${TASK_CATALOG}"`));
-    assert.match(generated, /"component":"TaskSummary"/);
-    assert.match(generated, /"component":"TaskButton"/);
-    assert.match(generated, /"name":"start"/);
-    assert.doesNotMatch(generated, /"component":"Text"/);
-    assert.match(generated, /event: done/);
-
-    const startResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'start',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
-    });
-    const startText = await startResponse.text();
-
-    assert.equal(startResponse.status, 200);
-    assert.match(startText, new RegExp(surfaceId));
-    assert.match(startText, /"component":"TaskButton"/);
-    assert.match(startText, /进行中/);
-    assert.match(startText, /"name":"complete"/);
-    assert.doesNotMatch(startText, /"component":"Text"/);
-    assert.match(startText, /event: done/);
-
-    const completeResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'complete',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
-    });
-    const completeText = await completeResponse.text();
-
-    assert.equal(completeResponse.status, 200);
-    assert.match(completeText, /已完成/);
-    assert.match(completeText, /"disabled":true/);
-    assert.match(completeText, /event: done/);
-
-    const duplicateResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'complete',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
-    });
-
-    assert.equal(duplicateResponse.status, 400);
-    assert.match(await duplicateResponse.text(), /任务不能从 completed 状态完成/);
-  });
-
-  it('拒绝未知或过期的 action surface', async () => {
-    const response = await fetch(`${baseUrl}/api/a2ui/event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'missing',
-          surfaceId: 'surface-missing-handler',
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: {},
-        },
-      }),
-    });
-
-    assert.equal(response.status, 400);
-    assert.match(await response.text(), /Action surface 不存在或已过期/);
-  });
-
-  it('exposes run status for a completed surface run', async () => {
-    const generated = await (
-      await fetch(`${baseUrl}/api/a2ui/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '生成一张联系人卡片' }),
+        body: JSON.stringify({ message: '生成', catalogId: TEST_CATALOG_ID }),
       })
     ).text();
     const surfaceId = /"surfaceId":"(surface-[^"]+)"/.exec(generated)?.[1];
     assert.ok(surfaceId);
 
     const response = await fetch(
-      `${baseUrl}/api/a2ui/runs?surfaceId=${encodeURIComponent(surfaceId)}`,
+      `http://127.0.0.1:${gatedPort}/api/a2ui/runs?surfaceId=${encodeURIComponent(surfaceId)}`,
     );
     const payload = (await response.json()) as {
       kind?: string;

@@ -10,6 +10,10 @@ import Koa from 'koa';
 import type KoaType from 'koa';
 import { sendAgentRun } from '../src/api/send-messages';
 import type { AgentRun } from '../src/agent/adapter';
+import { InMemoryAgentRunManager } from '../src/agent/run-manager';
+import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+
+const registry = createTestRegistry();
 
 /**
  * sendAgentRun 的两条对外契约，都关于"响应什么时候属于这次 run"：
@@ -30,7 +34,13 @@ function createActionRun(surfaceId: string, hold: Promise<void>, onCommit: () =>
       await hold;
       yield { version: 'v0.9', updateDataModel: { surfaceId, value: { step: 2 } } };
     })(),
-    sequence: { kind: 'action', surfaceId, supportedActions: [] },
+    sequence: {
+      kind: 'action',
+      surfaceId,
+      catalogId: TEST_CATALOG_ID,
+      registry,
+      supportedActions: [],
+    },
     commit: onCommit,
   };
 }
@@ -42,7 +52,13 @@ function createPacedRun(surfaceId: string): AgentRun {
         yield { version: 'v0.9', updateDataModel: { surfaceId, value: { step } } };
       }
     })(),
-    sequence: { kind: 'action', surfaceId, supportedActions: [] },
+    sequence: {
+      kind: 'action',
+      surfaceId,
+      catalogId: TEST_CATALOG_ID,
+      registry,
+      supportedActions: [],
+    },
     commit: () => undefined,
   };
 }
@@ -74,6 +90,7 @@ describe('SSE 响应占用时机', () => {
       'claim-unit',
       {
         streamDelayMs: 0,
+        manager: new InMemoryAgentRunManager(),
       },
     );
 
@@ -115,7 +132,10 @@ describe('SSE 响应占用时机', () => {
           yield message;
         }
       })();
-      void sendAgentRun(ctx, run, `claim-${index}`, { streamDelayMs: 0 });
+      void sendAgentRun(ctx, run, `claim-${index}`, {
+        streamDelayMs: 0,
+        manager: new InMemoryAgentRunManager(),
+      });
     });
 
     const server = app.listen(0) as Server;
@@ -163,7 +183,10 @@ describe('SSE 响应占用时机', () => {
       }
       // 反例形态：处理器 await 到流结束。若 SDK 依赖 Koa 的 respond() 才 pipe，
       // 链结束被推迟到流末尾，整条流会缓冲成一次读取。
-      await sendAgentRun(ctx, createPacedRun(surfaceId), 'claim-await', { streamDelayMs: 60 });
+      await sendAgentRun(ctx, createPacedRun(surfaceId), 'claim-await', {
+        streamDelayMs: 60,
+        manager: new InMemoryAgentRunManager(),
+      });
     });
 
     const server = app.listen(0) as Server;

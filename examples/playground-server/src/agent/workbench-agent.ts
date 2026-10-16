@@ -1,4 +1,4 @@
-import type { AgentAction, AgentActionHandler } from './adapter';
+import type { AgentAction, AgentActionHandler } from '@nexus-ui/server';
 
 interface WorkbenchTask {
   readonly id: string;
@@ -46,8 +46,6 @@ export class WorkbenchTaskStore {
     return task;
   }
 }
-
-export const workbenchTaskStore = new WorkbenchTaskStore();
 
 function readText(context: Record<string, unknown>, key: string): string {
   const value = context[key];
@@ -148,9 +146,7 @@ function createWorkbenchSubmitResponse(surfaceId: string, task: WorkbenchTask): 
   ];
 }
 
-export function createWorkbenchActionHandler(
-  store: WorkbenchTaskStore = workbenchTaskStore,
-): AgentActionHandler {
+export function createWorkbenchActionHandler(store: WorkbenchTaskStore): AgentActionHandler {
   return (action: AgentAction) => {
     if (action.name !== 'submit') throw new Error(`Workbench Agent 不支持 action: ${action.name}`);
 

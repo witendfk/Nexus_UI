@@ -1,3 +1,5 @@
+import { assertPositiveSafeInteger } from './limits';
+
 export type AgentRunState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export interface AgentRunRecord {
@@ -31,10 +33,8 @@ export class InMemoryAgentRunManager implements AgentRunManager {
   private readonly maxRecords: number;
 
   constructor(options: InMemoryAgentRunManagerOptions = {}) {
-    this.maxRecords = options.maxRecords ?? 512;
-    if (!Number.isSafeInteger(this.maxRecords) || this.maxRecords <= 0) {
-      throw new Error('maxRecords 必须是正整数');
-    }
+    this.maxRecords = options.maxRecords === undefined ? 512 : options.maxRecords;
+    assertPositiveSafeInteger('maxRecords', this.maxRecords);
   }
 
   create(input: { id: string; surfaceId: string; kind: 'generate' | 'action' }): AgentRunRecord {
@@ -81,5 +81,3 @@ export class InMemoryAgentRunManager implements AgentRunManager {
       .map((record) => ({ ...record }));
   }
 }
-
-export const defaultAgentRunManager = new InMemoryAgentRunManager();

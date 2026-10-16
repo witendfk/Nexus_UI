@@ -13,5 +13,5 @@
   },
   "//": "server build 使用 core 的 dist 声明，避免把 workspace TS 源码拉进本包 rootDir。",
   "include": ["src/**/*.ts"],
-  "exclude": ["tests"]
+  "exclude": ["tests", "test"]
 }
