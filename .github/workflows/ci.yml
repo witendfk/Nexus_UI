@@ -16,7 +16,10 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # 消费方（playground-server、standalone 等）经公开入口解析 dist/*.d.ts，
+      # 必须先构建三包再 typecheck；旧布局靠 orderops 的 pretypecheck 兜底，
+      # 重构移除后由此步骤承担（2026-10-16）。
+      - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
