@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 /**
  * Nexus UI Playground —— Vite 配置。
- * dev server 默认代理 /api 到本地 Koa 服务（server/nexus-playground-server）。
+ * dev server 默认代理 /api 到本地 Koa 服务（packages/nexus-server，参考程序尚未迁出）。
  */
 export default defineConfig({
   plugins: [react()],

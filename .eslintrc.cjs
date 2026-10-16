@@ -55,8 +55,8 @@ module.exports = {
     },
   ],
   ignorePatterns: [
-    // examples/orderops 是独立业务的消费方工程，有自己的 flat eslint 配置（含架构边界墙规则）
-    'examples/orderops/',
+    // agent-demo 为业务应用预留；应用内部工程使用其自己的质量配置。
+    'examples/agent-demo/',
     'specification/',
     'dist/',
     'build/',
