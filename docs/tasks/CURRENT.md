@@ -1,6 +1,6 @@
 # CURRENT — 唯一任务与进度源
 
-更新：2026-10-17。产品判据见 [PRD](../PRD.md)，契约见 [SPEC](../SPEC.md)，结构与取舍见 [ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件维护唯一实施计划，不以目标设计替代交付证据。
+更新：2026-10-18。产品判据见 [PRD](../PRD.md)，契约见 [SPEC](../SPEC.md)，结构与取舍见 [ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件维护唯一实施计划，不以目标设计替代交付证据。
 
 ## 当前结论
 
@@ -8,7 +8,7 @@
 
 当前只有 core/react/server 三包；目标新增 client。S1 已完成：core 安全反例（保留段、媒体 URL scheme、schema.pattern）先证伪后修复；Adapter/guard 显式装配（registry 必填、policy 无默认、LLM 生成源与 catalogId 必填，缺失即报错）；runs 查询宿主 `runsAccess` 准入（未配置一律 403）；参考服务与演示 Catalog/LLM/Policy 迁至 `examples/playground-server/`，只消费公开 SDK 入口。S3/S4 尚未实施（模块级 per-surface 队列按 S3 计划收编，client 待 S4 新建）。验证宿主与 Agent 尚未选定，不能将已有 demo 或 `examples/agent-demo/` 占位视为已选接入工程。SDK 通过可替换的确定性夹具和仓外契约验收验证，不评审接入方应用内部工程，也不等待其重建。
 
-**当前任务：S2 Catalog v2、输入与 action，S2.1 契约锁定与 S2.2 共享解释器及评审修复已完成，下一步为 S2.3/S2.4。** S1 及独立评审修复（`b44b639`）与 S2.1 契约锁定（`6c93780`）已提交并推送。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；路由、结果留存与浏览器接线由 S2.5 实施，完整 Session/SSE 生命周期仍由 S3/S4 完成。
+**当前任务：S2 Catalog v2、输入与 action，S2.1 契约锁定、S2.2 共享解释器及评审修复与 S2.3 本地写回/输入收集及四项评审修复已完成，下一步为 S2.4。** S1 及独立评审修复（`b44b639`）、S2.1 契约锁定（`6c93780`）与 S2.2 共享解释器（`71ab59a`）已提交并推送。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；路由、结果留存与浏览器接线由 S2.5 实施，完整 Session/SSE 生命周期仍由 S3/S4 完成。
 
 补充决定（2026-10-16）：DESIGN D12 / SPEC §8.2 明确保留分包、以层内高层 API 简化接入，暂不新增总门面包。S3/S4 完善 server/session/视图组合，S5 验证公开入口环境隔离与跨包兼容；本次仅补充文档，不改变代码阶段状态。
 
@@ -18,7 +18,7 @@
 | ------------------------ | -------------------- | ------------------------------------------------------------------------ |
 | S0 文档与评审范围基线    | 已完成（文档/skill） | PRD/SPEC/ARCHITECTURE/DESIGN、README、本计划与 SDK review skill 对齐     |
 | S1 安全基线与业务中立    | 已完成（验收通过）   | 安全反例证伪修复；显式装配；参考程序迁出 playground-server；早期产物检查 |
-| S2 Catalog v2 与交互扩展 | S2.1、S2.2 已完成    | 声明式展示/输入/action；共享准入与最新输入                               |
+| S2 Catalog v2 与交互扩展 | S2.1–S2.3 已完成    | 声明式展示/输入/action；共享准入、本地写回与最新输入                      |
 | S3 通用 server runtime   | 待实施，依赖 S2      | 单一调度、Session v1 与提交语义；Koa/RPC 薄适配                          |
 | S4 client 与可嵌入 React | 待实施，依赖 S2/S3   | 新 client、Provider/Surface、两个浏览器消费方迁移                        |
 | S5 独立契约验收与发行    | 待实施，依赖 S1–S4   | 当前产物仓外安装、公开 API/兼容、浏览器和 CI 门禁                        |
@@ -40,7 +40,7 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 
 ### 现状依据与实施边界
 
-- `core/runtime.setInputValue` 按 TextField/CheckBox/ChoicePicker/DateTimeInput/Slider 名称与固定 `value` 属性判断，可写值类型同样写死。
+- S2.3 已将 `core/runtime.setInputValue` 改为按组件 + 绑定属性写回，值域由 Catalog `inputs` 声明决定（无名字分支，未注入 registry 即拒绝）；最新输入草稿经 `getLatestInputs` 提取，S4 client 由此读取。
 - S2.2 已将 checks/action 能力准入交由当前 Catalog；Profile 保留结构、标准字段与安全基线，checks FunctionCall 豁免限定到组件 condition。`catalog/schema` 解释受限 schema 与能力声明，注册闸门拒绝非法/未知配置。
 - server 默认 `resolveDeclaredActionContext` 只读取已提交模型，看不到浏览器本地编辑；自定义 `resolveActionContext` 目前接管整个参数解析并能跳过未声明字段检查。
 - Catalog Contract 当前 v2；surface 快照已有内部 `version`，但未固定完整 Catalog version/hash；HTTP action 只解析 v0.9 action，两个浏览器消费方自行封装请求。
@@ -217,6 +217,30 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 - 门禁（Node v24.16.0）：根 `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test` 均退出 0；测试 core 224 / React 50 / server 101 / playground-server 73 / playground 9 / standalone 21 + jsdom 1，与 S1 基线一致（本轮无运行行为变化）。core public-api 导出清单测试同步新增 `NEXUS_SESSION_VERSION`。三包 dist 根入口原生 ESM 加载实测通过。
 - 格式与扫描：变更 TS/JSON/Markdown 定向 Prettier 检查通过（SPEC/CURRENT 表格经 --write 修整）；五份文档本地链接 21 个全部存在；`git diff --check` 通过；新增文件与改动段落旧业务词扫描零新增残留。
 - 未执行：仓外安装、真实浏览器、远端 CI、conformance 重跑（无运行代码与协议校验行为变化，S2.2 改动解释器时重跑）。
+
+## S2.3 实施验证（2026-10-18）
+
+范围为 S2.3 声明式本地写回与输入收集：runtime `setInputValue` 删除五组件名字分支改为声明驱动、输入草稿与 `getLatestInputs` 公开原语、React `RenderContext` 与五个标准控件加 `property` 参数、schema 层新增 `validateInputValueDiagnostics`/`isDataBinding` 公开导出与 Registry `getInputValueSchema`。实际提交哈希只在提交成功后回填。
+
+- 声明驱动写回：可写属性必须是当前宿主 Catalog `inputs` 键（自有属性查表，`toString`/`__proto__` 不借原型冒充）；值经声明值 schema 字面校验（`{ path }` 形状的值按绑定拒绝）；写回目标取组件 `{ path }` 绑定并拒绝保留段与空路径；未注入 registry 即无写回能力，宿主 Catalog 未声明 inputs 的同名组件不因标准名获得能力。`setValueAtPath` 写路径异常（中间节点非容器）收敛为拒绝，不再向宿主事件回调抛错。
+- 首轮输入收集（隔离与失效清理缺口已由下节评审修复取代）：成功写回按 surface 记录 `{ componentId, property, value }` 草稿（structuredClone 值快照，写入模型与草稿同一份克隆）；`getLatestInputs` 按「组件 + 绑定属性」去重取最新、过滤失效条目（组件被替换/属性不再可写/绑定消失）、`deleteSurface` 清理。S2 不组装 action 请求，服务端权威准入归 S2.4/S2.5。
+- 先失败后通过：新增 `test/runtime/input-write.test.ts` 16 项与 `test/catalog/input-value.test.ts` 5 项；runtime 实现前新测试 13 项行为失败（`getLatestInputs` 缺失、自定义属性/声明值域在旧名字分支下全错），实现后全绿。行为变化随之固化：ChoicePicker `[]` 按声明 `minItems:1` 拒绝（取代名字分支宽容度）。
+- 消费方成组迁移：旧 runtime 测试 6 处调用点改 4 参签名并装配标准声明 Catalog（action 经 sources 授权）；React provider 测试 7 个输入用例补 `catalogRegistry`（无 registry 拒绝写回后必需）；新增标准控件 `property='value'` 上报断言；首轮仅搜索直接 `setInputValue` 调用而判断浏览器零改动，遗漏 Playground 的 Provider registry 装配；本轮评审修复补齐。
+- 门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、core/server 包 lint 与根 `pnpm test` 均退出 0；测试 core 295（含 conformance，基线未动）/ React 51 / server 133 / playground-server 73 / playground 9 / standalone 21 + jsdom 1。
+- 未执行：仓外安装、真实浏览器、远端 CI；服务端权威输入与 action 参数准入归 S2.4，不据本轮宣称准入已实施。
+
+## S2.3 评审修复验证（2026-10-18）
+
+本轮闭合 3 项 P1 与 1 项 P2：输入提取引用隔离、草稿来源失效与复活、Playground 公开装配遗漏、core README 旧签名。
+
+- 输入快照：调用值、模型、内部草稿与每次提取返回值分别深拷贝；修改提取条目、嵌套数组或公开 store 模型不会污染后续草稿。
+- 失效清理：记录来源 Catalog、组件类型、绑定路径与能力声明指纹；接受组件更新后立即清除失效项，提取时复核。改绑、替换组件、移除绑定后恢复均不复活旧值；无关属性更新和其他 surface 的草稿保留。
+- 消费契约：Playground 从现有同源 Catalog 发布接口加载声明，全部通过 SDK 注册闸门后再挂载 Provider；HTTP 失败、ID 不匹配或 schema 非法显式报错。未新增 SDK 网络 API，未提前实施 S2.4/S2.5。
+- 公开文档：core/React README 同步四参数写回、Catalog v2 装配与输入快照用法；SPEC/DESIGN/README/SOP 同步草稿所有权与失效语义。
+- 证伪：修复前新增 core 6 项、实际 App 4 项全部行为失败；修复后通过。App 通过真实 Provider、控件、core 与 fetch/SSE 消费链验证编辑值进入 action context。
+- 门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、递归各包 lint 与根 `pnpm test` 均退出 0；测试 core 302（含 conformance）/ React 51 / server 133 / playground-server 73 / playground 13 / standalone 21 + jsdom 1，共 594 项。根测试首次受沙箱 tsx IPC EPERM 限制，获准后沙箱外重跑通过；React/消费方测试在 core 构建后执行。
+- 定向 Prettier、`git diff --check` 与文档本地链接（22 个）检查通过；core/React README 的 Catalog v2 示例经当前 dist 公开根入口注册通过。按 SDK review 清单复核四项修复，无新增待修项；同类型同绑定普通属性更新与被拒更新均保留合法草稿。
+- 未执行：仓外安装、真实浏览器与远端 CI；App 回归为 jsdom 环境。S2.4/S2.5 继续按原计划推进，未提交或推送。
 
 ## S2.2 复核剩余两项修复验证（2026-10-17）
 

@@ -82,7 +82,7 @@ function DateTimeInputView({
       min: min === '' ? undefined : toNativeValue(min, type),
       max: max === '' ? undefined : toNativeValue(max, type),
       onChange: (event: ChangeEvent<HTMLInputElement>) =>
-        setInputValue(id, surfaceId, toIsoValue(event.target.value, type)),
+        setInputValue(id, surfaceId, 'value', toIsoValue(event.target.value, type)),
       style: inputStyle,
       'aria-label': label || '日期时间',
     }),
@@ -104,7 +104,7 @@ export const DateTimeInput: RenderFn = (vnode, _children, ctx) => {
     type,
     min: toDisplayString(vnode.props.min),
     max: toDisplayString(vnode.props.max),
-    setInputValue: (componentId, _surfaceId, nextValue) =>
-      ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
+    setInputValue: (componentId, _surfaceId, property, nextValue) =>
+      ctx.setInputValue(componentId, vnode.surfaceId, property, nextValue),
   });
 };

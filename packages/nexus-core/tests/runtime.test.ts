@@ -1,9 +1,26 @@
 import { expect } from 'chai';
 import { CatalogRegistry } from '../src/catalog';
+import { standardCatalogComponentDeclarations } from '../src/catalog/standard';
 import { A2UIRuntime } from '../src/runtime';
 import type { VNode } from '../src/protocol/types';
 
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
+
+/**
+ * 标准声明装配的 basic Catalog：setInputValue 写回与 Button action 用例的宿主边界。
+ * inputs 声明（value → 值 schema）是写回值域的唯一权威；action 由 sources 授权 Button。
+ */
+const basicRegistry = () =>
+  new CatalogRegistry([
+    {
+      catalogId: 'basic',
+      components: standardCatalogComponentDeclarations(),
+      actions: [
+        { name: 'search', sources: ['Button'] },
+        { name: 'submit', sources: ['Button'] },
+      ],
+    },
+  ]);
 
 describe('A2UIRuntime', () => {
   it('push 流式：createSurface + updateComponents → onRender 出 VNode 树', () => {
@@ -198,13 +215,16 @@ describe('A2UIRuntime', () => {
 
   it('setInputValue → 写回 TextField.value 绑定并触发 Button action 取最新值', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (e) => events.push(e) });
+    const rt = new A2UIRuntime({
+      onAction: (e) => events.push(e),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"d","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"d","components":[{"id":"root","component":"Column","children":["input","btn"]},{"id":"input","component":"TextField","label":"关键词","value":{"path":"/keyword"},"variant":"shortText"},{"id":"btn","component":"Button","child":"lbl","action":{"event":{"name":"search","context":{"keyword":{"path":"/keyword"}}}}},{"id":"lbl","component":"Text","text":"搜索"}]}}\n',
     );
 
-    expect(rt.setInputValue('input', 'd', 'A2UI Runtime')).to.equal(true);
+    expect(rt.setInputValue('input', 'd', 'value', 'A2UI Runtime')).to.equal(true);
     expect(rt.store.getState().dataModelBySurface['d']).to.deep.equal({
       keyword: 'A2UI Runtime',
     });
@@ -221,7 +241,10 @@ describe('A2UIRuntime', () => {
 
   it('setInputValue → 写回 CheckBox.value 布尔绑定并触发 submit 取最新值', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (e) => events.push(e) });
+    const rt = new A2UIRuntime({
+      onAction: (e) => events.push(e),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"d","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"d","components":[{"id":"root","component":"Column","children":["name","subscribed","submit"]},{"id":"name","component":"TextField","label":"姓名","value":{"path":"/name"}},{"id":"subscribed","component":"CheckBox","label":"接收通知","value":{"path":"/subscribed"}},{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"name":{"path":"/name"},"subscribed":{"path":"/subscribed"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
@@ -230,9 +253,9 @@ describe('A2UIRuntime', () => {
       '{"version":"v0.9","updateDataModel":{"surfaceId":"d","value":{"name":"","subscribed":false}}}\n',
     );
 
-    expect(rt.setInputValue('name', 'd', 'A2UI Runtime')).to.equal(true);
-    expect(rt.setInputValue('subscribed', 'd', true)).to.equal(true);
-    expect(rt.setInputValue('subscribed', 'd', 'true')).to.equal(false);
+    expect(rt.setInputValue('name', 'd', 'value', 'A2UI Runtime')).to.equal(true);
+    expect(rt.setInputValue('subscribed', 'd', 'value', true)).to.equal(true);
+    expect(rt.setInputValue('subscribed', 'd', 'value', 'true')).to.equal(false);
     expect(rt.store.getState().dataModelBySurface['d']).to.deep.equal({
       name: 'A2UI Runtime',
       subscribed: true,
@@ -250,7 +273,10 @@ describe('A2UIRuntime', () => {
 
   it('setInputValue → 写回 ChoicePicker.value 字符串数组绑定并触发 submit 取最新值', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    const rt = new A2UIRuntime({
+      onAction: (event) => events.push(event),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"d","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"d","components":[{"id":"root","component":"Column","children":["priority","submit"]},{"id":"priority","component":"ChoicePicker","label":"优先级","variant":"mutuallyExclusive","options":[{"label":"高","value":"high"},{"label":"普通","value":"normal"}],"value":{"path":"/priority"},"displayStyle":"chips"},{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"priority":{"path":"/priority"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
@@ -259,8 +285,8 @@ describe('A2UIRuntime', () => {
       '{"version":"v0.9","updateDataModel":{"surfaceId":"d","value":{"priority":["normal"]}}}\n',
     );
 
-    expect(rt.setInputValue('priority', 'd', ['high'])).to.equal(true);
-    expect(rt.setInputValue('priority', 'd', 'high')).to.equal(false);
+    expect(rt.setInputValue('priority', 'd', 'value', ['high'])).to.equal(true);
+    expect(rt.setInputValue('priority', 'd', 'value', 'high')).to.equal(false);
     expect(rt.store.getState().dataModelBySurface['d']).to.deep.equal({ priority: ['high'] });
 
     rt.triggerAction('submit', 'd');
@@ -275,15 +301,18 @@ describe('A2UIRuntime', () => {
 
   it('setInputValue → 写回 DateTimeInput.value 字符串绑定并触发 submit 取最新值', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    const rt = new A2UIRuntime({
+      onAction: (event) => events.push(event),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"d","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"d","components":[{"id":"root","component":"Column","children":["reminderAt","submit"]},{"id":"reminderAt","component":"DateTimeInput","label":"提醒时间","value":{"path":"/reminderAt"},"enableDate":true,"enableTime":true},{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"reminderAt":{"path":"/reminderAt"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
     );
     rt.push('{"version":"v0.9","updateDataModel":{"surfaceId":"d","value":{"reminderAt":""}}}\n');
 
-    expect(rt.setInputValue('reminderAt', 'd', '2026-09-20T10:00:00')).to.equal(true);
-    expect(rt.setInputValue('reminderAt', 'd', 10 as unknown as string)).to.equal(false);
+    expect(rt.setInputValue('reminderAt', 'd', 'value', '2026-09-20T10:00:00')).to.equal(true);
+    expect(rt.setInputValue('reminderAt', 'd', 'value', 10 as unknown as string)).to.equal(false);
     expect(rt.store.getState().dataModelBySurface['d']).to.deep.equal({
       reminderAt: '2026-09-20T10:00:00',
     });
@@ -300,7 +329,10 @@ describe('A2UIRuntime', () => {
 
   it('setInputValue → 写回 Slider.value 数字绑定并触发 submit 取最新值', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    const rt = new A2UIRuntime({
+      onAction: (event) => events.push(event),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"slider","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"slider","components":[{"id":"root","component":"Column","children":["threshold","submit"]},{"id":"threshold","component":"Slider","label":"阈值","min":0,"max":1,"value":{"path":"/threshold"}},{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"threshold":{"path":"/threshold"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
@@ -309,8 +341,8 @@ describe('A2UIRuntime', () => {
       '{"version":"v0.9","updateDataModel":{"surfaceId":"slider","value":{"threshold":0.2}}}\n',
     );
 
-    expect(rt.setInputValue('threshold', 'slider', 0.7)).to.equal(true);
-    expect(rt.setInputValue('threshold', 'slider', '0.7')).to.equal(false);
+    expect(rt.setInputValue('threshold', 'slider', 'value', 0.7)).to.equal(true);
+    expect(rt.setInputValue('threshold', 'slider', 'value', '0.7')).to.equal(false);
     expect(rt.store.getState().dataModelBySurface.slider).to.deep.equal({ threshold: 0.7 });
 
     rt.triggerAction('submit', 'slider');
@@ -528,7 +560,10 @@ describe('A2UIRuntime', () => {
 
   it('Button.checks 失败时阻断 action，校验通过后携带最新值放行', () => {
     const events: unknown[] = [];
-    const rt = new A2UIRuntime({ onAction: (event) => events.push(event) });
+    const rt = new A2UIRuntime({
+      onAction: (event) => events.push(event),
+      catalogRegistry: basicRegistry(),
+    });
     rt.push('{"version":"v0.9","createSurface":{"surfaceId":"checks","catalogId":"basic"}}\n');
     rt.push(
       '{"version":"v0.9","updateComponents":{"surfaceId":"checks","components":[{"id":"root","component":"Column","children":["email","submit"]},{"id":"email","component":"TextField","label":"邮箱","value":{"path":"/email"}},{"id":"submit","component":"Button","child":"label","checks":[{"condition":{"call":"email","args":{"value":{"path":"/email"}},"returnType":"boolean"},"message":"请输入合法邮箱"}],"action":{"event":{"name":"submit","context":{"email":{"path":"/email"}}}}},{"id":"label","component":"Text","text":"提交"}]}}\n',
@@ -540,7 +575,7 @@ describe('A2UIRuntime', () => {
     rt.triggerAction('submit', 'checks');
     expect(events).to.have.length(0);
 
-    expect(rt.setInputValue('email', 'checks', 'nexus@example.com')).to.equal(true);
+    expect(rt.setInputValue('email', 'checks', 'value', 'nexus@example.com')).to.equal(true);
     rt.triggerAction('submit', 'checks');
     expect(events).to.deep.equal([
       {

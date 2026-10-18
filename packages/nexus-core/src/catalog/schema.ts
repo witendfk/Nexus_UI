@@ -120,7 +120,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isDataBinding(value: unknown): value is { path: string } {
+/** `{ path }` 数据绑定形状（单键、非空字符串路径）；组件可绑定字段与输入目标共用此判定。 */
+export function isDataBinding(value: unknown): value is { path: string } {
   return (
     isObject(value) &&
     Object.keys(value).length === 1 &&
@@ -511,6 +512,30 @@ export function validateInputValueSchema(schema: unknown, label: string): void {
   if (error) throw new Error(error);
   const nested = findNestedDynamic(schema, label);
   if (nested) throw new Error(nested);
+}
+
+/**
+ * Validate a browser-submitted input value against the declared value schema.
+ * 只做字面值校验（不解析 dataModel 绑定）：值 schema 全树无 `dynamic`，
+ * `{ path }` 形状的值一律按「不支持绑定」拒绝。
+ */
+export function validateInputValueDiagnostics(
+  value: unknown,
+  schema: ComponentSchemaNode,
+  label: string,
+): readonly ComponentSchemaDiagnostic[] {
+  const diagnostics: ComponentSchemaDiagnostic[] = [];
+  collectValueErrors(
+    value,
+    schema,
+    label,
+    undefined,
+    (path, message) => {
+      diagnostics.push({ path, message });
+    },
+    0,
+  );
+  return diagnostics;
 }
 
 function collectLiteralErrors(

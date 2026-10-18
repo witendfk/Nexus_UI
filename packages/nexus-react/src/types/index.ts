@@ -9,10 +9,15 @@ import type { VNode } from '@nexus-ui/core';
 /** 渲染上下文：供 renderMap 函数触发 action 与受控输入写回。 */
 export interface RenderContext {
   triggerAction: (componentId: string, surfaceId: string) => void;
+  /**
+   * 受控输入写回：上报组件、绑定属性与用户新值。绑定路径与值域由 core 按当前
+   * Catalog 的 inputs 声明解释；React 不解释可信写路径，拒绝时返回 false。
+   */
   setInputValue: (
     componentId: string,
     surfaceId: string,
-    value: string | boolean | number | string[],
+    property: string,
+    value: unknown,
   ) => boolean;
 }
 

@@ -5,7 +5,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { VNode } from '@nexus-ui/core';
 import { Button } from '../src/components/Button';
 import { Icon, ICON_GLYPHS } from '../src/components/Icon';
+import { Slider } from '../src/components/Slider';
 import { Text } from '../src/components/Text';
+import { TextField } from '../src/components/TextField';
 
 /** 标准组件渲染保真度（对应 docs/SPEC.md §2 的 17 组件边界）：
  *  Icon 映射表与官方 v0.9 basic_catalog 的 name 枚举双向锁定；Text 消费官方 7 档
@@ -131,5 +133,21 @@ describe('标准组件渲染保真度', () => {
     expect(disabled.disabled).toBe(true);
     fireEvent.click(disabled);
     expect(triggerAction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('标准输入控件上报绑定属性（S2.3 声明驱动写回）', () => {
+  it('TextField 与 Slider 只上报组件、绑定属性与用户值，属性名由控件固定为 value', () => {
+    const setInputValue = vi.fn(() => true);
+    const ctx = { triggerAction: () => {}, setInputValue };
+
+    render(TextField(vnodeOf({ label: '关键词', value: '' }, 't1'), [], ctx));
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '新值' } });
+    expect(setInputValue).toHaveBeenCalledWith('t1', 's-1', 'value', '新值');
+
+    setInputValue.mockClear();
+    render(Slider(vnodeOf({ label: '阈值', min: 0, max: 1, value: 0.25 }, 's1'), [], ctx));
+    fireEvent.change(screen.getByRole('slider', { name: '阈值' }), { target: { value: '0.75' } });
+    expect(setInputValue).toHaveBeenCalledWith('s1', 's-1', 'value', 0.75);
   });
 });

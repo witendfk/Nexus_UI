@@ -27,9 +27,19 @@ import type {
 } from '../protocol/types';
 import { applyDataModelUpdate, isUnsafeDataPath } from '../dataModel/index';
 import type { CatalogRegistry, ComponentSchemaDiagnostic } from '../catalog/index';
+import { isDataBinding, validateInputValueDiagnostics } from '../catalog/index';
 import { getFirstFailedCheck } from '../checks';
+import type { NexusActionInput } from '../session/index';
 
 export { isA2UIMessage } from '../protocol/validator';
+
+interface InputDraft {
+  readonly input: NexusActionInput;
+  readonly catalogId: string;
+  readonly componentType: string;
+  readonly bindingPath: string;
+  readonly declarationKey: string;
+}
 
 export interface RuntimeOptions {
   /** VNode 根重建后回调（宿主框架在此挂载/重渲染）。surface 删除时 root 为 null。 */
@@ -68,6 +78,12 @@ export class A2UIRuntime {
     }),
   );
   private readonly options: RuntimeOptions;
+  /**
+   * 按 surface 记录的最新输入草稿（组件 + 绑定属性 → 最新合法值）。这是本地编辑
+   * 日志，不是已提交状态：仅声明驱动写回成功时更新，deleteSurface 时清理；
+   * S4 client 经 getLatestInputs 读取后组装 action 请求。
+   */
+  private readonly latestInputs = new Map<string, Map<string, InputDraft>>();
 
   constructor(options: RuntimeOptions = {}) {
     validateRenderLimits(options);
@@ -156,48 +172,120 @@ export class A2UIRuntime {
     if (event) this.options.onAction?.(event);
   }
 
-  /** [seam] 受控输入写回：渲染层只上报组件与新值，绑定路径仍由 core 解释。 */
-  setInputValue(
-    componentId: string,
-    surfaceId: string,
-    value: string | boolean | number | string[],
-  ): boolean {
+  /**
+   * [seam] 受控输入写回：渲染层只上报组件、绑定属性与新值；写回目标路径与值域
+   * 由当前宿主 Catalog 的 `inputs` 声明解释（属性必须是 inputs 键，值经声明值
+   * schema 校验，路径取自组件的 `{ path }` 绑定并拒绝保留段）。未注入 registry、
+   * 组件/属性未声明、值不符、绑定缺失或危险路径一律返回 false 且状态不变；
+   * 标准输入与自定义输入走同一路径，不存在按组件名的值类型分支。
+   */
+  setInputValue(componentId: string, surfaceId: string, property: string, value: unknown): boolean {
     const st = this.store.getState();
     const component = st.componentsBySurface[surfaceId]?.[componentId];
-    const binding = component?.value;
-    const bindingPath =
-      typeof binding === 'object' &&
-      binding !== null &&
-      !Array.isArray(binding) &&
-      'path' in binding
-        ? (binding as { path: unknown }).path
+    const valueSchema =
+      component !== undefined
+        ? this.options.catalogRegistry?.getInputValueSchema(
+            st.surfaces[surfaceId]?.catalogId ?? '',
+            component.component,
+            property,
+          )
         : undefined;
+    if (!component || valueSchema === undefined) return false;
     if (
-      !component ||
-      !(
-        component.component === 'TextField' ||
-        component.component === 'CheckBox' ||
-        component.component === 'ChoicePicker' ||
-        component.component === 'DateTimeInput' ||
-        component.component === 'Slider'
-      ) ||
-      (component.component === 'TextField' && typeof value !== 'string') ||
-      (component.component === 'CheckBox' && typeof value !== 'boolean') ||
-      (component.component === 'ChoicePicker' &&
-        (!Array.isArray(value) || !value.every((item) => typeof item === 'string'))) ||
-      (component.component === 'DateTimeInput' && typeof value !== 'string') ||
-      (component.component === 'Slider' &&
-        (typeof value !== 'number' || !Number.isFinite(value))) ||
-      Object.keys(binding ?? {}).length !== 1 ||
-      typeof bindingPath !== 'string' ||
-      isUnsafeDataPath(bindingPath)
+      validateInputValueDiagnostics(value, valueSchema, `${component.component}.${property}`)
+        .length > 0
     ) {
       return false;
     }
 
-    st.setDataModelValueAtPath(surfaceId, bindingPath, value);
+    const binding = (component as unknown as Record<string, unknown>)[property];
+    if (!isDataBinding(binding) || isUnsafeDataPath(binding.path)) return false;
+
+    const catalogId = st.surfaces[surfaceId].catalogId;
+    const declarationKey = JSON.stringify(
+      this.options.catalogRegistry!.getComponentDeclaration(catalogId, component.component),
+    );
+    // 模型、草稿和调用方分别持有快照；所有克隆在写入前完成，失败不留下局部状态。
+    let written: unknown;
+    let draftValue: unknown;
+    try {
+      written = structuredClone(value);
+      draftValue = structuredClone(written);
+    } catch {
+      return false;
+    }
+    try {
+      st.setDataModelValueAtPath(surfaceId, binding.path, written);
+    } catch {
+      // 中间节点非容器等写失败：状态未变，与显式拒绝同一语义
+      return false;
+    }
+    this.recordLatestInput(surfaceId, {
+      input: { componentId, property, value: draftValue },
+      catalogId,
+      componentType: component.component,
+      bindingPath: binding.path,
+      declarationKey,
+    });
     this.rerender(surfaceId);
     return true;
+  }
+
+  /**
+   * 读取某 surface 的最新输入草稿（`NexusActionInput[]`，数组顺序不携带语义）。
+   * 返回独立快照；组件类型、绑定或 Catalog 声明变化后清除草稿。S2 不组装 action 请求，
+   * 服务端权威准入（S2.4/S2.5）照常整批校验，本地草稿不替代它。
+   */
+  getLatestInputs(surfaceId: string): readonly NexusActionInput[] {
+    this.pruneLatestInputs(surfaceId);
+    return Array.from(this.latestInputs.get(surfaceId)?.values() ?? [], ({ input }) =>
+      structuredClone(input),
+    );
+  }
+
+  private pruneLatestInputs(surfaceId: string): void {
+    const byKey = this.latestInputs.get(surfaceId);
+    if (!byKey) return;
+    const registry = this.options.catalogRegistry;
+    const st = this.store.getState();
+    const catalogId = st.surfaces[surfaceId]?.catalogId;
+    const components = st.componentsBySurface[surfaceId];
+    if (!registry || catalogId === undefined || !components) {
+      this.latestInputs.delete(surfaceId);
+      return;
+    }
+    for (const [key, draft] of byKey) {
+      const { input } = draft;
+      const component = components[input.componentId];
+      const binding = (component as unknown as Record<string, unknown> | undefined)?.[
+        input.property
+      ];
+      if (
+        !component ||
+        draft.catalogId !== catalogId ||
+        draft.componentType !== component.component ||
+        !isDataBinding(binding) ||
+        binding.path !== draft.bindingPath ||
+        isUnsafeDataPath(binding.path) ||
+        registry.getInputValueSchema(catalogId, component.component, input.property) ===
+          undefined ||
+        JSON.stringify(registry.getComponentDeclaration(catalogId, component.component)) !==
+          draft.declarationKey
+      ) {
+        byKey.delete(key);
+      }
+    }
+    if (byKey.size === 0) this.latestInputs.delete(surfaceId);
+  }
+
+  private recordLatestInput(surfaceId: string, draft: InputDraft): void {
+    let byKey = this.latestInputs.get(surfaceId);
+    if (!byKey) {
+      byKey = new Map();
+      this.latestInputs.set(surfaceId, byKey);
+    }
+    const { componentId, property } = draft.input;
+    byKey.set(JSON.stringify([componentId, property]), draft);
   }
 
   private handleLine(line: string): void {
@@ -309,6 +397,8 @@ export class A2UIRuntime {
     } else if ('updateComponents' in message) {
       const p = message.updateComponents;
       st.upsertComponents(p.surfaceId, p.components);
+      // 在每次已接受的组件更新后清理，不能等提取时才过滤，否则替换再恢复会复活旧值。
+      this.pruneLatestInputs(p.surfaceId);
       this.rerender(p.surfaceId);
     } else if ('updateDataModel' in message) {
       const p = message.updateDataModel;
@@ -317,6 +407,7 @@ export class A2UIRuntime {
     } else {
       const p = message.deleteSurface;
       st.deleteSurface(p.surfaceId);
+      this.latestInputs.delete(p.surfaceId);
       this.options.onRender?.(null, p.surfaceId);
     }
   }

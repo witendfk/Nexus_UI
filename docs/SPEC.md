@@ -45,7 +45,7 @@ CatalogDefinition 已切换为 v2 形状（S2.2，2026-10-16）：`catalogId`、
 
 `createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v2 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。server 准入端（§4.3）与 client 输入链路尚未实施。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
+**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入端（§4.3 其余条目）与 client 输入链路尚未实施。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
@@ -108,6 +108,7 @@ SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成
 
 ### 4.3 输入与参数准入（服务端权威）
 
+- 浏览器本地写回（已实施，S2.3）：渲染层只上报 `{ componentId, property, value }`，core 的 `setInputValue` 按当前宿主 Catalog 从已提交组件的 `{ path }` 绑定解析目标路径，并按该属性 `inputs` 声明的值 schema 严格校验字面值。未注入 registry、组件或属性未声明（`inputs` 键是唯一可写入口）、值不符、绑定缺失、保留段路径与写路径失败（如中间节点非容器）一律显式拒绝，已提交状态与输入草稿保持不变；写回成功才更新本地 dataModel 并记录输入草稿。草稿按 surface 保存「组件 + 绑定属性」的最新值，调用入参、模型、草稿与每次 `getLatestInputs` 返回的 `NexusActionInput[]` 均持有独立值快照。草稿关联写入时的 Catalog、组件类型、绑定路径及组件能力声明；每次接受组件更新后立即清除失效条目（类型改变、绑定缺失或改址、属性不可写、声明变化），提取时再次核对来源并清除失效项。恢复原组件或路径不会复活旧草稿；同类型同绑定且声明未变的属性更新保留草稿；被拒的组件更新不使草稿失效。`deleteSurface` 清理该 surface。本地校验只服务状态正确性，不能替代服务端权威准入。
 - 可编辑范围为宿主在可信装配中按 surface 提供的精确 JSON Pointer 白名单：绝对指针（RFC 6901）、拒绝空串根指针、规范化后重复即配置错误、默认拒绝、不做通配或前缀继承。白名单自身允许嵌套重叠（如同时允许 `/profile` 与 `/profile/name`）。
 - 浏览器输入只提交 `{ componentId, property, value }`；服务端在 surface 锁内从已提交组件声明解析目标路径，逐项核对声明、白名单与值 schema。客户端提交目标写路径、未声明属性、错误类型均整批拒绝；同批 `inputs` 的写入与数组顺序无关——重复（同组件同属性）、同目标路径、以及解析路径互为祖先/后代（按 JSON Pointer 段比较，如 `/profile` 与 `/profile/name`）都判冲突拒绝；任一项失败不产生局部写入。未变化输入合法，按普通输入幂等写回。
 - handler 参数由服务端从已提交 action 声明与临时输入模型重新解析，并按 `paramSchema` 校验。客户端 `context` 键必须是已声明绑定字段，且值不作为参数权威；自定义 resolver 只能在共享准入之后扩展参数，其输出仍须通过未声明字段拒绝与参数 schema，不得把被拒输入重新变为可执行 action。准入成功不表示业务授权成功，身份、对象归属与事务由宿主 handler 判断。

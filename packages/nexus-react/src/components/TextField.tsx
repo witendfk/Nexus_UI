@@ -65,7 +65,7 @@ function TextFieldView({
   const formatInvalid = touched && validationPattern !== null && !validationPattern.test(value);
   const invalid = Boolean(checkMessage) || formatInvalid;
   const onChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setInputValue(id, surfaceId, event.target.value);
+    setInputValue(id, surfaceId, 'value', event.target.value);
   };
   const onBlur = (_event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setTouched(true);
@@ -124,7 +124,7 @@ export const TextField: RenderFn = (vnode, _children, ctx) => {
     variant,
     validationRegexp: vnode.props.validationRegexp,
     checkMessage: vnode.validation?.message,
-    setInputValue: (componentId, _surfaceId, nextValue) =>
-      ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
+    setInputValue: (componentId, _surfaceId, property, nextValue) =>
+      ctx.setInputValue(componentId, vnode.surfaceId, property, nextValue),
   });
 };

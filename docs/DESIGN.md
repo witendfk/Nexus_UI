@@ -97,6 +97,8 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **实施状态（S2.2 已完成，2026-10-17 收尾）**：`CatalogDefinition` 已切换为 v2 形状（V2 后缀移除）；注册闸门实施 §4.2 全部拒绝规则（含 enabled/componentRef 布尔、安全整数预算等类型校验）；`standardCatalogComponentDeclarations()` 提供 17 个标准组件声明且每次调用返回深拷贝；checks 能力、函数子集与预算统一由当前 Catalog 决定（Profile 只校验结构与安全基线，不读取 SDK 固定标准声明；DateTimeInput/媒体组件的 checks 名字禁令删除）；FunctionCall 仅在已校验的组件 checks.condition 位置豁免，参数内部仍递归检查；字段结构契约与 URL/正则/原型/预算基线保留；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告；成员判断只读自有属性。conformance 基线经分类决策更新为 36/13/23/5/3（ChoicePicker/CheckBox 共 3 条 checks 用例转为 pass，DateTimeInput 仍由字段约束拒绝；详见 SPEC §1）。待实施：浏览器/server 输入准入接线（S2.3/S2.4）。
 
+**实施状态（S2.3 已完成，2026-10-18）**：浏览器本地写回与输入收集落地。`setInputValue(componentId, surfaceId, property, value)` 删除五组件名字分支：可写属性必须是当前宿主 Catalog `inputs` 声明键（自有属性查表），值经声明值 schema 字面校验（`{ path }` 形状的值按绑定拒绝），写回目标取组件 `{ path }` 绑定并拒绝保留段；未注入 registry 即无任何写回能力（标准名不隐含能力），写路径异常（中间节点非容器）收敛为拒绝而非向宿主抛错。成功写回按 surface 记录「组件 + 绑定属性 → 最新值」草稿（structuredClone 值快照隔离），`getLatestInputs(surfaceId)` 返回与内部模型、草稿隔离的深拷贝 `NexusActionInput[]`。草稿保存来源（Catalog、组件类型、绑定路径、组件声明指纹），在接受组件更新后立即清除失效条目并于提取时复核，防止改绑或替换再恢复时复活旧值；同类型同绑定的普通属性更新保留草稿，`deleteSurface` 清理；这是 S4 client 读取输入草稿的公开原语。React `RenderContext.setInputValue` 同形增加 `property` 参数，五个标准控件固定上报 `value`，不解释可信写路径。本地拒绝类别与草稿语义见 SPEC §4.3。Playground 从现有同源 `/api/a2ui/catalog-contract` 接口加载三个已发布声明，全部通过 SDK 注册闸门后再挂载 Provider；加载失败显式报错，不复制另一套浏览器声明表。待实施：服务端权威准入（S2.4）与请求/发布接线（S2.5）。
+
 **依据与代价**：当前写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 已随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
 
 ## D9. 单实例调度与资源边界

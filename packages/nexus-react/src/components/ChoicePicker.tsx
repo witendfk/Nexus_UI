@@ -166,7 +166,12 @@ function ChoicePickerView({
                   ? chipOptionStyle
                   : checkboxOptionStyle,
               onClick: () =>
-                setInputValue(id, surfaceId, selectValues(selectedValues, option.value, variant)),
+                setInputValue(
+                  id,
+                  surfaceId,
+                  'value',
+                  selectValues(selectedValues, option.value, variant),
+                ),
             },
             option.label,
           ),
@@ -199,7 +204,7 @@ export const ChoicePicker: RenderFn = (vnode, _children, ctx) => {
       vnode.props.variant === 'multipleSelection' ? 'multipleSelection' : 'mutuallyExclusive',
     displayStyle: vnode.props.displayStyle === 'chips' ? 'chips' : 'checkbox',
     filterable: vnode.props.filterable === true,
-    setInputValue: (componentId, _surfaceId, nextValue) =>
-      ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
+    setInputValue: (componentId, _surfaceId, property, nextValue) =>
+      ctx.setInputValue(componentId, vnode.surfaceId, property, nextValue),
   });
 };

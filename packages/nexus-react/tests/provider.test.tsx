@@ -1,13 +1,27 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createElement, useEffect } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { CatalogRegistry } from '@nexus-ui/core';
+import { CatalogRegistry, standardCatalogComponentDeclarations } from '@nexus-ui/core';
 import { A2UIProvider, useA2UI } from '../src';
 import type { A2UIError, ActionEvent } from '@nexus-ui/core';
 import type { RenderMap } from '../src';
 
 // vitest globals:false → testing-library 自动 cleanup 不触发，手动清，避免 DOM 跨用例累积。
 afterEach(cleanup);
+
+/** 标准声明装配的 basic Catalog：输入写回由 inputs 声明驱动，写回必须有宿主 Catalog。 */
+const basicRegistry = () =>
+  new CatalogRegistry([
+    {
+      catalogId: 'basic',
+      components: standardCatalogComponentDeclarations(),
+      actions: [
+        { name: 'ping', sources: ['Button'] },
+        { name: 'search', sources: ['Button'] },
+        { name: 'submit', sources: ['Button'] },
+      ],
+    },
+  ]);
 
 /** 测试替身：挂载后把给定 JSONL 行喂进 runtime。 */
 function Harness({ lines }: { lines: string[] }) {
@@ -194,7 +208,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: SEARCH_FORM }),
       ),
     );
@@ -218,7 +232,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: SUBMIT_FORM }),
       ),
     );
@@ -246,7 +260,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: CHOICE_FORM }),
       ),
     );
@@ -275,7 +289,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: DATE_TIME_FORM }),
       ),
     );
@@ -303,7 +317,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: SLIDER_FORM }),
       ),
     );
@@ -335,7 +349,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        { onAction: (event) => events.push(event) },
+        { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
         createElement(Harness, { lines: CHECK_FORM }),
       ),
     );
@@ -393,7 +407,7 @@ describe('A2UIProvider', () => {
     render(
       createElement(
         A2UIProvider,
-        {},
+        { catalogRegistry: basicRegistry() },
         createElement(Harness, {
           lines: textFieldForm('validation', { validationRegexp: '^[A-Z0-9]{6}$' }),
         }),

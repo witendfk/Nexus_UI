@@ -20,6 +20,7 @@ import {
   type CatalogFieldOrigin,
   type ComponentPropsSchema,
   type ComponentSchemaDiagnostic,
+  type ComponentSchemaNode,
 } from './schema';
 
 export interface CatalogDefinition {
@@ -39,6 +40,7 @@ export type {
   CatalogFieldPolicy,
   ComponentSchemaDiagnostic,
 } from './schema';
+export { isDataBinding, validateInputValueDiagnostics } from './schema';
 
 const DEFINITION_KEYS: readonly string[] = ['catalogId', 'components', 'actions'];
 const DECLARATION_KEYS: readonly string[] = [
@@ -303,6 +305,21 @@ export class CatalogRegistry {
 
   getComponentSchema(catalogId: string, component: string): ComponentPropsSchema | undefined {
     return this.getComponentDeclaration(catalogId, component)?.schema;
+  }
+
+  /**
+   * 可写输入绑定属性的值 schema（`inputs` 声明键）；未声明即 undefined，
+   * 表示该属性不可本地写回。成员判断只读自有属性，`toString`/`__proto__`
+   * 等原型键不得借声明冒充可写输入。
+   */
+  getInputValueSchema(
+    catalogId: string,
+    component: string,
+    property: string,
+  ): ComponentSchemaNode | undefined {
+    const inputs = this.getComponentDeclaration(catalogId, component)?.inputs;
+    if (!inputs || !Object.prototype.hasOwnProperty.call(inputs, property)) return undefined;
+    return inputs[property];
   }
 
   getActionDeclaration(catalogId: string, action: string): CatalogActionDeclaration | undefined {

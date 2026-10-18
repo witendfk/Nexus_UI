@@ -27,7 +27,7 @@ export interface A2UIProviderProps {
   renderMap?: RenderMap;
   /** 按 catalogId 选择 renderMap；未匹配 catalog 回退到 renderMap。 */
   catalogRenderMaps?: Record<string, RenderMap>;
-  /** 可选 catalog 边界；传入后 runtime 会校验 catalog 与已注册组件 props。 */
+  /** 展示可省略；输入写回必须装配 Catalog inputs 声明，未装配时所有写回均拒绝。 */
   catalogRegistry?: CatalogRegistry;
   /** [seam] action 出口回调（范式无关）；默认不处理。 */
   onAction?: (event: ActionEvent) => void;
@@ -66,11 +66,7 @@ export function A2UIProvider({
   // ctx 需引用 runtime、runtime.onRender 需引用 ctx —— 用 ref 解循环依赖。
   const ctxRef = useRef<{
     triggerAction: (id: string, sid: string) => void;
-    setInputValue: (
-      id: string,
-      sid: string,
-      value: string | boolean | number | string[],
-    ) => boolean;
+    setInputValue: (id: string, sid: string, property: string, value: unknown) => boolean;
   }>({
     triggerAction: () => {},
     setInputValue: () => false,
@@ -95,8 +91,8 @@ export function A2UIProvider({
   const ctx = useMemo(
     () => ({
       triggerAction: (id: string, surfaceId: string) => runtime.triggerAction(id, surfaceId),
-      setInputValue: (id: string, surfaceId: string, value: string | boolean | number | string[]) =>
-        runtime.setInputValue(id, surfaceId, value),
+      setInputValue: (id: string, surfaceId: string, property: string, value: unknown) =>
+        runtime.setInputValue(id, surfaceId, property, value),
     }),
     [runtime],
   );

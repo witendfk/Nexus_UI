@@ -73,7 +73,7 @@ function SliderView({
         max,
         step: 'any',
         onChange: (event: ChangeEvent<HTMLInputElement>) =>
-          setInputValue(id, surfaceId, Number(event.target.value)),
+          setInputValue(id, surfaceId, 'value', Number(event.target.value)),
         style: sliderStyle,
         'aria-label': label || '数值',
         'aria-invalid': Boolean(checkMessage),
@@ -105,7 +105,7 @@ export const Slider: RenderFn = (vnode, _children, ctx) => {
     min,
     max,
     checkMessage: vnode.validation?.message,
-    setInputValue: (componentId, _surfaceId, nextValue) =>
-      ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
+    setInputValue: (componentId, _surfaceId, property, nextValue) =>
+      ctx.setInputValue(componentId, vnode.surfaceId, property, nextValue),
   });
 };

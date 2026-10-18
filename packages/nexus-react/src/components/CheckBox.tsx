@@ -39,7 +39,7 @@ function CheckBoxView({ id, surfaceId, label, checked, setInputValue }: CheckBox
       type: 'checkbox',
       checked,
       onChange: (event: ChangeEvent<HTMLInputElement>) =>
-        setInputValue(id, surfaceId, event.target.checked),
+        setInputValue(id, surfaceId, 'value', event.target.checked),
       style: inputStyle,
     }),
     createElement('span', null, label),
@@ -53,6 +53,6 @@ export const CheckBox: RenderFn = (vnode, _children, ctx) =>
     surfaceId: vnode.surfaceId,
     label: toDisplayString(vnode.props.label),
     checked: vnode.props.value === true,
-    setInputValue: (componentId, _surfaceId, nextValue) =>
-      ctx.setInputValue(componentId, vnode.surfaceId, nextValue),
+    setInputValue: (componentId, _surfaceId, property, nextValue) =>
+      ctx.setInputValue(componentId, vnode.surfaceId, property, nextValue),
   });

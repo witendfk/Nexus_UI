@@ -85,10 +85,12 @@ export type {
 export type { CatalogDefinition } from './catalog/index';
 export { createCatalogPromptContract } from './catalog/prompt';
 export {
+  isDataBinding,
   validateComponentPolicyDiagnostics,
   validateComponentProps,
   validateComponentPropsDiagnostics,
   validateComponentSchema,
+  validateInputValueDiagnostics,
   validateInputValueSchema,
 } from './catalog/schema';
 export type {
