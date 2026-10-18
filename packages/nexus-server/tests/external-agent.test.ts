@@ -293,13 +293,18 @@ describe('external agent RPC', () => {
       surfaceId: 'surface-error',
       message: '请求失败',
       catalogId: TEST_CATALOG_ID,
-      catalog: { catalogId: TEST_CATALOG_ID, components: ['Text'] },
+      catalog: {
+        catalogId: TEST_CATALOG_ID,
+        components: { Text: { schema: { type: 'object' } } },
+        actions: [],
+      },
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
       catalogContract: createCatalogContractReference({
         catalogId: TEST_CATALOG_ID,
-        components: ['Text'],
+        components: { Text: { schema: { type: 'object' } } },
+        actions: [],
       }),
     });
 
@@ -320,13 +325,18 @@ describe('external agent RPC', () => {
       surfaceId: 'surface-timeout',
       message: '请求超时',
       catalogId: TEST_CATALOG_ID,
-      catalog: { catalogId: TEST_CATALOG_ID, components: ['Text'] },
+      catalog: {
+        catalogId: TEST_CATALOG_ID,
+        components: { Text: { schema: { type: 'object' } } },
+        actions: [],
+      },
       supportedComponents: ['Text'],
       supportedActions: ['submit'],
       history: [],
       catalogContract: createCatalogContractReference({
         catalogId: TEST_CATALOG_ID,
-        components: ['Text'],
+        components: { Text: { schema: { type: 'object' } } },
+        actions: [],
       }),
     });
 

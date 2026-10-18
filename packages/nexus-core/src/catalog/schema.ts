@@ -14,12 +14,20 @@ export type SchemaValueType =
 export type DynamicBindingPolicy = 'forbidden' | 'allowed' | 'required';
 export type CatalogFieldOrigin = 'official-basic' | 'nexus-extension' | 'host-extension';
 
+/** 组件/字段 origin 的合法枚举；注册闸门据此拒绝未知来源（v1 曾静默放行）。 */
+export const CATALOG_FIELD_ORIGINS: readonly CatalogFieldOrigin[] = [
+  'official-basic',
+  'nexus-extension',
+  'host-extension',
+];
+
 /**
  * A deterministic JSON-Schema-like subset for catalog component props.
  *
  * `dynamic` is the A2UI extension: a value may be a literal, or `{ path }`
  * pointing to a value in the surface dataModel. Structural fields (`children`,
  * `child`, `tabs`, and `action`) remain owned by the protocol validator.
+ * `dynamic` 是绑定能力的唯一权威：未声明即 `forbidden`。
  */
 export interface ComponentSchemaNode {
   readonly type?: SchemaValueType;
@@ -30,6 +38,7 @@ export interface ComponentSchemaNode {
   readonly pattern?: string;
   readonly minimum?: number;
   readonly maximum?: number;
+  readonly minItems?: number;
   readonly items?: ComponentSchemaNode;
   readonly properties?: Readonly<Record<string, ComponentSchemaNode>>;
   readonly required?: readonly string[];
@@ -41,8 +50,11 @@ export interface ComponentPropsSchema extends ComponentSchemaNode {
   readonly type?: 'object';
 }
 
+/**
+ * v2 字段策略：只承载 origin/componentRef 元数据。绑定能力由 schema 节点的
+ * `dynamic` 唯一声明（缺省即 forbidden），`binding` 成员已随 v1 移除。
+ */
 export interface CatalogFieldPolicy {
-  readonly binding?: DynamicBindingPolicy;
   readonly origin?: CatalogFieldOrigin;
   /** The field must be a ComponentId reference (for example Button.child). */
   readonly componentRef?: boolean;
@@ -56,17 +68,36 @@ export interface CatalogChecksPolicy {
   readonly maxPatternLength?: number;
 }
 
-export interface CatalogComponentActionPolicy {
-  readonly allowed?: boolean;
+/** 组件级 action 声明；挂载来源由 CatalogActionDeclaration.sources 统一决定。 */
+export interface CatalogComponentActionRequirement {
+  /** 为 true 时组件必须携带 action，且必须出现在至少一个 action 的 sources 中。 */
   readonly required?: boolean;
 }
 
-export interface CatalogComponentPolicy {
-  readonly origin?: 'official-basic' | 'nexus-extension' | 'host-extension';
-  /** Component-specific fields; protocol-owned id/component are always implicit. */
+export interface CatalogComponentDeclaration {
+  /** 必填 props schema；标准组件复用 SDK 提供的同型声明。 */
+  readonly schema: ComponentPropsSchema;
+  /** 字段元数据（origin/componentRef）；键必须是 schema.properties 已声明字段。 */
   readonly fields?: Readonly<Record<string, CatalogFieldPolicy>>;
-  readonly action?: CatalogComponentActionPolicy;
+  /**
+   * 可写输入绑定：绑定属性名 → 值 schema。缺省或空表示该组件无本地输入。
+   * 键必须是 schema.properties 中 dynamic 非 forbidden 的可绑定字段；
+   * 值 schema 描述浏览器提交的字面值，不得声明 dynamic。
+   */
+  readonly inputs?: Readonly<Record<string, ComponentSchemaNode>>;
+  readonly action?: CatalogComponentActionRequirement;
+  /** checks 能力边界；enabled 为 true 时 functions 必须非空。 */
   readonly checks?: CatalogChecksPolicy;
+  readonly origin?: CatalogFieldOrigin;
+}
+
+export interface CatalogActionDeclaration {
+  /** action 名称；与组件挂载的 action.event.name 匹配，单个 Catalog 内唯一。 */
+  readonly name: string;
+  /** 允许挂载该 action 的组件名；非空、无重复且均为已声明组件。 */
+  readonly sources: readonly string[];
+  /** 服务端重算后的参数 schema；缺省表示参数必须是空对象。 */
+  readonly paramSchema?: ComponentPropsSchema;
 }
 
 export interface ComponentSchemaDiagnostic extends A2UIDiagnostic {
@@ -98,78 +129,28 @@ function isDataBinding(value: unknown): value is { path: string } {
   );
 }
 
-function unsupportedFieldDiagnostic(
-  component: Component,
-  field: string,
-): ComponentSchemaDiagnostic {
-  return {
-    path: `${component.component}.${field}`,
-    message: `${component.component}.${field} 不是 Catalog Contract 允许的字段`,
-  };
-}
-
 export function validateComponentPolicyDiagnostics(
   component: Component,
-  policy: CatalogComponentPolicy,
+  declaration: CatalogComponentDeclaration,
 ): readonly ComponentSchemaDiagnostic[] {
   const diagnostics: ComponentSchemaDiagnostic[] = [];
-  const fields = policy.fields ?? {};
-  const actionAllowed = policy.action?.allowed ?? true;
-  const checksEnabled = policy.checks?.enabled ?? false;
-  const structuralKeys = new Set([
-    'id',
-    'component',
-    'children',
-    'child',
-    'tabs',
-    ...(actionAllowed ? ['action'] : []),
-    ...(checksEnabled ? ['checks'] : []),
-  ]);
-
-  for (const field of Object.keys(component)) {
-    if (structuralKeys.has(field) || field in fields) continue;
-    diagnostics.push(unsupportedFieldDiagnostic(component, field));
-  }
-
-  for (const [field, fieldPolicy] of Object.entries(fields)) {
-    if (!(field in component)) continue;
+  const checksEnabled = declaration.checks?.enabled ?? false;
+  // action 挂载来源由 Catalog actions 的 sources 决定（见 Registry 诊断），
+  // 组件级诊断只负责 required 一致性与 checks 边界；绑定准入由 schema.dynamic 承担，
+  // props 字段白名单由 schema 的 additionalProperties 语义承担。
+  for (const [field, fieldPolicy] of Object.entries(declaration.fields ?? {})) {
+    if (!Object.prototype.hasOwnProperty.call(component, field)) continue;
     const value = component[field];
     const path = `${component.component}.${field}`;
-    const binding = fieldPolicy.binding ?? 'forbidden';
-    const isBinding =
-      typeof value === 'object' &&
-      value !== null &&
-      !Array.isArray(value) &&
-      Object.keys(value).length === 1 &&
-      typeof (value as { path?: unknown }).path === 'string';
-
     if (fieldPolicy.componentRef === true && (typeof value !== 'string' || value.length === 0)) {
       diagnostics.push({
         path,
         message: `${path} 必须是组件 id`,
       });
     }
-    if (binding === 'required' && !isBinding) {
-      diagnostics.push({
-        path,
-        message: `${path} 必须是 { path } 绑定`,
-      });
-    }
-    if (binding === 'forbidden' && isBinding) {
-      diagnostics.push({
-        path,
-        message: `${path} 不支持 { path } 绑定`,
-      });
-    }
   }
 
-  if (!actionAllowed && component.action !== undefined) {
-    diagnostics.push({
-      path: `${component.component}.action`,
-      message: `${component.component} 不支持挂载 action`,
-    });
-  }
-  if (actionAllowed && policy.action?.required === true && component.action === undefined) {
+  if (declaration.action?.required === true && component.action === undefined) {
     diagnostics.push({
       path: `${component.component}.action`,
       message: `${component.component} 必须挂载 action`,
@@ -184,10 +165,10 @@ export function validateComponentPolicyDiagnostics(
   }
 
   if (checksEnabled && component.checks !== undefined) {
-    const checksPolicy = policy.checks;
-    const maxRules = policy.checks?.maxRules ?? Number.POSITIVE_INFINITY;
-    const maxMessageLength = policy.checks?.maxMessageLength ?? Number.POSITIVE_INFINITY;
-    const maxPatternLength = policy.checks?.maxPatternLength ?? Number.POSITIVE_INFINITY;
+    const checksPolicy = declaration.checks;
+    const maxRules = checksPolicy?.maxRules ?? Number.POSITIVE_INFINITY;
+    const maxMessageLength = checksPolicy?.maxMessageLength ?? Number.POSITIVE_INFINITY;
+    const maxPatternLength = checksPolicy?.maxPatternLength ?? Number.POSITIVE_INFINITY;
     const functions = new Set(checksPolicy?.functions ?? []);
 
     if (!Array.isArray(component.checks)) {
@@ -348,9 +329,33 @@ function deepEquals(left: unknown, right: unknown, depth = 0): boolean {
 
 type DiagnosticCollector = (path: string, message: string, dataPath?: string) => void;
 
+/** 注册与执行校验共用的受限 schema 关键字；未知关键字注册即拒绝。 */
+const ALLOWED_SCHEMA_KEYWORDS: readonly string[] = [
+  'type',
+  'enum',
+  'const',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'minimum',
+  'maximum',
+  'minItems',
+  'items',
+  'properties',
+  'required',
+  'additionalProperties',
+  'dynamic',
+];
+
 function validateSchemaNode(node: unknown, path: string, depth = 0): string | null {
   if (depth > 32) return `${path} 嵌套深度不能超过 32`;
   if (!isObject(node)) return `${path} 必须是 schema 对象`;
+
+  for (const key of Object.keys(node)) {
+    if (!ALLOWED_SCHEMA_KEYWORDS.includes(key)) {
+      return `${path} 含不支持的 schema 关键字: ${key}`;
+    }
+  }
 
   if (node.type !== undefined && !SCHEMA_TYPES.includes(node.type as SchemaValueType)) {
     return `${path}.type 只支持 ${SCHEMA_TYPES.join('/')}`;
@@ -411,10 +416,20 @@ function validateSchemaNode(node: unknown, path: string, depth = 0): string | nu
     if (hasNestedQuantifierRisk(node.pattern)) {
       return `${path}.pattern 含嵌套量词，属不安全正则`;
     }
-    try {
-      new RegExp(node.pattern);
-    } catch {
-      return `${path}.pattern 必须是合法正则表达式`;
+    // 注册口径与运行期有界求值引擎一致：原生 RegExp 可编译但引擎不支持的
+    // 语法（环视、反向引用等）在注册时拒绝，不允许先注册再在取值时失败。
+    if (compileSafeRegExp(node.pattern) === null) {
+      return `${path}.pattern 含不受支持的语法，无法求值`;
+    }
+  }
+
+  if (node.minItems !== undefined) {
+    if (
+      typeof node.minItems !== 'number' ||
+      !Number.isInteger(node.minItems) ||
+      node.minItems < 0
+    ) {
+      return `${path}.minItems 必须是非负整数`;
     }
   }
 
@@ -465,6 +480,37 @@ export function validateComponentSchema(schema: unknown, label: string): void {
   if (isObject(schema) && schema.type !== undefined && schema.type !== 'object') {
     throw new Error(`${label}.type 必须是 object`);
   }
+}
+
+/** 递归收集嵌套节点中的 dynamic 声明；输入值 schema 全树不得声明绑定策略。 */
+function findNestedDynamic(node: unknown, path: string, depth = 0): string | null {
+  if (depth > 32) return null;
+  if (!isObject(node)) return null;
+  if (node.dynamic !== undefined) {
+    return `${path}.dynamic 不受支持：输入值是字面值，不得声明绑定策略`;
+  }
+  if (node.items !== undefined) {
+    const nested = findNestedDynamic(node.items, `${path}.items`, depth + 1);
+    if (nested) return nested;
+  }
+  if (node.properties !== undefined && isObject(node.properties)) {
+    for (const [key, property] of Object.entries(node.properties)) {
+      const nested = findNestedDynamic(property, `${path}.properties.${key}`, depth + 1);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validate an input value schema (a single value, not a props object).
+ * 值 schema 描述浏览器提交的字面值，全树（含嵌套 properties/items）禁止声明 dynamic。
+ */
+export function validateInputValueSchema(schema: unknown, label: string): void {
+  const error = validateSchemaNode(schema, label);
+  if (error) throw new Error(error);
+  const nested = findNestedDynamic(schema, label);
+  if (nested) throw new Error(nested);
 }
 
 function collectLiteralErrors(
@@ -522,6 +568,14 @@ function collectLiteralErrors(
     }
   }
 
+  if (
+    Array.isArray(value) &&
+    typeof schema.minItems === 'number' &&
+    value.length < schema.minItems
+  ) {
+    add(path, `${path} 数量不能少于 ${schema.minItems}`, dataPath);
+  }
+
   if (Array.isArray(value) && schema.items) {
     for (const [index, item] of value.entries()) {
       collectValueErrors(
@@ -540,17 +594,19 @@ function collectLiteralErrors(
 
   const properties = schema.properties ?? {};
   for (const key of schema.required ?? []) {
-    if (!(key in value)) add(`${path}.${key}`, `${path}.${key} 是必填字段`, dataPath);
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      add(`${path}.${key}`, `${path}.${key} 是必填字段`, dataPath);
+    }
   }
   if (schema.additionalProperties === false) {
     for (const key of Object.keys(value)) {
-      if (!(key in properties)) {
+      if (!Object.prototype.hasOwnProperty.call(properties, key)) {
         add(`${path}.${key}`, `${path}.${key} 不是允许的字段`, dataPath);
       }
     }
   }
   for (const [key, propertySchema] of Object.entries(properties)) {
-    if (!(key in value)) continue;
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
     collectValueErrors(
       value[key],
       propertySchema,

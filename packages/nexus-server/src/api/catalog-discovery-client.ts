@@ -1,4 +1,5 @@
 import type { PublishedCatalogsPayload } from './routes';
+import { CATALOG_CONTRACT_VERSION } from '../agent/catalog-contract';
 import { SERVER_API_VERSION } from '../version';
 
 export interface PublishedCatalogsClientOptions {
@@ -62,7 +63,7 @@ function validatePublishedCatalogs(value: unknown, url: string): PublishedCatalo
       !isRecord(catalog) ||
       typeof catalog.catalogId !== 'string' ||
       catalog.catalogId === '' ||
-      catalog.contractVersion !== 1 ||
+      catalog.contractVersion !== CATALOG_CONTRACT_VERSION ||
       typeof catalog.contractHash !== 'string' ||
       !catalog.contractHash.startsWith('sha256:') ||
       !Array.isArray(catalog.components) ||

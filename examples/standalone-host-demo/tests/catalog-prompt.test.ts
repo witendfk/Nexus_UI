@@ -14,10 +14,15 @@ describe('standalone demo catalog prompt', () => {
       /Catalog ID: https:\/\/example\.com\/catalogs\/host-approval\/v1/,
     );
     assert.match(DEMO_SYSTEM_PROMPT, /Allowed components: ApprovalSummary, Text, Button\./);
-    assert.match(DEMO_SYSTEM_PROMPT, /Allowed action names: approve\./);
+    assert.match(DEMO_SYSTEM_PROMPT, /Allowed actions: approve \(sources: Button; params=none\)\./);
     assert.match(DEMO_SYSTEM_PROMPT, /"dynamic": "required"/);
-    assert.match(DEMO_SYSTEM_PROMPT, /Component ApprovalSummary policy:/);
-    assert.match(DEMO_SYSTEM_PROMPT, /- title: binding=required, origin=host-extension/);
-    assert.match(DEMO_SYSTEM_PROMPT, /- disabled: binding=forbidden, origin=host-extension/);
+    assert.match(DEMO_SYSTEM_PROMPT, /Component ApprovalSummary:\n/);
+    assert.match(DEMO_SYSTEM_PROMPT, /Origin: host-extension/);
+    assert.match(DEMO_SYSTEM_PROMPT, /Origin: official-basic/);
+    assert.match(DEMO_SYSTEM_PROMPT, /- disabled: origin=host-extension/);
+    assert.match(
+      DEMO_SYSTEM_PROMPT,
+      /- Attach an action only to a component type listed in that action's sources/,
+    );
   });
 });

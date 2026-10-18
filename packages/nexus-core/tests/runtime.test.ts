@@ -68,10 +68,19 @@ describe('A2UIRuntime', () => {
   });
 
   it('catalogRegistry 校验显式声明的 action 边界', () => {
+    const open = { schema: { type: 'object' } } as const;
     const registry = new CatalogRegistry([
-      { catalogId: 'approval', components: ['Button', 'Text'], actions: ['approve'] },
-      { catalogId: 'display-only', components: ['Button', 'Text'], actions: [] },
-      { catalogId: 'legacy', components: ['Button', 'Text'] },
+      {
+        catalogId: 'approval',
+        components: { Button: open, Text: open },
+        actions: [{ name: 'approve', sources: ['Button'] }],
+      },
+      { catalogId: 'display-only', components: { Button: open, Text: open }, actions: [] },
+      {
+        catalogId: 'legacy',
+        components: { Button: open, Text: open },
+        actions: [{ name: 'legacy-call', sources: ['Button'] }],
+      },
     ]);
     const errors: string[] = [];
     const runtime = new A2UIRuntime({
@@ -149,6 +158,42 @@ describe('A2UIRuntime', () => {
     expect(runtime.store.getState().componentsBySurface.approval?.submit).to.equal(undefined);
     expect(runtime.store.getState().componentsBySurface.display?.confirm).to.equal(undefined);
     expect(runtime.store.getState().componentsBySurface.legacy?.confirm).to.exist;
+  });
+
+  it('additionalProperties:false 下自有 toString 属性被完整 runtime 拒绝且不落状态（证伪：in 原型链）', () => {
+    const registry = new CatalogRegistry([
+      {
+        catalogId: 'own',
+        components: {
+          Card: {
+            schema: { type: 'object', additionalProperties: false, properties: {} },
+          },
+        },
+        actions: [],
+      },
+    ]);
+    const errors: string[] = [];
+    const runtime = new A2UIRuntime({
+      catalogRegistry: registry,
+      onError: (error) => errors.push(error.message),
+    });
+    const component: Record<string, unknown> = { id: 'card', component: 'Card' };
+    Object.defineProperty(component, 'toString', {
+      value: 'injected',
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'own', catalogId: 'own' },
+    });
+    runtime.dispatch({
+      version: 'v0.9',
+      updateComponents: { surfaceId: 'own', components: [component as never] },
+    });
+    expect(errors.join('\n')).to.contain('Card.toString 不是允许的字段');
+    expect(runtime.store.getState().componentsBySurface.own?.card).to.equal(undefined);
   });
 
   it('setInputValue → 写回 TextField.value 绑定并触发 Button action 取最新值', () => {
@@ -335,15 +380,17 @@ describe('A2UIRuntime', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: 'task',
-        components: ['TaskSummary'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['title'],
-            properties: { title: { type: 'string', dynamic: 'required' } },
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['title'],
+              properties: { title: { type: 'string', dynamic: 'required' } },
+            },
           },
         },
+        actions: [],
       },
     ]);
     const errors: string[] = [];
@@ -387,13 +434,15 @@ describe('A2UIRuntime', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: 'task',
-        components: ['TaskSummary'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            schema: {
+              type: 'object',
+              properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            },
           },
         },
+        actions: [],
       },
     ]);
     const errors: string[] = [];
@@ -447,13 +496,15 @@ describe('A2UIRuntime', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: 'task',
-        components: ['TaskSummary'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            schema: {
+              type: 'object',
+              properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            },
           },
         },
+        actions: [],
       },
     ]);
     const errors: string[] = [];
@@ -580,7 +631,11 @@ describe('A2UIRuntime', () => {
 
   describe('L0-05 Catalog 预校验异常收敛为结构化拒绝', () => {
     const registry = new CatalogRegistry([
-      { catalogId: 'task', components: ['TaskSummary'] },
+      {
+        catalogId: 'task',
+        components: { TaskSummary: { schema: { type: 'object' } } },
+        actions: [],
+      },
     ]);
     const setup = (): {
       runtime: A2UIRuntime;
@@ -643,7 +698,10 @@ describe('A2UIRuntime', () => {
 
     it('无 registry 时保留路径走 acceptMessage 的既有 try/catch，行为不变', () => {
       const errors: unknown[] = [];
-      const runtime = new A2UIRuntime({ onRender: () => undefined, onError: (e) => errors.push(e) });
+      const runtime = new A2UIRuntime({
+        onRender: () => undefined,
+        onError: (e) => errors.push(e),
+      });
       runtime.push('{"version":"v0.9","createSurface":{"surfaceId":"n","catalogId":"basic"}}\n');
       const reservedWriteN =
         '{"version":"v0.9","updateDataModel":{"surfaceId":"n","path":"/constructor/x","value":1}}\n';
@@ -655,5 +713,4 @@ describe('A2UIRuntime', () => {
       expect(runtime.store.getState().dataModelBySurface['n']).to.deep.equal({ ok: true });
     });
   });
-
 });

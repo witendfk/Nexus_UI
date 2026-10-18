@@ -511,40 +511,83 @@ const updateWithUnreachableSubmitForm = {
 describe('validateAgentSequence', () => {
   it('生成流必须先 create 再 update', () => {
     assert.equal(
-      validateAgentSequence(update, 0, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate', surfaceId: 'surface-1' }),
+      validateAgentSequence(update, 0, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
       '生成流第一条消息必须是 createSurface',
     );
     assert.equal(
-      validateAgentSequence(create, 0, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate', surfaceId: 'surface-1' }),
+      validateAgentSequence(create, 0, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
       null,
     );
     assert.equal(
-      validateAgentSequence(update, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate', surfaceId: 'surface-1' }),
+      validateAgentSequence(update, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
+        kind: 'generate',
+        surfaceId: 'surface-1',
+      }),
       null,
     );
   });
 
   it('action 响应不能创建或删除 surface', () => {
     assert.equal(
-      validateAgentSequence(update, 0, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'action', surfaceId: 'surface-1' }),
+      validateAgentSequence(update, 0, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
+        kind: 'action',
+        surfaceId: 'surface-1',
+      }),
       null,
     );
     assert.equal(
-      validateAgentSequence(create, 0, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'action', surfaceId: 'surface-1' }),
+      validateAgentSequence(create, 0, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
+        kind: 'action',
+        surfaceId: 'surface-1',
+      }),
       'action 响应只能包含 updateComponents 或 updateDataModel',
     );
   });
 
   it('限制 catalog 与第一版标准组件子集', () => {
     assert.equal(
-      validateAgentSequence(createWithWrongCatalog, 0, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(createWithWrongCatalog, 0, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
       `createSurface.catalogId 必须保持为 ${NEXUS_BASIC_TASK_CATALOG}`,
     );
     assert.equal(
-      validateAgentSequence(updateWithUnsupportedComponent, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithUnsupportedComponent, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -552,26 +595,38 @@ describe('validateAgentSequence', () => {
     );
   });
 
-  it('限制当前 Agent 线支持的 action 名称', () => {
+  it('拒绝 catalog 未声明的 action 名称（共享 Catalog 诊断统一报告）', () => {
     assert.equal(
-      validateAgentSequence(updateWithUnsupportedAction, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithUnsupportedAction, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      '当前 Agent 线不支持 action: refresh',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 不支持 action: refresh',
     );
   });
 
   it('Basic Catalog TextField 必须使用双向绑定 value', () => {
     assert.equal(
-      validateAgentSequence(updateWithValidTextField, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithValidTextField, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
       null,
     );
     assert.equal(
-      validateAgentSequence(updateWithLiteralTextFieldValue, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithLiteralTextFieldValue, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -581,21 +636,33 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog TextField 支持官方输入变体与 validationRegexp', () => {
     assert.equal(
-      validateAgentSequence(updateWithLongTextField, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithLongTextField, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
       null,
     );
     assert.equal(
-      validateAgentSequence(updateWithValidatedTextField, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithValidatedTextField, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
       null,
     );
     assert.equal(
-      validateAgentSequence(updateWithBrokenValidationRegexp, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithBrokenValidationRegexp, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -604,7 +671,14 @@ describe('validateAgentSequence', () => {
   });
 
   it('Basic Catalog CheckBox 必须使用双向绑定 value 且不能挂 action', () => {
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
     assert.equal(validateAgentSequence(updateWithValidCheckBox, 1, options), null);
     assert.equal(
       validateAgentSequence(updateWithLiteralCheckBoxValue, 1, options),
@@ -612,11 +686,11 @@ describe('validateAgentSequence', () => {
     );
     assert.equal(
       validateAgentSequence(updateWithUnknownCheckBoxField, 1, options),
-      'CheckBox.checked 不是 Catalog Contract 允许的字段',
+      'CheckBox.checked 不是允许的字段',
     );
     assert.equal(
       validateAgentSequence(updateWithCheckBoxAction, 1, options),
-      'CheckBox.action 不是 Catalog Contract 允许的字段',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 的 action submit 不允许挂载在组件 CheckBox 上（sources 不含该组件）',
     );
   });
 
@@ -626,7 +700,14 @@ describe('validateAgentSequence', () => {
         version: 'v0.9',
         updateComponents: { surfaceId: 'surface-1', components: [component] },
       }) as A2UIMessage;
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
     const valid = {
       id: 'priority',
       component: 'ChoicePicker',
@@ -647,7 +728,7 @@ describe('validateAgentSequence', () => {
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'ChoicePicker.checks 不是 Catalog Contract 允许的字段',
+      'ChoicePicker 不支持 checks',
     );
     assert.equal(
       validateAgentSequence(
@@ -655,7 +736,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'ChoicePicker.action 不是 Catalog Contract 允许的字段',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 的 action submit 不允许挂载在组件 ChoicePicker 上（sources 不含该组件）',
     );
   });
 
@@ -665,7 +746,14 @@ describe('validateAgentSequence', () => {
         version: 'v0.9',
         updateComponents: { surfaceId: 'surface-1', components: [component] },
       }) as A2UIMessage;
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
     const valid = {
       id: 'threshold',
       component: 'Slider',
@@ -699,7 +787,7 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'Slider.action 不是 Catalog Contract 允许的字段',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 的 action submit 不允许挂载在组件 Slider 上（sources 不含该组件）',
     );
   });
 
@@ -709,7 +797,14 @@ describe('validateAgentSequence', () => {
         version: 'v0.9',
         updateComponents: { surfaceId: 'surface-1', components: [component] },
       }) as A2UIMessage;
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
     const emailRule = {
       condition: {
         call: 'email',
@@ -845,17 +940,20 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'CheckBox.checks 不是 Catalog Contract 允许的字段',
+      'CheckBox 不支持 checks',
     );
 
-    const workbenchOptions = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, supportedActions: WORKBENCH_CATALOG_ACTIONS,
+    const workbenchOptions = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      supportedActions: WORKBENCH_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       catalogId: WORKBENCH_CATALOG,
     };
     assert.equal(
       validateAgentSequence(message(textField), 1, workbenchOptions),
-      'TextField.checks 不是 Catalog Contract 允许的字段',
+      'TextField 不支持 checks',
     );
   });
 
@@ -865,7 +963,14 @@ describe('validateAgentSequence', () => {
         version: 'v0.9',
         updateComponents: { surfaceId: 'surface-1', components: [component] },
       }) as A2UIMessage;
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
     const valid = {
       id: 'reminderAt',
       component: 'DateTimeInput',
@@ -900,27 +1005,35 @@ describe('validateAgentSequence', () => {
         1,
         options,
       ),
-      'DateTimeInput.action 不是 Catalog Contract 允许的字段',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 的 action submit 不允许挂载在组件 DateTimeInput 上（sources 不含该组件）',
     );
     assert.equal(
       validateAgentSequence(message({ ...valid, checks: [] }), 1, options),
-      'DateTimeInput.checks 不是 Catalog Contract 允许的字段',
+      'DateTimeInput 不支持 checks',
     );
   });
 
   it('Basic Catalog action 只能挂载在 Button 组件上', () => {
     assert.equal(
-      validateAgentSequence(updateWithActionOnText, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithActionOnText, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Text.action 不是 Catalog Contract 允许的字段',
+      'Catalog https://example.com/catalogs/nexus-basic-task/v1 的 action call 不允许挂载在组件 Text 上（sources 不含该组件）',
     );
   });
 
   it('Basic Catalog 支持静态 children 的 List 组件', () => {
     assert.equal(
-      validateAgentSequence(updateWithList, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithList, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -930,7 +1043,11 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog 支持静态 tabs 的 Tabs 组件', () => {
     assert.equal(
-      validateAgentSequence(updateWithTabs, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithTabs, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -940,14 +1057,22 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog Image 必须使用协议字段 url / description', () => {
     assert.equal(
-      validateAgentSequence(updateWithLegacyImage, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithLegacyImage, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Image.src 不是 Catalog Contract 允许的字段',
+      'Image.url 是必填字段',
     );
     assert.equal(
-      validateAgentSequence(updateWithImage, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithImage, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -957,7 +1082,11 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog Image 只允许 avatar 变体和合法 fit', () => {
     assert.equal(
-      validateAgentSequence(updateWithInvalidImageVariant, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithInvalidImageVariant, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -967,21 +1096,33 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog Video 与 AudioPlayer 使用官方媒体字段', () => {
     assert.equal(
-      validateAgentSequence(updateWithMedia, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithMedia, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
       null,
     );
     assert.equal(
-      validateAgentSequence(updateWithLegacyVideo, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithLegacyVideo, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
-      'Video.src 不是 Catalog Contract 允许的字段',
+      'Video.url 是必填字段',
     );
     assert.equal(
-      validateAgentSequence(updateWithInvalidAudioDescription, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithInvalidAudioDescription, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -991,7 +1132,11 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog Text 不能把媒体 URL 渲染成文字', () => {
     assert.equal(
-      validateAgentSequence(updateWithUrlText, 1, { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+      validateAgentSequence(updateWithUrlText, 1, {
+        policy: nexusAgentPolicy,
+        registry: agentCatalogRegistry,
+        catalogId: NEXUS_BASIC_TASK_CATALOG,
+        supportedActions: BASIC_CATALOG_ACTIONS,
         kind: 'generate',
         surfaceId: 'surface-1',
       }),
@@ -1001,7 +1146,11 @@ describe('validateAgentSequence', () => {
 
   it('Basic Catalog Text 不能通过 dataModel 绑定渲染 URL', () => {
     const state = createAgentStreamState();
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成头像 https://example.com/avatar.png',
@@ -1026,7 +1175,11 @@ describe('validateAgentSequence', () => {
   });
 
   it('明确的视频和音频 URL 必须生成对应媒体组件', () => {
-    const videoOptions = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const videoOptions = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成视频卡片 https://example.com/trailer.mp4',
@@ -1040,7 +1193,11 @@ describe('validateAgentSequence', () => {
     const videoState = createAgentStreamState();
     assert.equal(validateAgentStreamMessage(updateWithMedia, 1, videoOptions, videoState), null);
 
-    const audioOptions = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const audioOptions = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成音频播放器 https://example.com/episode.mp3',
@@ -1057,7 +1214,11 @@ describe('validateAgentSequence', () => {
 
   it('普通未知 URL 不强行猜测媒体组件类型', () => {
     const state = createAgentStreamState();
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成资源卡片 https://example.com/resource',
@@ -1068,7 +1229,14 @@ describe('validateAgentSequence', () => {
 
   it('URL dataModel 只能绑定到 Image，不能后到绑定到 Text', () => {
     const state = createAgentStreamState();
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS, kind: 'generate' as const, surfaceId: 'surface-1' };
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
+      kind: 'generate' as const,
+      surfaceId: 'surface-1',
+    };
 
     assert.equal(validateAgentStreamMessage(createForStream, 0, options, state), null);
     assert.equal(validateAgentStreamMessage(updateWithAvatarImage, 1, options, state), null);
@@ -1085,7 +1253,11 @@ describe('validateAgentSequence', () => {
 
   it('搜索请求必须形成 TextField -> search action -> searchResult 的闭环', () => {
     const state = createAgentStreamState();
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成一个搜索卡片，包含关键词输入框',
@@ -1109,7 +1281,11 @@ describe('validateAgentSequence', () => {
 
   it('表单请求必须形成 TextField + CheckBox + submit + submitResult 的闭环', () => {
     const state = createAgentStreamState();
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, catalogId: NEXUS_BASIC_TASK_CATALOG, supportedActions: BASIC_CATALOG_ACTIONS,
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      catalogId: NEXUS_BASIC_TASK_CATALOG,
+      supportedActions: BASIC_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       message: '生成一个订阅表单卡片',
@@ -1147,21 +1323,29 @@ describe('validateAgentSequence', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: customCatalogId,
-        components: ['TaskSummary', 'TaskButton'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['title'],
-            properties: { title: { type: 'string', dynamic: 'required' } },
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['title'],
+              properties: { title: { type: 'string', dynamic: 'required' } },
+            },
           },
           TaskButton: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['label'],
-            properties: { label: { type: 'string', dynamic: 'allowed' } },
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['label'],
+              properties: { label: { type: 'string', dynamic: 'allowed' } },
+            },
+            action: { required: true },
           },
         },
+        actions: [
+          { name: 'start', sources: ['TaskButton'] },
+          { name: 'complete', sources: ['TaskButton'] },
+        ],
       },
     ]);
     const create = {
@@ -1190,7 +1374,9 @@ describe('validateAgentSequence', () => {
       },
     } as A2UIMessage;
 
-    const options = { policy: nexusAgentPolicy, supportedActions: [],
+    const options = {
+      policy: nexusAgentPolicy,
+      supportedActions: [],
       kind: 'generate',
       surfaceId: 'surface-1',
       catalogId: customCatalogId,
@@ -1214,16 +1400,20 @@ describe('validateAgentSequence', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: customCatalogId,
-        components: ['TaskSummary'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            schema: {
+              type: 'object',
+              properties: { amount: { type: 'number', dynamic: 'allowed' } },
+            },
           },
         },
+        actions: [],
       },
     ]);
-    const options = { policy: nexusAgentPolicy, supportedActions: [],
+    const options = {
+      policy: nexusAgentPolicy,
+      supportedActions: [],
       kind: 'generate' as const,
       surfaceId: 'surface-1',
       catalogId: customCatalogId,
@@ -1286,7 +1476,10 @@ describe('validateAgentSequence', () => {
   });
 
   it('Workbench 流必须形成客户摘要、输入、时间选择和 submit 的业务闭环', () => {
-    const options = { policy: nexusAgentPolicy, registry: agentCatalogRegistry, supportedActions: WORKBENCH_CATALOG_ACTIONS,
+    const options = {
+      policy: nexusAgentPolicy,
+      registry: agentCatalogRegistry,
+      supportedActions: WORKBENCH_CATALOG_ACTIONS,
       kind: 'generate' as const,
       surfaceId: 'surface-workbench',
       catalogId: WORKBENCH_CATALOG,

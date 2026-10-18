@@ -75,7 +75,7 @@ function validateAgentSequenceDetailed(
   }
   if ('updateComponents' in message) {
     for (const component of message.updateComponents.components) {
-      if (!catalog.components.includes(component.component)) {
+      if (catalog.components[component.component] === undefined) {
         return {
           boundaryCode: 'CATALOG_UNSUPPORTED',
           message: `当前 Agent 线不支持组件: ${String(component.component)}`,

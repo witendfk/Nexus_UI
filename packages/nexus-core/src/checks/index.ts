@@ -1,11 +1,7 @@
 /** A2UI Checkable 最小求值器：只实现 Basic Catalog 的确定性校验函数。 */
 import { getByPath, resolveDynamic } from '../dataModel';
 import type { CheckRule, LocalFunctionCall } from '../protocol/types';
-import {
-  checkRegexSyntax,
-  compileBoundedRegExp,
-  type SafeRegExp,
-} from './safe-regex';
+import { checkRegexSyntax, compileBoundedRegExp, type SafeRegExp } from './safe-regex';
 
 export { MAX_REGEX_INPUT_LENGTH, checkRegexSyntax } from './safe-regex';
 export type { SafeRegExp } from './safe-regex';
@@ -14,6 +10,18 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Agent 侧正则的长度上限：灾难性回溯的 pattern 往往很短，超长一律拒绝。 */
 export const MAX_REGEX_PATTERN_LENGTH = 200;
+
+/**
+ * Nexus Profile checks 支持的确定性函数名单。Catalog 注册闸门与 validator
+ * 共用同一份定义，宿主声明超出名单的函数在注册时拒绝。
+ */
+export const SUPPORTED_CHECK_FUNCTIONS: readonly string[] = [
+  'required',
+  'regex',
+  'length',
+  'numeric',
+  'email',
+];
 /** 编译缓存上限：pattern 来自不受信输入，超限整体清空防内存增长。 */
 const REGEX_CACHE_LIMIT = 512;
 const regexCache = new Map<string, SafeRegExp | null>();

@@ -66,6 +66,7 @@ export interface PublishedCatalogSummary {
   readonly contractVersion: typeof CATALOG_CONTRACT_VERSION;
   readonly contractHash: string;
   readonly components: readonly string[];
+  /** v2 声明数量；components 为组件名列表（对外摘要保持字符串数组）。 */
   readonly actions: readonly string[];
   readonly catalogContractUrl: string;
   readonly agentOnboardingUrl: string;
@@ -230,8 +231,8 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       catalogId: contract.catalog.catalogId,
       contractVersion: contract.contractVersion,
       contractHash: contract.contractHash,
-      components: contract.catalog.components,
-      actions: contract.catalog.actions ?? [],
+      components: Object.keys(contract.catalog.components),
+      actions: contract.catalog.actions.map((action) => action.name),
       catalogContractUrl: contractUrl(
         ctx,
         '/api/a2ui/catalog-contract',

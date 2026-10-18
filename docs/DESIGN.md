@@ -95,7 +95,9 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 - nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `runsAccess`，未配置 403），S3 成功 done 直接复用。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；SSE data 与原始 A2UI 形状不加字段。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
 - 共享正常/非法 fixture 定稿于 `fixtures/catalog-v2/`，core 注册与 server 准入对同一数据必须给出一致结论。
 
-**依据与代价**：当前写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 须随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
+**实施状态（S2.2 已完成，2026-10-17 收尾）**：`CatalogDefinition` 已切换为 v2 形状（V2 后缀移除）；注册闸门实施 §4.2 全部拒绝规则（含 enabled/componentRef 布尔、安全整数预算等类型校验）；`standardCatalogComponentDeclarations()` 提供 17 个标准组件声明且每次调用返回深拷贝；checks 能力、函数子集与预算统一由当前 Catalog 决定（Profile 只校验结构与安全基线，不读取 SDK 固定标准声明；DateTimeInput/媒体组件的 checks 名字禁令删除）；FunctionCall 仅在已校验的组件 checks.condition 位置豁免，参数内部仍递归检查；字段结构契约与 URL/正则/原型/预算基线保留；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告；成员判断只读自有属性。conformance 基线经分类决策更新为 36/13/23/5/3（ChoicePicker/CheckBox 共 3 条 checks 用例转为 pass，DateTimeInput 仍由字段约束拒绝；详见 SPEC §1）。待实施：浏览器/server 输入准入接线（S2.3/S2.4）。
+
+**依据与代价**：当前写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 已随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
 
 ## D9. 单实例调度与资源边界
 

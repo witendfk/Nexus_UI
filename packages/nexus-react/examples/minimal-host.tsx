@@ -9,26 +9,33 @@ export const MINIMAL_CATALOG_ID = 'https://example.com/catalogs/nexus-minimal/v1
 const minimalCatalogRegistry = new CatalogRegistry([
   {
     catalogId: MINIMAL_CATALOG_ID,
-    components: ['ApprovalSummary', 'ApprovalButton'],
-    componentSchemas: {
+    components: {
       ApprovalSummary: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'amount'],
-        properties: {
-          title: { type: 'string', dynamic: 'required' },
-          amount: { type: 'string', dynamic: 'required' },
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'amount'],
+          properties: {
+            title: { type: 'string', dynamic: 'required' },
+            amount: { type: 'string', dynamic: 'required' },
+          },
         },
+        origin: 'host-extension',
       },
       ApprovalButton: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['label'],
-        properties: {
-          label: { type: 'string', dynamic: 'required' },
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['label'],
+          properties: {
+            label: { type: 'string', dynamic: 'required' },
+          },
         },
+        action: { required: true },
+        origin: 'host-extension',
       },
     },
+    actions: [{ name: 'approve', sources: ['ApprovalButton'] }],
   },
 ]);
 

@@ -7,43 +7,39 @@ import { verifyExternalAgentIntegration } from '../src/agent/verification';
 
 const catalog: CatalogDefinition = {
   catalogId: 'https://example.com/catalogs/server-verification/v1',
-  components: ['TaskSummary', 'Button', 'Text'],
-  actions: ['submit'],
-  componentSchemas: {
+  components: {
     TaskSummary: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['title', 'status'],
-      properties: {
-        title: { type: 'string', dynamic: 'required' },
-        status: { type: 'string', dynamic: 'required' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'status'],
+        properties: {
+          title: { type: 'string', dynamic: 'required' },
+          status: { type: 'string', dynamic: 'required' },
+        },
       },
-    },
-    Button: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        disabled: { type: 'boolean', dynamic: 'forbidden' },
+      fields: {
+        title: { origin: 'host-extension' },
+        status: { origin: 'host-extension' },
       },
-    },
-  },
-  componentPolicies: {
-    TaskSummary: {
       origin: 'host-extension',
-      fields: {
-        title: { binding: 'required', origin: 'host-extension' },
-        status: { binding: 'required', origin: 'host-extension' },
-      },
-      action: { allowed: false },
     },
     Button: {
-      fields: {
-        child: { componentRef: true, binding: 'forbidden', origin: 'official-basic' },
-        disabled: { binding: 'forbidden', origin: 'host-extension' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          disabled: { type: 'boolean', dynamic: 'forbidden' },
+        },
       },
-      action: { allowed: true },
+      fields: {
+        child: { componentRef: true, origin: 'official-basic' },
+        disabled: { origin: 'host-extension' },
+      },
     },
+    Text: { schema: { type: 'object' } },
   },
+  actions: [{ name: 'submit', sources: ['Button'] }],
 };
 
 const servers: Server[] = [];

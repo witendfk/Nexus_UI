@@ -5,13 +5,22 @@ describe('Catalog component lookups use own properties', () => {
   for (const name of ['__proto__', 'constructor', 'toString']) {
     it(`does not invent schema or policy for ${name}`, () => {
       const registry = new CatalogRegistry([
-        { catalogId: 'custom', components: [name], componentSchemas: {}, componentPolicies: {} },
+        {
+          catalogId: 'custom',
+          components: { Text: { schema: { type: 'object' } } },
+          actions: [],
+        },
       ]);
-      expect(registry.getComponentSchema('custom', name)).to.equal(undefined);
-      expect(registry.getComponentPolicy('custom', name)).to.equal(undefined);
+      expect(registry.supportsComponent('custom', name)).to.equal(false);
+      expect(registry.getComponentDeclaration('custom', name)).to.equal(undefined);
       expect(
         registry.getComponentDiagnostics('custom', { id: 'root', component: name }),
-      ).to.deep.equal([]);
+      ).to.deep.equal([
+        {
+          path: name,
+          message: `Catalog custom 不支持组件: ${name}`,
+        },
+      ]);
     });
   }
 
@@ -19,14 +28,16 @@ describe('Catalog component lookups use own properties', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: 'custom',
-        components: ['toString'],
-        componentSchemas: {
+        components: {
           toString: {
-            type: 'object' as const,
-            required: ['text'],
-            properties: { text: { type: 'string' as const } },
+            schema: {
+              type: 'object' as const,
+              required: ['text'],
+              properties: { text: { type: 'string' as const } },
+            },
           },
         },
+        actions: [],
       },
     ]);
     expect(

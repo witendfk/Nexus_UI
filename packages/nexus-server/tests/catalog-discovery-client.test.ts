@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
+import { CATALOG_CONTRACT_VERSION } from '../src/agent/catalog-contract';
 import { fetchPublishedCatalogs } from '../src/api/catalog-discovery-client';
 
 const payload = {
@@ -9,7 +10,7 @@ const payload = {
   catalogs: [
     {
       catalogId: 'https://example.com/catalogs/client-test/v1',
-      contractVersion: 1,
+      contractVersion: CATALOG_CONTRACT_VERSION,
       contractHash: 'sha256:catalog-contract-hash',
       components: ['Summary', 'Button'],
       actions: ['submit'],

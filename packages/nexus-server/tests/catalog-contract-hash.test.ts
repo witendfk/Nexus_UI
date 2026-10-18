@@ -11,25 +11,31 @@ describe('catalog contract hash', () => {
   it('is stable when semantically identical catalog keys are reordered', () => {
     const first: CatalogDefinition = {
       catalogId: 'https://example.com/catalogs/hash/v1',
-      components: ['Text', 'Button'],
-      componentSchemas: {
+      components: {
         Text: {
-          type: 'object',
-          additionalProperties: false,
-          properties: { text: { type: 'string', dynamic: 'allowed' } },
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { text: { type: 'string', dynamic: 'allowed' } },
+          },
         },
+        Button: { schema: { type: 'object' } },
       },
+      actions: [],
     };
     const second: CatalogDefinition = {
-      componentSchemas: {
+      components: {
         Text: {
-          additionalProperties: false,
-          properties: { text: { dynamic: 'allowed', type: 'string' } },
-          type: 'object',
+          schema: {
+            additionalProperties: false,
+            properties: { text: { dynamic: 'allowed', type: 'string' } },
+            type: 'object',
+          },
         },
+        Button: { schema: { type: 'object' } },
       },
-      components: ['Text', 'Button'],
       catalogId: 'https://example.com/catalogs/hash/v1',
+      actions: [],
     };
 
     assert.equal(createCatalogContractHash(first), createCatalogContractHash(second));
@@ -38,12 +44,19 @@ describe('catalog contract hash', () => {
   it('changes when a catalog capability changes', () => {
     const base: CatalogDefinition = {
       catalogId: 'https://example.com/catalogs/hash/v1',
-      components: ['Text', 'Button'],
+      components: {
+        Text: { schema: { type: 'object' } },
+        Button: { schema: { type: 'object' } },
+      },
+      actions: [],
     };
     const changed: CatalogDefinition = {
       catalogId: 'https://example.com/catalogs/hash/v1',
-      components: ['Text', 'Button'],
-      actions: ['submit'],
+      components: {
+        Text: { schema: { type: 'object' } },
+        Button: { schema: { type: 'object' } },
+      },
+      actions: [{ name: 'submit', sources: ['Button'] }],
     };
 
     assert.notEqual(createCatalogContractHash(base), createCatalogContractHash(changed));
@@ -52,7 +65,8 @@ describe('catalog contract hash', () => {
   it('creates a versioned reference and supports an optional URL', () => {
     const catalog: CatalogDefinition = {
       catalogId: 'https://example.com/catalogs/hash/v1',
-      components: ['Text'],
+      components: { Text: { schema: { type: 'object' } } },
+      actions: [],
     };
     const reference = createCatalogContractReference(
       catalog,

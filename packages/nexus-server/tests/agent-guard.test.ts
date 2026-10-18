@@ -127,13 +127,15 @@ describe('validateAgentSequence（通用 guard，宿主 registry 显式注入）
   });
 
   it('拒绝 catalog 未声明的 action 名称', () => {
+    // 未注册 action 名由共享 Catalog 诊断统一报告（S2.2 收尾：runtime 不再另设一套）。
     assert.equal(
       validateAgentSequence(updateWithUnsupportedAction, 1, options()),
-      '当前 Agent 线不支持 action: refresh',
+      'Catalog https://example.com/catalogs/server-test/v1 不支持 action: refresh',
     );
   });
 
-  it('action 挂载组件不再按 Button/TaskButton 名称特判（Catalog v2 能力声明的目标见 SPEC §4）', () => {
+  it('action 挂载由 Catalog sources 声明决定，不按组件名特判（SPEC §4）', () => {
+    // 测试 Catalog 将 Text 列入 submit 的 sources，因此 Text 挂载 action 合法。
     assert.equal(validateAgentSequence(updateWithActionOnText, 1, options()), null);
   });
 

@@ -7,7 +7,11 @@
  */
 import { PROTOCOL_VERSION } from './types';
 import type { A2UIError, A2UIMessage, ParseResult } from './types';
-import { MAX_REGEX_PATTERN_LENGTH, getRegexPatternRejection } from '../checks';
+import {
+  MAX_REGEX_PATTERN_LENGTH,
+  SUPPORTED_CHECK_FUNCTIONS,
+  getRegexPatternRejection,
+} from '../checks';
 import { isUnsafeSegment } from '../dataModel';
 import { isSafeMediaUrl } from './media-url';
 
@@ -18,8 +22,7 @@ const MESSAGE_KEYS = [
   'deleteSurface',
 ] as const;
 
-const CHECKABLE_COMPONENTS = new Set(['TextField', 'Slider', 'Button']);
-const CHECK_FUNCTIONS = new Set(['required', 'regex', 'length', 'numeric', 'email']);
+const CHECK_FUNCTIONS = new Set(SUPPORTED_CHECK_FUNCTIONS);
 const FUNCTION_RETURN_TYPES = new Set([
   'string',
   'number',
@@ -338,10 +341,16 @@ function isIsoDateTimeValue(value: string, allowEmpty: boolean): boolean {
   return date.test(value) || time.test(value) || dateTime.test(value);
 }
 
-function containsUnsupportedFunctionCall(value: unknown, depth = 0): boolean {
-  if (depth > 32) return true;
+function containsUnsupportedFunctionCall(
+  value: unknown,
+  allowComponentChecks = false,
+  path: readonly string[] = [],
+): boolean {
+  if (path.length > 32) return true;
   if (Array.isArray(value))
-    return value.some((item) => containsUnsupportedFunctionCall(item, depth + 1));
+    return value.some((item, index) =>
+      containsUnsupportedFunctionCall(item, allowComponentChecks, [...path, String(index)]),
+    );
   if (!isObject(value)) return false;
 
   const keys = Object.keys(value);
@@ -349,15 +358,18 @@ function containsUnsupportedFunctionCall(value: unknown, depth = 0): boolean {
     typeof value.call === 'string' &&
     keys.length > 0 &&
     keys.every((key) => key === 'call' || key === 'args' || key === 'returnType');
+  // 仅豁免已由 validatePayload → validateChecks 校验的组件 condition。
+  // 路径相对于消息 payload；普通 props/dataModel/theme 的同名键不获豁免。
+  const isValidatedCheckCondition =
+    allowComponentChecks &&
+    path.length === 5 &&
+    path[0] === 'components' &&
+    path[2] === 'checks' &&
+    path[4] === 'condition';
   return (
-    looksLikeFunctionCall ||
-    keys.some(
-      (key) =>
-        !(
-          key === 'checks' &&
-          typeof value.component === 'string' &&
-          CHECKABLE_COMPONENTS.has(value.component)
-        ) && containsUnsupportedFunctionCall(value[key], depth + 1),
+    (looksLikeFunctionCall && !isValidatedCheckCondition) ||
+    keys.some((key) =>
+      containsUnsupportedFunctionCall(value[key], allowComponentChecks, [...path, key]),
     )
   );
 }
@@ -495,11 +507,6 @@ function validateTextField(component: Record<string, unknown>): string | null {
     const rejection = getRegexPatternRejection(component.validationRegexp);
     if (rejection) return `TextField.validationRegexp ${rejection}`;
   }
-  if (component.checks !== undefined) {
-    const checksError = validateChecks(component);
-    if (checksError) return checksError;
-  }
-  if (component.action !== undefined) return 'TextField 不支持挂载 action';
   return null;
 }
 
@@ -511,7 +518,6 @@ function validateCheckBox(component: Record<string, unknown>): string | null {
   if (!isDynamicBoolean(component.value)) {
     return 'CheckBox.value 必须是布尔值或 { path } 绑定';
   }
-  if (component.action !== undefined) return 'CheckBox 不支持挂载 action';
   return null;
 }
 
@@ -557,17 +563,11 @@ function validateChoicePicker(component: Record<string, unknown>): string | null
   if (component.filterable !== undefined && typeof component.filterable !== 'boolean') {
     return 'ChoicePicker.filterable 必须是布尔值';
   }
-  if (component.action !== undefined) return 'ChoicePicker 不支持挂载 action';
   return null;
 }
 
 function validateSlider(component: Record<string, unknown>): string | null {
   if (component.component !== 'Slider') return null;
-  if (component.action !== undefined) return 'Slider 不支持挂载 action';
-  if (component.checks !== undefined) {
-    const checksError = validateChecks(component);
-    if (checksError) return checksError;
-  }
   if (component.label !== undefined && !isDynamicString(component.label)) {
     return 'Slider.label 必须是字符串或 { path } 绑定';
   }
@@ -609,8 +609,6 @@ function validateSlider(component: Record<string, unknown>): string | null {
 
 function validateDateTimeInput(component: Record<string, unknown>): string | null {
   if (component.component !== 'DateTimeInput') return null;
-  if (component.action !== undefined) return 'DateTimeInput 不支持挂载 action';
-  if (component.checks !== undefined) return '当前 Agent 线不支持 DateTimeInput.checks';
   if (component.label !== undefined && !isDynamicString(component.label)) {
     return 'DateTimeInput.label 必须是字符串或 { path } 绑定';
   }
@@ -662,15 +660,15 @@ function validateMediaComponent(component: Record<string, unknown>): string | nu
   }
 
   if (component.component === 'Video') {
-    if (!hasOnlyKeys(component, ['id', 'component', 'url'])) {
-      return 'Video 只支持 id/component/url';
+    if (!hasOnlyKeys(component, ['id', 'component', 'url', 'checks'])) {
+      return 'Video 只支持 id/component/url/checks';
     }
     return validateMediaUrl(component, 'Video');
   }
 
   if (component.component === 'AudioPlayer') {
-    if (!hasOnlyKeys(component, ['id', 'component', 'url', 'description'])) {
-      return 'AudioPlayer 只支持 id/component/url/description';
+    if (!hasOnlyKeys(component, ['id', 'component', 'url', 'description', 'checks'])) {
+      return 'AudioPlayer 只支持 id/component/url/description/checks';
     }
     const urlError = validateMediaUrl(component, 'AudioPlayer');
     if (urlError) return urlError;
@@ -694,10 +692,6 @@ function validateComponent(value: unknown): string | null {
       return `component.props 不得包含保留段键（__proto__/constructor/prototype）: ${key}`;
     }
   }
-  if (value.checks !== undefined && !CHECKABLE_COMPONENTS.has(value.component)) {
-    return `当前 Agent 线不支持 ${value.component}.checks`;
-  }
-
   const textFieldError = validateTextField(value);
   if (textFieldError) return textFieldError;
 
@@ -716,7 +710,8 @@ function validateComponent(value: unknown): string | null {
   const mediaError = validateMediaComponent(value);
   if (mediaError) return mediaError;
 
-  if (value.component === 'Button' && value.checks !== undefined) {
+  if (value.checks !== undefined) {
+    // Profile 只验证可解释结构与安全基线；启用能力/函数子集/预算由 Catalog 判定。
     const checksError = validateChecks(value);
     if (checksError) return checksError;
   }
@@ -842,7 +837,7 @@ export function validateNexusProfileMessage(value: unknown): A2UIError | null {
   if (payloadError) {
     return { code: 'FEATURE_UNSUPPORTED', message: payloadError };
   }
-  if (containsUnsupportedFunctionCall(value[key])) {
+  if (containsUnsupportedFunctionCall(value[key], key === 'updateComponents')) {
     return {
       code: 'FEATURE_UNSUPPORTED',
       message: '当前 Agent 线不支持 FunctionCall',

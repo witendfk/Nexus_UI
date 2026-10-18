@@ -22,7 +22,6 @@ import type {
   A2UIError,
   A2UIMessage,
   ActionEvent,
-  Component,
   ParseResult,
   VNode,
 } from '../protocol/types';
@@ -44,7 +43,9 @@ export interface RuntimeOptions {
   onError?: (error: A2UIError) => void;
   /**
    * Optional host-owned catalog boundary. When supplied, every surface catalog
-   * and component name is checked; registered props schemas are also enforced.
+   * and component name is checked; registered props schemas and checks/action
+   * capabilities are also enforced. Without a registry, only Protocol/Profile
+   * validation applies; standard declarations are not an implicit catalog.
    */
   catalogRegistry?: CatalogRegistry;
   /**
@@ -261,10 +262,9 @@ export class A2UIRuntime {
         const catalogId = surface?.catalogId;
         if (!catalogId) return null;
         const dataModel = state.dataModelBySurface[surfaceId];
-        diagnostics = message.updateComponents.components.flatMap((component) => [
-          ...registry.getComponentDiagnostics(catalogId, component, dataModel),
-          ...this.getActionDiagnostics(registry, catalogId, component),
-        ]);
+        diagnostics = message.updateComponents.components.flatMap((component) =>
+          registry.getComponentDiagnostics(catalogId, component, dataModel),
+        );
       } else if ('updateDataModel' in message) {
         const surfaceId = message.updateDataModel.surfaceId;
         const surface = state.surfaces[surfaceId];
@@ -290,25 +290,6 @@ export class A2UIRuntime {
         message: `Catalog 预校验失败，消息被拒绝: ${messageText}`,
       };
     }
-  }
-
-  private getActionDiagnostics(
-    registry: CatalogRegistry,
-    catalogId: string,
-    component: Component,
-  ): readonly ComponentSchemaDiagnostic[] {
-    const actions = registry.get(catalogId)?.actions;
-    if (actions === undefined) return [];
-
-    const actionName = component.action?.event?.name;
-    if (actionName === undefined || actions.includes(actionName)) return [];
-
-    return [
-      {
-        path: `components.${component.id}.action.event.name`,
-        message: `Catalog ${catalogId} 不支持 action: ${actionName}`,
-      },
-    ];
   }
 
   private reportError(error: A2UIError): void {

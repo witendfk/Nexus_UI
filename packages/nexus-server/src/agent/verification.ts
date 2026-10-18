@@ -79,7 +79,7 @@ function assertEndpoint(endpoint: string): void {
 
 function assertCatalog(catalog: CatalogDefinition): void {
   if (!catalog.catalogId) throw new Error('Verification catalog is missing catalogId');
-  if (catalog.components.length === 0) {
+  if (Object.keys(catalog.components).length === 0) {
     throw new Error('Verification catalog has no components');
   }
 }

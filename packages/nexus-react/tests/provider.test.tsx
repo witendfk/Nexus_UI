@@ -508,15 +508,17 @@ describe('A2UIProvider', () => {
     const registry = new CatalogRegistry([
       {
         catalogId: 'task-catalog',
-        components: ['TaskSummary'],
-        componentSchemas: {
+        components: {
           TaskSummary: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['title'],
-            properties: { title: { type: 'string', dynamic: 'required' } },
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['title'],
+              properties: { title: { type: 'string', dynamic: 'required' } },
+            },
           },
         },
+        actions: [],
       },
     ]);
 

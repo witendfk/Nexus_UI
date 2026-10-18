@@ -323,7 +323,7 @@ describe('AgentAdapter 显式装配', () => {
     assert.deepEqual(actionContexts[0]?.action.context, {});
     assert.deepEqual(actionContexts[0]?.context.clientContext, {});
     assert.equal(actionContexts[0]?.context.catalogId, TEST_CATALOG_ID);
-    assert.ok(actionContexts[0]?.context.catalog.components.includes('Text'));
+    assert.ok(actionContexts[0]?.context.catalog.components['Text'] !== undefined);
     assert.equal(actionContexts[0]?.context.history[0]?.content, '创建宿主任务面');
     assert.match(actionContexts[0]?.context.history[1]?.content ?? '', /Host agent surface/);
   });
@@ -367,13 +367,15 @@ describe('AgentAdapter 显式装配', () => {
       registry: new CatalogRegistry([
         {
           catalogId: customCatalogId,
-          components: ['TaskSummary'],
-          componentSchemas: {
+          components: {
             TaskSummary: {
-              type: 'object',
-              properties: { amount: { type: 'number', dynamic: 'allowed' } },
+              schema: {
+                type: 'object',
+                properties: { amount: { type: 'number', dynamic: 'allowed' } },
+              },
             },
           },
+          actions: [],
         },
       ]),
       createSurfaceId: () => 'surface-diagnostics',
@@ -533,8 +535,14 @@ describe('AgentAdapter 显式装配', () => {
       registry: new CatalogRegistry([
         {
           catalogId: llmCatalogId,
-          components: ['TaskSummary', 'TaskButton'],
-          actions: ['start', 'complete'],
+          components: {
+            TaskSummary: { schema: { type: 'object' } },
+            TaskButton: { schema: { type: 'object' }, action: { required: true } },
+          },
+          actions: [
+            { name: 'start', sources: ['TaskButton'] },
+            { name: 'complete', sources: ['TaskButton'] },
+          ],
         },
       ]),
       useLlm: () => true,

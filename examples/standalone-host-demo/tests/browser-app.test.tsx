@@ -125,8 +125,12 @@ const onboardingContract = {
     contractHash: 'sha256:published-demo-catalog',
     catalog: {
       catalogId: DEMO_AGENT_CATALOG_ID,
-      components: ['ApprovalSummary', 'Button', 'Text'],
-      actions: [DEMO_AGENT_ACTION],
+      components: {
+        ApprovalSummary: { schema: { type: 'object' } },
+        Button: { schema: { type: 'object' } },
+        Text: { schema: { type: 'object' } },
+      },
+      actions: [{ name: DEMO_AGENT_ACTION, sources: ['Button'] }],
     },
     promptContract: 'Published host catalog prompt contract',
   },

@@ -9,43 +9,39 @@ import { verifyExternalAgentOnboarding } from '../src/agent/onboarding-verificat
 
 const catalog: CatalogDefinition = {
   catalogId: 'https://example.com/catalogs/onboarding-verification/v1',
-  components: ['ApprovalSummary', 'Button', 'Text'],
-  actions: ['submit'],
-  componentSchemas: {
+  components: {
     ApprovalSummary: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['title', 'status'],
-      properties: {
-        title: { type: 'string', dynamic: 'required' },
-        status: { type: 'string', dynamic: 'required' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'status'],
+        properties: {
+          title: { type: 'string', dynamic: 'required' },
+          status: { type: 'string', dynamic: 'required' },
+        },
       },
-    },
-    Button: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        disabled: { type: 'boolean', dynamic: 'forbidden' },
+      fields: {
+        title: { origin: 'host-extension' },
+        status: { origin: 'host-extension' },
       },
-    },
-  },
-  componentPolicies: {
-    ApprovalSummary: {
       origin: 'host-extension',
-      fields: {
-        title: { binding: 'required', origin: 'host-extension' },
-        status: { binding: 'required', origin: 'host-extension' },
-      },
-      action: { allowed: false },
     },
     Button: {
-      fields: {
-        child: { componentRef: true, binding: 'forbidden', origin: 'host-extension' },
-        disabled: { binding: 'forbidden', origin: 'host-extension' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          disabled: { type: 'boolean', dynamic: 'forbidden' },
+        },
       },
-      action: { allowed: true },
+      fields: {
+        child: { componentRef: true, origin: 'host-extension' },
+        disabled: { origin: 'host-extension' },
+      },
     },
+    Text: { schema: { type: 'object' } },
   },
+  actions: [{ name: 'submit', sources: ['Button'] }],
 };
 
 const catalogContractPayload = {

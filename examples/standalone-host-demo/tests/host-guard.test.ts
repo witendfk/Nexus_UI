@@ -351,7 +351,8 @@ describe('standalone host example', () => {
     });
 
     assert.equal(result.ok, false);
-    assert.match(transport.getOutput(), /当前 Agent 线不支持 action: reject/);
+    // 未注册 action 名由共享 Catalog 诊断统一报告（S2.2 收尾）。
+    assert.match(transport.getOutput(), /不支持 action: reject/);
     assert.doesNotMatch(transport.getOutput(), /event: done/);
   });
 

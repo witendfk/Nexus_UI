@@ -158,8 +158,10 @@ function validateContract(
     !isRecord(catalog) ||
     typeof catalog.catalogId !== 'string' ||
     catalog.catalogId === '' ||
-    !Array.isArray(catalog.components) ||
-    catalog.components.length === 0
+    typeof catalog.components !== 'object' ||
+    catalog.components === null ||
+    Array.isArray(catalog.components) ||
+    Object.keys(catalog.components).length === 0
   ) {
     throw new Error('Agent onboarding contract 缺少可用 catalog');
   }

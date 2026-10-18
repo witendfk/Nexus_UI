@@ -235,7 +235,7 @@ export function createExternalAgentActionHandler(
         action,
         history: context.history,
         catalogId: context.catalogId,
-        supportedComponents: context.catalog.components,
+        supportedComponents: Object.keys(context.catalog.components),
         supportedActions: context.supportedActions,
         catalogContract: createRemoteCatalogContract(context.catalogContract, config),
       },

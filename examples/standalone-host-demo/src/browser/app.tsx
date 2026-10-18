@@ -112,11 +112,11 @@ function AgentOnboardingPanel({ url }: { url: string | null }): ReactElement {
             </div>
             <div>
               <dt>Components</dt>
-              <dd>{catalog.components.join(', ')}</dd>
+              <dd>{Object.keys(catalog.components).join(', ')}</dd>
             </div>
             <div>
               <dt>Actions</dt>
-              <dd>{catalog.actions?.join(', ') || 'none'}</dd>
+              <dd>{catalog.actions.map((action) => action.name).join(', ') || 'none'}</dd>
             </div>
             <div>
               <dt>RPC endpoint</dt>

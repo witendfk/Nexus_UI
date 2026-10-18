@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CatalogDefinition } from '@nexus-ui/core';
 
-export const CATALOG_CONTRACT_VERSION = 1 as const;
+export const CATALOG_CONTRACT_VERSION = 2 as const;
 
 export interface CatalogContractReference {
   readonly version: typeof CATALOG_CONTRACT_VERSION;

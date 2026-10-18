@@ -121,10 +121,8 @@
       "description": "ChoicePicker with valid checks",
       "officialValid": true,
       "protocolOk": true,
-      "profileOk": false,
-      "verdict": "deviation",
-      "profileMessage": "当前 Agent 线不支持 ChoicePicker.checks",
-      "deviationKind": "profile-unsupported"
+      "profileOk": true,
+      "verdict": "pass"
     },
     {
       "file": "checkable_components.json",
@@ -139,10 +137,8 @@
       "description": "CheckBox with valid checks",
       "officialValid": true,
       "protocolOk": true,
-      "profileOk": false,
-      "verdict": "deviation",
-      "profileMessage": "当前 Agent 线不支持 CheckBox.checks",
-      "deviationKind": "profile-unsupported"
+      "profileOk": true,
+      "verdict": "pass"
     },
     {
       "file": "checkable_components.json",
@@ -151,7 +147,7 @@
       "protocolOk": true,
       "profileOk": false,
       "verdict": "deviation",
-      "profileMessage": "当前 Agent 线不支持 DateTimeInput.checks",
+      "profileMessage": "DateTimeInput.enableDate/enableTime 至少一个为 true",
       "deviationKind": "profile-unsupported"
     },
     {
@@ -209,10 +205,8 @@
       "description": "ChoicePicker with length validation (exactly 2)",
       "officialValid": true,
       "protocolOk": true,
-      "profileOk": false,
-      "verdict": "deviation",
-      "profileMessage": "当前 Agent 线不支持 ChoicePicker.checks",
-      "deviationKind": "profile-unsupported"
+      "profileOk": true,
+      "verdict": "pass"
     },
     {
       "file": "client_messages.json",
@@ -776,9 +770,9 @@
     }
   ],
   "totals": {
-    "deviation/profile-unsupported": 16,
+    "deviation/profile-unsupported": 13,
     "deviation/degraded-value-constraint": 5,
-    "pass": 33,
+    "pass": 36,
     "deviation/scope-client-to-server": 3,
     "deviation/profile-catches-protocol-loose": 23
   }

@@ -232,7 +232,8 @@ export class AgentAdapter {
     if (useLlm && !this.createGenerationSource && !this.streamLlm) {
       throw new Error('useLlm 启用时必须显式注入 streamLlm 生成源；SDK 不再默认绑定模型 SDK');
     }
-    const supportedActions = catalog.actions ?? [];
+    const supportedActions = catalog.actions.map((action) => action.name);
+    const supportedComponents = Object.keys(catalog.components);
     const catalogContract = createCatalogContractReference(catalog);
     const history = (await this.historyStore.getHistory(surfaceId)).map((turn) => ({ ...turn }));
     const sourceRequest: AgentGenerationSourceRequest = {
@@ -241,7 +242,7 @@ export class AgentAdapter {
       message,
       catalogId,
       catalog,
-      supportedComponents: catalog.components,
+      supportedComponents,
       supportedActions,
       catalogContract,
       history,
@@ -257,7 +258,7 @@ export class AgentAdapter {
           surfaceId,
           message,
           catalogId,
-          supportedComponents: catalog.components,
+          supportedComponents,
           supportedActions,
           history,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -427,7 +428,7 @@ export class AgentAdapter {
       source = await handler(authoritativeAction, {
         catalogId,
         catalog,
-        supportedActions: catalog.actions ?? [],
+        supportedActions: catalog.actions.map((action) => action.name),
         catalogContract: createCatalogContractReference(catalog),
         history,
         surfaceAction,
@@ -463,7 +464,7 @@ export class AgentAdapter {
         surfaceId: action.surfaceId,
         catalogId,
         registry: this.registry,
-        supportedActions: catalog.actions ?? [],
+        supportedActions: catalog.actions.map((action) => action.name),
         policy: this.policy,
       },
       commit: async (messages) => {

@@ -1,0 +1,89 @@
+{
+  "checks": [
+    {
+      "condition": { "call": "required", "args": { "value": "ready" } },
+      "message": "Required"
+    }
+  ],
+  "components": [
+    { "component": "Card" },
+    { "component": "RatingSummary" },
+    { "component": "toString" },
+    { "component": "DateTimeInput", "value": "2026-10-17", "enableDate": true },
+    { "component": "CheckBox", "label": "Ready", "value": true },
+    {
+      "component": "ChoicePicker",
+      "value": [],
+      "options": [{ "label": "Ready", "value": "ready" }]
+    },
+    { "component": "Video", "url": "https://example.com/video.mp4" },
+    { "component": "AudioPlayer", "url": "https://example.com/audio.mp3" }
+  ],
+  "ordinaryDataMessage": {
+    "version": "v0.9",
+    "updateDataModel": {
+      "surfaceId": "s",
+      "value": { "metadata": { "checks": [{ "passed": true }] } }
+    }
+  },
+  "rejectedMessages": [
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "s",
+        "value": { "checks": { "call": "unsupported", "args": {} } }
+      }
+    },
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "s",
+        "value": [
+          { "component": "Card", "checks": { "call": "required", "args": { "value": true } } }
+        ]
+      }
+    },
+    {
+      "version": "v0.9",
+      "createSurface": {
+        "surfaceId": "s",
+        "catalogId": "host",
+        "theme": { "checks": { "call": "unsupported", "args": {} } }
+      }
+    },
+    {
+      "version": "v0.9",
+      "updateComponents": {
+        "surfaceId": "s",
+        "components": [
+          {
+            "id": "root",
+            "component": "Card",
+            "metadata": { "checks": { "call": "unsupported", "args": {} } }
+          }
+        ]
+      }
+    },
+    {
+      "version": "v0.9",
+      "updateComponents": {
+        "surfaceId": "s",
+        "components": [
+          {
+            "id": "root",
+            "component": "Card",
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": { "value": [{ "checks": { "call": "unsupported", "args": {} } }] }
+                },
+                "message": "Required"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -25,9 +25,9 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 
 组件采用扁平 ID 表，容器通过 `children`/`child`/`tabs` 引用，绑定采用 JSON Pointer。生成流须含 `root`；action 流仅允许 `updateComponents`/`updateDataModel`。
 
-当前 17 个标准组件为 Text、Image、Icon、Row、Column、List、Card、Tabs、Divider、Button、TextField、CheckBox、ChoicePicker、DateTimeInput、Slider、Video、AudioPlayer。List 仅静态 children；Button 仅 `action.event`。TextField/Slider/Button 的 checks 子集为 required、regex、length、numeric、email。
+当前 17 个标准组件为 Text、Image、Icon、Row、Column、List、Card、Tabs、Divider、Button、TextField、CheckBox、ChoicePicker、DateTimeInput、Slider、Video、AudioPlayer。List 仅静态 children；Button 仅 `action.event`。标准声明默认仅为 TextField/Slider/Button 启用 checks，子集为 required、regex、length、numeric、email；宿主可在自己的 Catalog 中显式启用其他组件的 checks。
 
-不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束，当前自定义输入/action 仍受硬编码限制。
+不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。 FunctionCall 豁免仅限通过结构与函数白名单校验的 `updateComponents.components[].checks[].condition`，仍递归检查其参数；普通 props、dataModel、theme 的同名 checks 键没有豁免。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束，当前本地输入写回仍受硬编码限制（S2.3）；checks/action 挂载能力由当前 Catalog 决定。
 
 安全准入基线：`__proto__`/`constructor`/`prototype` 为保留段。`action.event.context` 的键与组件 props 层（非结构键）的自有键含保留段一律拒绝；`component.id` 与四处 `surfaceId` 三段全拒。Image/Video/AudioPlayer 的字面量 `url` 必须是 http(s) URL（core 公开 `isSafeMediaUrl`，经 URL 解析判定 protocol，不做字符串前缀匹配）；`{ path }` 绑定放行准入，由 React 三个媒体组件在解析后复用同一判定守卫，非法时不输出 `src` 并渲染带说明性 alt/aria 的占位。运行层防御与准入同口径：`resolveContext` 遇保留段键显式抛错，`buildProps` 跳过保留段键不写入 props。
 
@@ -35,15 +35,17 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 
 校验链为 Protocol → Profile → Catalog → 显式 Host Policy。已有诊断码为 `PROTOCOL_INVALID`、`LIFECYCLE_INVALID`、`FEATURE_UNSUPPORTED`、`CATALOG_UNSUPPORTED`、`POLICY_REJECTED`。诊断可带 `path`、`message`、`dataPath`。client→server 消息由服务端 action 边界处理，不属于 core 的 server→client 流入。
 
-官方用例历史基线（2026-09-30）：9 份用例，33 pass、47 已决策偏差、0 fail，位置为 `packages/nexus-core/tests/conformance-baseline.json`。偏差为 profile-unsupported 16、profile-catches-protocol-loose 23、degraded-value-constraint 5、scope-client-to-server 3。这个分类结果不代表完整协议一致性；当前改动须重跑 conformance 后才能声明无回归。
+轻量 core runtime 未注入 `catalogRegistry` 时只执行 Protocol/Profile，不提供 Catalog 能力准入保证，也不隐式采用 SDK 标准声明；宿主需显式注入自己的 Catalog 来限制 checks/action 能力。
+
+官方用例当前基线（2026-10-17）：9 份用例，36 pass、44 已决策偏差、0 fail，位置为 `packages/nexus-core/tests/conformance-baseline.json`。偏差为 profile-unsupported 13、profile-catches-protocol-loose 23、degraded-value-constraint 5、scope-client-to-server 3。此次 checks 能力准入从 Profile 移至 Catalog 后，ChoicePicker 的 valid checks / length validation 与 CheckBox 的 valid checks 共 3 条由 Profile 不支持转为 pass；DateTimeInput 的 valid checks 用例仍因缺少 enableDate/enableTime 被拒，仅拒绝原因变化。此基线测试 Protocol/Profile，不证明默认标准 Catalog 已启用这些 checks，也不代表完整协议一致性。历史 2026-09-30 基线为 33 pass / 47 偏差；后续改动须重跑并解释分类变化。
 
 ## 2. 当前 Catalog 与公开 API
 
-CatalogDefinition 目前包含 `catalogId`、`components`、可选 `actions`、`componentSchemas` 和 `componentPolicies`。schema 是明确受限的 JSON-Schema-like 子集；`dynamic` 描述字面值/绑定约束，不能当作任意 JSON Schema 引擎。`pattern` 与 checks 路径同口径：注册闸门强制长度上限（200）并拒绝嵌套量词；求值统一走 `compileSafeRegExp` 有界线性引擎，编译失败（超限/不受支持语法）产生 schema 诊断，不再裸用原生 RegExp。
+CatalogDefinition 已切换为 v2 形状（S2.2，2026-10-16）：`catalogId`、组件声明表 `components`（每组件必含 `schema` 与能力声明）与必填 `actions`；v1 的 components 数组/`componentSchemas`/`componentPolicies` 已移除。绑定能力唯一权威是 schema 节点的 `dynamic`（缺省即 `forbidden`），`fields` 只承载 origin/componentRef 元数据。schema 是明确受限的 JSON-Schema-like 子集；未知关键字注册即拒绝，`minItems` 已纳入子集。`pattern` 注册口径与求值口径一致：注册闸门强制长度上限（200）、拒绝嵌套量词，并直接经 `compileSafeRegExp` 有界线性引擎编译，引擎不支持的语法（环视等）注册即拒绝。17 个标准组件的声明由 core 公开 `standardCatalogComponentDeclarations()` 提供，宿主按名组合或覆盖。
 
-`createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v1 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
+`createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v2 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：core 在 `actions` 缺省时不执行 action 名称白名单检查；未声明 schema 的组件可仅做名称检查。不得把“所有未声明能力均被拒绝”作为当前统一保证。目标见 §4。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
+**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。server 准入端（§4.3）与 client 输入链路尚未实施。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
@@ -96,7 +98,7 @@ SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成
 
 可选与缺失必需的区分：`fields`、`origin` 缺省表示无附加元数据；`inputs`、`checks`、`paramSchema`、`action.required` 缺省表示该能力关闭（默认拒绝），均不继承任何默认值。绑定能力只在 schema 上声明一次：`dynamic` 缺省即 `forbidden`，不存在 schema 与 fields 双源解释。`catalogId`、非空 `components`、`actions` 数组与每个组件的 `schema` 缺失即注册报错。
 
-### 4.2 注册期拒绝（宿主装配时显式报错）
+### 4.2 注册期拒绝（宿主装配时显式报错；S2.2 已实施，fixture 对测见 `fixtures/catalog-v2/`）
 
 - 未知键一律拒绝：`CatalogDefinitionV2`、组件声明、action 声明、字段/checks/action policy 与 schema 节点出现未定义键（含拼写错误）即报错，不静默忽略；`fields` 中的 `binding` 键属 v1 双源声明，同样按未知键拒绝。
 - 不支持的 schema 语法注册报错；`pattern` 的注册口径与运行期有界求值引擎一致——原生 RegExp 可编译但 `compileSafeRegExp` 不支持的语法在注册时拒绝，不允许先注册再在取值时失败。

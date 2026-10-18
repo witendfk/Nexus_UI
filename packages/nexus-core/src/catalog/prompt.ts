@@ -4,52 +4,56 @@ import { CatalogRegistry } from './index';
 /**
  * Render a deterministic LLM prompt contract from the same catalog boundary
  * used by runtime validation. The prompt is advisory; guards remain final.
+ * 输入是 v2 声明（注册闸门保证完整性），prompt 不夸大实际支持范围。
  */
 export function createCatalogPromptContract(catalog: CatalogDefinition): string {
   // Registration performs the catalog, action, component, and schema checks.
   new CatalogRegistry([catalog]);
 
-  const components = catalog.components.join(', ');
+  const components = Object.keys(catalog.components).join(', ');
   const actions =
-    catalog.actions === undefined
-      ? 'Not declared by this CatalogDefinition; do not invent actions from this contract.'
-      : catalog.actions.length === 0
-        ? 'None; this catalog is display-only.'
-        : catalog.actions.join(', ');
+    catalog.actions.length === 0
+      ? 'None; this catalog is display-only.'
+      : catalog.actions
+          .map((action) => {
+            const params = action.paramSchema
+              ? `params=${JSON.stringify(action.paramSchema)}`
+              : 'params=none';
+            return `${action.name} (sources: ${action.sources.join('/')}; ${params})`;
+          })
+          .join(', ');
 
-  const schemas = Object.entries(catalog.componentSchemas ?? {});
-  const schemaSections = schemas
-    .map(([component, schema]) => {
-      return `Component ${component} props schema:\n${JSON.stringify(schema, null, 2)}`;
+  const schemaSections = Object.entries(catalog.components)
+    .map(([component, declaration]) => {
+      return `Component ${component} props schema:\n${JSON.stringify(declaration.schema, null, 2)}`;
     })
     .join('\n\n');
-  const componentsWithoutSchema = catalog.components.filter(
-    (component) => !catalog.componentSchemas?.[component],
-  );
-  const policies = Object.entries(catalog.componentPolicies ?? {});
-  const policySections = policies
-    .map(([component, policy]) => {
-      const fields = Object.entries(policy.fields ?? {})
+
+  const capabilitySections = Object.entries(catalog.components)
+    .map(([component, declaration]) => {
+      const fields = Object.entries(declaration.fields ?? {})
         .map(
           ([field, fieldPolicy]) =>
-            `- ${field}: binding=${fieldPolicy.binding ?? 'forbidden'}, origin=${
-              fieldPolicy.origin ?? 'official-basic'
-            }${fieldPolicy.componentRef ? ', componentRef=true' : ''}`,
+            `- ${field}: origin=${fieldPolicy.origin ?? 'official-basic'}${
+              fieldPolicy.componentRef ? ', componentRef=true' : ''
+            }`,
         )
         .join('\n');
-      const action = policy.action
-        ? `Action: allowed=${policy.action.allowed ?? true}, required=${
-            policy.action.required ?? false
+      const inputs = Object.entries(declaration.inputs ?? {})
+        .map(([property, valueSchema]) => `- ${property}: ${JSON.stringify(valueSchema)}`)
+        .join('\n');
+      const action = declaration.action?.required
+        ? 'Action: required; this component must carry action.event.'
+        : 'Action: optional; mounting follows the catalog action declarations (sources).';
+      const checks = declaration.checks?.enabled
+        ? `Checks: enabled=true, functions=${declaration.checks.functions?.join('/') ?? 'none'}, maxRules=${
+            declaration.checks.maxRules ?? 'unlimited'
           }`
-        : 'Action: allowed by protocol; no extra Catalog policy.';
-      const checks = policy.checks
-        ? `Checks: enabled=${policy.checks.enabled ?? false}, functions=${
-            policy.checks.functions?.join('/') ?? 'none'
-          }, maxRules=${policy.checks.maxRules ?? 'unlimited'}`
-        : 'Checks: not enabled by Catalog policy.';
-      return `Component ${component} policy:\nOrigin: ${
-        policy.origin ?? 'official-basic'
-      }\n${fields || 'No extra field policies.'}\n${action}\n${checks}`;
+        : 'Checks: not enabled.';
+      const origin = declaration.origin ?? 'official-basic';
+      return `Component ${component}:\nOrigin: ${origin}\n${
+        fields || 'No extra field metadata.'
+      }\n${action}\n${checks}${inputs ? `\nWritable inputs:\n${inputs}` : ''}`;
     })
     .join('\n\n');
 
@@ -75,31 +79,25 @@ Component rules:
 - Keep component ids stable across updates so the host can patch the same surface in place.
 
 Action rules:
-- Allowed action names: ${actions}.
+- Allowed actions: ${actions}.
 - Use action.event only in this MVP; do not use functionCall or sendDataModel.
-- An action name must be explicitly allowed by the catalog and attached only to a component type supported by the protocol.
+- Attach an action only to a component type listed in that action's sources; do not invent actions.
 - Resolve user state through {"path":"..."} bindings and include the latest values needed by the action context.
 
 Catalog schema rules:
-${schemaSections || 'No component-specific schemas are declared by this CatalogDefinition.'}
-${
-  componentsWithoutSchema.length > 0
-    ? `Components without a catalog schema here: ${componentsWithoutSchema.join(
-        ', ',
-      )}. Their names remain whitelisted, but their component-specific fields must still follow the A2UI contract supplied by the host or runtime.`
-    : 'Every catalog component has a schema above.'
-}
+${schemaSections}
 
-Catalog capability policies:
-${policySections || 'No component capability policies are declared by this CatalogDefinition.'}
+Catalog capability declarations:
+${capabilitySections}
 
 Schema interpretation:
 - "type" requires the corresponding JSON type.
 - "enum" permits only one of the listed values.
 - "const" requires the exact value.
 - "minLength" and "maxLength" constrain string length.
-- "pattern" is a JavaScript regular expression.
+- "pattern" is a JavaScript regular expression from the supported bounded subset.
 - "minimum" and "maximum" constrain numeric values.
+- "minItems" constrains array length.
 - "items" applies to every array item.
 - "properties", "required", and "additionalProperties" follow the JSON-Schema-like subset.
 - "dynamic" controls whether a value may be {"path":"..."}: "forbidden" means literal only, "allowed" means literal or path binding, and "required" means path binding only.

@@ -209,7 +209,8 @@ describe('validateNexusProfileMessage', () => {
           action: { event: { name: 'search' } },
         }),
       ),
-    ).to.equal('TextField 不支持挂载 action');
+      // 挂载能力由 Catalog sources 声明决定（S2.2）：Profile 只保留结构校验。
+    ).to.not.exist;
   });
 
   it('校验 CheckBox 官方字段结构', () => {
@@ -251,7 +252,8 @@ describe('validateNexusProfileMessage', () => {
           action: { event: { name: 'submit' } },
         }),
       ),
-    ).to.equal('CheckBox 不支持挂载 action');
+      // 挂载能力由 Catalog sources 声明决定（S2.2）。
+    ).to.not.exist;
   });
 
   it('校验 ChoicePicker 官方字段结构', () => {
@@ -297,9 +299,8 @@ describe('validateNexusProfileMessage', () => {
     expect(error(message({ ...valid, variant: 'radio' }))).to.equal(
       'ChoicePicker.variant 只支持 multipleSelection/mutuallyExclusive',
     );
-    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.equal(
-      'ChoicePicker 不支持挂载 action',
-    );
+    // 挂载能力由 Catalog sources 声明决定（S2.2），结构合法即通过 Profile。
+    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.not.exist;
   });
 
   it('校验 DateTimeInput 官方字段结构', () => {
@@ -349,12 +350,9 @@ describe('validateNexusProfileMessage', () => {
     expect(error(message({ ...valid, min: 'next-day' }))).to.equal(
       'DateTimeInput.min 必须是 ISO 8601 date/time/date-time 字符串',
     );
-    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.equal(
-      'DateTimeInput 不支持挂载 action',
-    );
-    expect(error(message({ ...valid, checks: [] }))).to.equal(
-      '当前 Agent 线不支持 DateTimeInput.checks',
-    );
+    // 挂载能力由 Catalog sources 声明决定（S2.2）。
+    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.not.exist;
+    expect(error(message({ ...valid, checks: [] }))).to.not.exist;
   });
 
   it('校验 Video 与 AudioPlayer 官方字段结构', () => {
@@ -373,11 +371,11 @@ describe('validateNexusProfileMessage', () => {
     expect(validateA2UIMessage(message(video)).ok).to.equal(true);
     expect(validateA2UIMessage(message(audio)).ok).to.equal(true);
     expect(error(message({ ...video, src: 'https://example.com/a.mp4' }))).to.equal(
-      'Video 只支持 id/component/url',
+      'Video 只支持 id/component/url/checks',
     );
     expect(error(message({ ...video, url: 1 }))).to.equal('Video.url 必须是字符串或 { path } 绑定');
     expect(error(message({ ...audio, controls: true }))).to.equal(
-      'AudioPlayer 只支持 id/component/url/description',
+      'AudioPlayer 只支持 id/component/url/description/checks',
     );
     expect(error(message({ ...audio, description: 1 }))).to.equal(
       'AudioPlayer.description 必须是字符串或 { path } 绑定',
@@ -408,9 +406,8 @@ describe('validateNexusProfileMessage', () => {
     );
     expect(error(message({ ...valid, min: 1, max: 1 }))).to.equal('Slider.min 必须小于 max');
     expect(error(message({ ...valid, value: 1.2 }))).to.equal('Slider.value 不能大于 max');
-    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.equal(
-      'Slider 不支持挂载 action',
-    );
+    // 挂载能力由 Catalog sources 声明决定（S2.2）。
+    expect(error(message({ ...valid, action: { event: { name: 'submit' } } }))).to.not.exist;
     expect(
       validateA2UIMessage(
         message({
@@ -428,6 +425,36 @@ describe('validateNexusProfileMessage', () => {
         }),
       ).ok,
     ).to.equal(true);
+  });
+
+  it('自定义组件的 checks 不再被名字分支阻断（能力边界由 Catalog 声明）', () => {
+    const message = {
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 'd',
+        components: [
+          {
+            id: 'custom',
+            component: 'RatingSummary',
+            score: { path: '/score' },
+            checks: [
+              {
+                condition: { call: 'required', args: { value: { path: '/score' } } },
+                message: '评分必填',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    // 结构合法（受支持函数 + 必备 args）即通过 Profile；是否启用 checks 由宿主 Catalog 声明。
+    expect(error(message)).to.not.exist;
+    const invalid = JSON.parse(JSON.stringify(message));
+    invalid.updateComponents.components[0].checks[0].condition = { call: 'and', args: {} };
+    // Profile 层结构校验按同一份函数白名单拒绝（组件前缀由 Profile 文案决定）。
+    expect(error(invalid)).to.equal(
+      'checks.condition.call 只支持 required/regex/length/numeric/email',
+    );
   });
 
   it('校验官方 CheckRule 与最小函数子集', () => {
@@ -563,6 +590,6 @@ describe('validateNexusProfileMessage', () => {
           checks: [],
         }),
       ),
-    ).to.equal('当前 Agent 线不支持 CheckBox.checks');
+    ).to.not.exist;
   });
 });

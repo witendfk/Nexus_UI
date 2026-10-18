@@ -35,10 +35,10 @@ describe('official conformance baseline (v0.9 cases)', () => {
     expect(report).to.deep.equal(baseline);
   });
 
-  it('基线数字：33 pass + 47 已决策偏差（16 Profile 不支持 / 23 Profile 兜底 / 5 值级降级 / 3 方向不适用）', () => {
+  it('基线数字：36 pass + 44 已决策偏差（13 Profile 不支持 / 23 Profile 兜底 / 5 值级降级 / 3 方向不适用）', () => {
     expect(report.totals).to.deep.equal({
-      pass: 33,
-      'deviation/profile-unsupported': 16,
+      pass: 36,
+      'deviation/profile-unsupported': 13,
       'deviation/profile-catches-protocol-loose': 23,
       'deviation/degraded-value-constraint': 5,
       'deviation/scope-client-to-server': 3,

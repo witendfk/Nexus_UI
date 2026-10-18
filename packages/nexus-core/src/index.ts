@@ -73,10 +73,12 @@ export type { RuntimeOptions } from './runtime/index';
 export { compileSafeRegExp } from './checks/index';
 export type { SafeRegExp } from './checks/index';
 export { CatalogRegistry } from './catalog/index';
+export { standardCatalogComponentDeclarations } from './catalog/standard';
 export type {
-  CatalogComponentActionPolicy,
-  CatalogComponentPolicy,
+  CatalogActionDeclaration,
   CatalogChecksPolicy,
+  CatalogComponentActionRequirement,
+  CatalogComponentDeclaration,
   CatalogFieldOrigin,
   CatalogFieldPolicy,
 } from './catalog/schema';
@@ -87,6 +89,7 @@ export {
   validateComponentProps,
   validateComponentPropsDiagnostics,
   validateComponentSchema,
+  validateInputValueSchema,
 } from './catalog/schema';
 export type {
   ComponentPropsSchema,
@@ -95,12 +98,5 @@ export type {
   DynamicBindingPolicy,
   SchemaValueType,
 } from './catalog/schema';
-export type {
-  CatalogActionDeclaration,
-  CatalogComponentActionRequirement,
-  CatalogComponentDeclaration,
-  CatalogDefinitionV2,
-  CatalogFieldPolicyV2,
-} from './catalog/v2';
 export { NEXUS_SESSION_VERSION } from './session/index';
 export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from './session/index';

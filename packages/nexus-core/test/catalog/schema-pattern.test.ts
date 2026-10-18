@@ -34,9 +34,9 @@ describe('catalog schema · pattern 注册闸门', () => {
     );
   });
 
-  it('非法 pattern 注册报错（既有行为保留）', () => {
+  it('非法 pattern 注册报错（口径与有界求值引擎一致）', () => {
     expect(() => validateComponentSchema(schemaWithPattern('['), 'Widget')).to.throw(
-      /必须是合法正则表达式/,
+      /含不受支持的语法，无法求值/,
     );
   });
 

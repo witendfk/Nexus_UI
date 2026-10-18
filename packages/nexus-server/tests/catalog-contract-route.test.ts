@@ -14,18 +14,22 @@ delete process.env.OPENAI_API_KEY;
 
 const catalog: CatalogDefinition = {
   catalogId: 'https://example.com/catalogs/host-contract/v1',
-  components: ['CustomerSummary', 'Text', 'Button'],
-  actions: ['submit'],
-  componentSchemas: {
+  components: {
     CustomerSummary: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['customerName'],
-      properties: {
-        customerName: { type: 'string', minLength: 1, dynamic: 'required' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['customerName'],
+        properties: {
+          customerName: { type: 'string', minLength: 1, dynamic: 'required' },
+        },
       },
+      origin: 'host-extension',
     },
+    Text: { schema: { type: 'object' } },
+    Button: { schema: { type: 'object', additionalProperties: false, properties: {} } },
   },
+  actions: [{ name: 'submit', sources: ['Button'] }],
 };
 
 const app = new Koa();
