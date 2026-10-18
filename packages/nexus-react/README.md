@@ -41,11 +41,20 @@ src/
 ## 使用
 
 ```tsx
+import { CatalogRegistry, standardCatalogComponentDeclarations } from '@nexus-ui/core';
 import { A2UIProvider } from '@nexus-ui/react';
+
+// 宿主可信装配；实际接入使用与服务端同源的 Catalog v2 声明。
+const registry = new CatalogRegistry([{
+  catalogId: 'https://example.com/catalogs/form/v1',
+  components: standardCatalogComponentDeclarations(),
+  actions: [{ name: 'submit', sources: ['Button'] }],
+}]);
 
 function App() {
   return (
     <A2UIProvider
+      catalogRegistry={registry}
       onAction={(event) => {
         // 这里只暴露范式无关事件，不内置 HTTP 或 Agent 逻辑
       }}
@@ -63,7 +72,9 @@ function App() {
 
 `catalogRenderMaps` 可以按 surface 的 `catalogId` 选择组件实现；未匹配的 catalog 会回退到 `renderMap`。服务端必须注册同名 catalog 并约束 Agent 输出，不能只靠前端 renderMap 扩展。
 
-`catalogRegistry` 是可选的宿主边界。传入后，core runtime 会拒绝未注册 catalog、未注册组件和违反 `componentSchemas` 的候选组件；前端渲染器仍只负责把已放行的 VNode 映射为 React 元素。
+`catalogRegistry` 对只读展示可省略；交互输入必须装配与服务端同源的 Catalog v2 声明。传入后，core runtime 会拒绝未注册 catalog、未注册组件和违反组件 `schema` 的候选组件；未传入时全部输入写回返回 `false`。`renderMap` 只决定渲染实现，不授予写回能力。
+
+自定义控件调用 `ctx.setInputValue(componentId, surfaceId, property, value)`；五个标准输入控件上报 `property='value'`。绑定路径和值域由 core 解释，拒绝时返回 `false`。宿主可通过 `useA2UI()` 获取 runtime，再调用 `getLatestInputs(surfaceId)` 读取独立输入快照；React 不组装 action 请求或代替服务端准入。
 
 最小宿主示例见 [`examples/minimal-host.tsx`](examples/minimal-host.tsx)。它演示本地 JSONL 输入、catalog registry、自定义 props schema、自定义 renderMap 和 action 出口；真实宿主只需把示例中的本地 JSONL 替换为 SSE / WebSocket 读取逻辑。
 

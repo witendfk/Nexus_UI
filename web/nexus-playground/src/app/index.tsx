@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { A2UIProvider, useA2UI } from '@nexus-ui/react';
-import type { ActionEvent, A2UIRuntime } from '@nexus-ui/core';
+import type { ActionEvent, A2UIRuntime, CatalogRegistry } from '@nexus-ui/core';
 import { streamSse } from '../lib/sse-client';
 import type { SseEvent } from '../lib/sse-client';
 import { toClientActionMessage } from '../lib/client-action';
 import { TASK_CATALOG_ID, catalogRenderMaps as taskCatalogRenderMaps } from '../catalog/task';
 import { WORKBENCH_CATALOG_ID, workbenchRenderMap } from '../catalog/workbench';
+import { loadPlaygroundCatalogRegistry } from '../catalog/registry';
 
 const BASIC_CATALOG_ID = 'https://example.com/catalogs/nexus-basic-task/v1';
 const CATALOG_OPTIONS = [
@@ -198,9 +199,32 @@ function Controls({ pendingAction, lastAction }: ControlsProps) {
 export function App() {
   const [lastAction, setLastAction] = useState<ActionEvent | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionEvent | null>(null);
+  const [registry, setRegistry] = useState<CatalogRegistry | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadPlaygroundCatalogRegistry(
+      CATALOG_OPTIONS.map(({ id }) => id),
+      controller.signal,
+    )
+      .then((loaded) => {
+        if (!controller.signal.aborted) setRegistry(loaded);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setCatalogError(error instanceof Error ? error.message : String(error));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (catalogError) return <p role="alert">界面配置加载失败：{catalogError}</p>;
+  if (!registry) return <p role="status">正在加载界面配置…</p>;
 
   return (
     <A2UIProvider
+      catalogRegistry={registry}
       catalogRenderMaps={catalogRenderMaps}
       onAction={(event) => {
         const actionWithId = { ...event, actionId: crypto.randomUUID() };

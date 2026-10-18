@@ -11,11 +11,11 @@
 - 扁平组件表到 VNode 的渐进树构建。
 - JSON Pointer 数据模型更新。
 - `{ path }` 动态值和 action context 解析。
-- Basic `TextField` / `CheckBox` / `ChoicePicker` / `DateTimeInput` / `Slider` 的双向输入写回 seam。
+- Catalog `inputs` 声明驱动的输入写回 seam，支持标准控件与自定义绑定属性；最新输入通过 `getLatestInputs` 提取。
 - Basic `Image` / `Video` / `AudioPlayer` 的媒体 URL 结构校验；`url` 和媒体说明支持字符串或 `{ path }` 绑定。
 - Basic `TextField` / `Slider` / `Button` 的最小 A2UI `checks`：支持 `required` / `regex` / `length` / `numeric` / `email`，按当前 dataModel 求值并生成 `VNode.validation`；Button checks 失败会阻断 action。
 - 框架无关 `ActionEvent` 出口。
-- `CatalogRegistry`：登记 `catalogId`、组件名边界、可选 action 白名单和可选的自定义组件 props schema。
+- `CatalogRegistry`：登记 Catalog v2 的组件 schema、可写输入、checks 与 action 声明。
 - `createCatalogPromptContract`：从同一份 `CatalogDefinition` 生成外部 Agent 可选使用的确定性 A2UI 输出提示词；guard 仍是最终放行边界。
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
 - 单条坏消息记录错误并丢弃，不中断后续流。
@@ -38,7 +38,7 @@ src/
   runtime/        A2UIRuntime 编排
 ```
 
-Catalog Registry 不感知 React 或其他渲染器。未提供 schema 的组件仍只有组件名白名单；提供 schema 的组件会在注册时校验 schema 本身，并可在 runtime / server guard 中校验候选组件 props。`actions` 是可选宿主边界，不是 A2UI wire 字段；显式声明后 runtime 会在组件进入状态前校验 action 名称，空数组表示纯展示 catalog，未声明时 core 不强制内置 Basic fallback。
+Catalog Registry 不感知 React 或其他渲染器。Catalog v2 的每个组件必须提供 `schema`，`actions` 必填（纯展示 Catalog 显式传 `[]`）；注册闸门校验声明，runtime / server guard 使用同一套组件规则。可写输入必须在组件 `inputs` 中声明，标准组件名不隐含写回能力。
 
 ## 公开 API
 
@@ -79,26 +79,45 @@ onError: (error) => {
 宿主渲染层在用户输入或点击时只调用框架无关 seam：
 
 ```ts
-runtime.setInputValue(componentId, surfaceId, value);
+runtime.setInputValue(componentId, surfaceId, 'value', value);
+// 自定义控件也使用同一接口，例如 inputs.score → 组件 score: { path: '/rating' }
+runtime.setInputValue(ratingComponentId, surfaceId, 'score', 7);
 runtime.triggerAction(componentId, surfaceId);
+
+// 每次提取返回独立快照，只包含组件 ID、绑定属性与最新合法值；不提交目标路径。
+const inputs = runtime.getLatestInputs(surfaceId);
 ```
 
+输入写回必须装配 `catalogRegistry`，并在当前组件 `inputs` 中声明对应属性及值 schema；属性的目标路径来自组件 `{ path }` 绑定。未装配或声明不符时返回 `false`。成功写回才更新草稿；同组件、同属性只保留最新值。组件类型、绑定路径或 Catalog 声明变化时清除旧草稿，恢复原组件或路径也不会恢复旧值；类型和绑定未变的组件属性更新保留草稿。`deleteSurface` 清理该 surface 的草稿。`getLatestInputs` 的条目和嵌套值均与内部模型、草稿隔离，服务端仍须权威准入（S2.4/S2.5）。
+
 ```ts
-import { CatalogRegistry, createCatalogPromptContract } from '@nexus-ui/core';
+import {
+  CatalogRegistry,
+  createCatalogPromptContract,
+  standardCatalogComponentDeclarations,
+} from '@nexus-ui/core';
 
 const hostCatalog = {
   catalogId: 'https://example.com/catalogs/task/v1',
-  components: ['TaskSummary'],
-  componentSchemas: {
+  components: {
+    ...standardCatalogComponentDeclarations(),
     TaskSummary: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['title'],
-      properties: {
-        title: { type: 'string', dynamic: 'required' },
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title'],
+        properties: { title: { type: 'string', dynamic: 'required' } },
       },
     },
+    RatingInput: {
+      schema: {
+        type: 'object',
+        properties: { score: { type: 'integer', dynamic: 'required' } },
+      },
+      inputs: { score: { type: 'integer', minimum: 0, maximum: 10 } },
+    },
   },
+  actions: [],
 } as const;
 
 const registry = new CatalogRegistry([hostCatalog]);
