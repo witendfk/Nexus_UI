@@ -22,6 +22,8 @@
 
 当前校验分两层：`validateProtocolMessage` 判断官方 A2UI v0.9 结构；`validateNexusProfileMessage` 判断 Profile 是否支持。`validateA2UIMessage` 保留兼容并串联两者。Catalog 能力、宿主策略和组件 schema 在后续边界继续收口。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。通用 FunctionCall、`checks` 组合条件、跨字段校验、Workbench checks 和端到端 `sendDataModel` 均被 Profile 拒绝；Profile 中 `TextField` / `Slider` / `Button` 的 5 个基础校验函数属于当前最小支持范围。
 
+输入寻址与服务端复用 `normalizeJsonPointer` / `getStrictPath` / `setStrictPath`：禁止空串与 `/` 根目标，数组按实际容器拒绝非规范下标，对象字面键不误判成数组。既有协议 `updateDataModel` 根替换语义不变。`parseSurfaceCommit` 校验成功运行的固定提交元数据；`CATALOG_CONTRACT_VERSION` 为 core/server 共享的 Catalog 版本常量。
+
 ## 源码结构
 
 ```text

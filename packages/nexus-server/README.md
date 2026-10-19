@@ -39,6 +39,10 @@ SSE 事件：
 
 未注册 action 在进入 SSE 前返回 400，避免半流失败。每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard；生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`；action 响应只能 `updateComponents` / `updateDataModel`。失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
 
+HTTP action 仅接收 `{ message, nexus }`：message 是 v0.9 action，nexus 必含 sessionVersion/actionId/surfaceRevision/catalogHash/inputs。旧格式显式拒绝；服务端不查询最新快照补基准，也不重建 actionId。成功 `done` data 为该次提交固定的 `NexusSurfaceCommit`，其 runId 与本次 SSE ID 前缀一致，供消费方关联其实际视图。失败或缺 done 的视图不能继续 action。
+
+非 HTTP 的 `AgentRun` 消费者也必须在读取消息源后显式调用 commit（返回固定提交结果），或 onError/dispose；正常 EOF 不释放 action 锁。输入模型先于 handler patch 发布并提交，handler 的同路径归一化值/根替换优先。自定义 `SurfaceActionStateStore` 需实现 revision + epoch 原子比较，commitGeneration/commitAction 返回本次提交的独立快照。
+
 外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
 
 ## 配置

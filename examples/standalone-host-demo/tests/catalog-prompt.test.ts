@@ -14,7 +14,10 @@ describe('standalone demo catalog prompt', () => {
       /Catalog ID: https:\/\/example\.com\/catalogs\/host-approval\/v1/,
     );
     assert.match(DEMO_SYSTEM_PROMPT, /Allowed components: ApprovalSummary, Text, Button\./);
-    assert.match(DEMO_SYSTEM_PROMPT, /Allowed actions: approve \(sources: Button; params=none\)\./);
+    assert.match(
+      DEMO_SYSTEM_PROMPT,
+      /Allowed actions: approve \(sources: Button; params=\{"type":"object","additionalProperties":false,"required":\["approvalId","amount"\],"properties":\{"approvalId":\{"type":"string"\},"amount":\{"type":"string"\}\}\}\)\./,
+    );
     assert.match(DEMO_SYSTEM_PROMPT, /"dynamic": "required"/);
     assert.match(DEMO_SYSTEM_PROMPT, /Component ApprovalSummary:\n/);
     assert.match(DEMO_SYSTEM_PROMPT, /Origin: host-extension/);

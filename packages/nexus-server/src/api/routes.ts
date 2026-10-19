@@ -3,10 +3,11 @@ import Router from '@koa/router';
 import { randomUUID } from 'node:crypto';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { createCatalogPromptContract } from '@nexus-ui/core';
+
 import type { AgentAdapter, AgentPlan } from '../agent/adapter';
 import { InMemoryAgentRunManager } from '../agent/run-manager';
 import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
-import { parseClientActionMessage } from './client-event';
+import { parseNexusActionRequest } from './nexus-request';
 import { isRecord, readJsonBody } from './request';
 import { sendAgentRun } from './send-messages';
 import { SERVER_API_VERSION } from '../version';
@@ -318,18 +319,20 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       return;
     }
 
-    const clientMessage = parseClientActionMessage(body);
-    if (!clientMessage) {
-      invalidRequest(ctx, 'action 消息不符合 A2UI v0.9 契约');
+    const request = parseNexusActionRequest(body);
+    const clientMessage = request?.message;
+    if (!clientMessage || !request) {
+      invalidRequest(ctx, 'action 请求必须提供合法的 { message, nexus } envelope');
       return;
     }
 
     const requestAbort = createRequestAbortSignal(ctx);
     let plan: AgentPlan;
     try {
-      plan = await options.adapter.prepareAction(clientMessage.action, {
-        signal: requestAbort.signal,
-      });
+      plan = await options.adapter.prepareAction(
+        { ...clientMessage.action, ...request.nexus },
+        { signal: requestAbort.signal },
+      );
     } catch (error) {
       requestAbort.dispose();
       throw error;

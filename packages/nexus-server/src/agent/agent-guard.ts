@@ -13,6 +13,7 @@ export interface AgentSequenceOptions {
   registry: CatalogRegistry;
   /** Required catalog-declared action whitelist; no demo fallback actions. */
   supportedActions: readonly string[];
+  initialState?: { components: readonly Component[]; dataModel: unknown };
   message?: string;
   policy?: AgentPolicy;
 }
@@ -154,10 +155,12 @@ export interface AgentStreamValidationIssue {
   readonly diagnostics?: readonly ComponentSchemaDiagnostic[];
 }
 
-export function createAgentStreamState(): AgentStreamState {
+export function createAgentStreamState(sequence?: AgentSequenceOptions): AgentStreamState {
   return {
-    componentsById: new Map(),
-    dataModel: undefined,
+    componentsById: new Map(
+      (sequence?.initialState?.components ?? []).map((c) => [c.id, structuredClone(c)]),
+    ),
+    dataModel: structuredClone(sequence?.initialState?.dataModel),
     hasRoot: false,
     hasBasicMedia: { Image: false, Video: false, AudioPlayer: false },
   };

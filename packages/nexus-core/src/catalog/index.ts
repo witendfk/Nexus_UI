@@ -23,6 +23,9 @@ import {
   type ComponentSchemaNode,
 } from './schema';
 
+/** Version of the published Catalog contract interpreted by this SDK. */
+export const CATALOG_CONTRACT_VERSION = 2 as const;
+
 export interface CatalogDefinition {
   readonly catalogId: string;
   /** 组件名到声明的表；每个发布组件必须携带完整声明，name-only 条目不存在。 */

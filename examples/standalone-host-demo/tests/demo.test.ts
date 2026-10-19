@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, it } from 'node:test';
@@ -65,16 +66,21 @@ describe('standalone host demo', () => {
     const actionResponse = await fetch(`${hostBaseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: DEMO_AGENT_ACTION,
-          surfaceId,
-          sourceComponentId: 'approve',
-          timestamp: new Date().toISOString(),
-          context: { approvalId: 'approval-demo-001', amount: 'USD 12,000' },
-        },
-      }),
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: DEMO_AGENT_ACTION,
+              surfaceId,
+              sourceComponentId: 'approve',
+              timestamp: new Date().toISOString(),
+              context: { approvalId: 'approval-demo-001', amount: 'USD 12,000' },
+            },
+          },
+          generated,
+        ),
+      ),
     });
     const actionText = await actionResponse.text();
     assert.equal(actionResponse.status, 200);
@@ -83,3 +89,24 @@ describe('standalone host demo', () => {
     assert.match(actionText, /event: done/);
   });
 });
+
+function actionEnvelope(message: unknown, output: string) {
+  const frame = output.split('\n\n').find((part) => part.includes('event: done\n'));
+  assert(frame, 'successful stream must publish its own fixed commit');
+  const commit = JSON.parse(
+    frame
+      .split('\n')
+      .find((line) => line.startsWith('data: '))!
+      .slice(6),
+  );
+  return {
+    message,
+    nexus: {
+      sessionVersion: commit.sessionVersion,
+      actionId: randomUUID(),
+      surfaceRevision: commit.surfaceRevision,
+      catalogHash: commit.catalogHash,
+      inputs: [],
+    },
+  };
+}

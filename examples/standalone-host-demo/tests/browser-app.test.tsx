@@ -195,7 +195,9 @@ function toSseResponse(messages: unknown[]): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(
-        encoder.encode(`${output}event: done\nid: ${surfaceId}:done\ndata: {}\n\n`),
+        encoder.encode(
+          `${output}event: done\nid: ${surfaceId}:done\ndata: ${JSON.stringify({ sessionVersion: 1, runId: surfaceId, surfaceId, catalogId: DEMO_AGENT_CATALOG_ID, contractVersion: 2, catalogHash: `sha256:${'0'.repeat(64)}`, surfaceRevision: 1 })}\n\n`,
+        ),
       );
       controller.close();
     },
@@ -303,10 +305,13 @@ describe('standalone host browser app', () => {
     expect(surfaceAfter).to.equal(surfaceBefore);
 
     const actionBody = JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body)) as {
-      action?: { name?: string; surfaceId?: string };
+      message: { action?: { name?: string; surfaceId?: string; actionId?: string } };
+      nexus: { actionId: string; surfaceRevision: number };
     };
-    expect(actionBody.action?.name).to.equal(DEMO_AGENT_ACTION);
-    expect(actionBody.action?.surfaceId).to.equal(surfaceId);
+    expect(actionBody.message.action?.name).to.equal(DEMO_AGENT_ACTION);
+    expect(actionBody.message.action?.surfaceId).to.equal(surfaceId);
+    expect(actionBody.nexus.actionId).to.equal(actionBody.message.action?.actionId);
+    expect(actionBody.nexus.surfaceRevision).to.equal(1);
 
     fireEvent.click(screen.getByRole('button', { name: '查看 Agent Onboarding' }));
     await waitFor(() => {

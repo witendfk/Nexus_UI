@@ -41,7 +41,17 @@ const catalog: CatalogDefinition = {
     },
     Text: { schema: { type: 'object' } },
   },
-  actions: [{ name: 'submit', sources: ['Button'] }],
+  actions: [
+    {
+      name: 'submit',
+      sources: ['Button'],
+      paramSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { title: { type: 'string' } },
+      },
+    },
+  ],
 };
 
 const catalogContractPayload = {

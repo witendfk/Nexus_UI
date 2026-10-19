@@ -1,7 +1,13 @@
 import type Koa from 'koa';
+import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'stream';
 import type { A2UIErrorCode, A2UIMessage, CatalogDefinition, Component } from '@nexus-ui/core';
-import { CatalogRegistry, applyDataModelUpdate, resolveContext } from '@nexus-ui/core';
+import {
+  NEXUS_SESSION_VERSION,
+  CatalogRegistry,
+  applyDataModelUpdate,
+  resolveContext,
+} from '@nexus-ui/core';
 import type { AgentPolicy } from './policy';
 import { InMemoryAgentRunManager } from './run-manager';
 import { AgentAdapter } from './adapter';
@@ -301,12 +307,19 @@ export async function verifyExternalAgentIntegration(
     selectedAction.name,
     createExternalAgentActionHandler(options),
   );
+  // 验收流程在生成提交后发起 action：元数据取自快照固定契约（fresh surface revision 1）
+  const contractView = await generationAdapter.describeSurfaceContract(surfaceId);
+  if (!contractView) throw new Error('action 验收准备失败: surface 快照不存在');
   const actionPlan = await generationAdapter.prepareAction({
     name: selectedAction.name,
     surfaceId,
     sourceComponentId: selectedAction.component.id,
     timestamp: new Date().toISOString(),
     context: actionContext,
+    actionId: `verification-${randomUUID()}`,
+    sessionVersion: NEXUS_SESSION_VERSION,
+    surfaceRevision: contractView.surfaceRevision,
+    catalogHash: contractView.catalogHash,
   });
   if (!actionPlan.ok) throw new Error(`action 验收准备失败: ${actionPlan.message}`);
 

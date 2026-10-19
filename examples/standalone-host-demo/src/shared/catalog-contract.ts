@@ -30,5 +30,21 @@ export const standaloneHostCatalog: CatalogDefinition = {
       origin: 'host-extension',
     },
   },
-  actions: [{ name: DEMO_AGENT_ACTION, sources: ['Button'] }],
+  actions: [
+    {
+      name: DEMO_AGENT_ACTION,
+      sources: ['Button'],
+      // S2.4 参数准入：服务端从已提交声明重算并按 paramSchema 校验，
+      // 缺省即参数必须为空对象——demo 的审批参数在此显式声明。
+      paramSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['approvalId', 'amount'],
+        properties: {
+          approvalId: { type: 'string' },
+          amount: { type: 'string' },
+        },
+      },
+    },
+  ],
 };

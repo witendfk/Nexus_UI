@@ -7,6 +7,8 @@
  * 流事件与 S2 的 action 请求复用同一版本基线。
  */
 
+import { CATALOG_CONTRACT_VERSION } from '../catalog';
+
 /** Nexus Session 传输元数据版本；随 Session 契约破坏性变化提升，不做静默兼容。 */
 export const NEXUS_SESSION_VERSION = 1 as const;
 
@@ -48,4 +50,23 @@ export interface NexusActionMetadata {
   readonly catalogHash: string;
   /** 本批最新合法输入；数组顺序不携带语义，服务端整批校验后一次性应用。 */
   readonly inputs: readonly NexusActionInput[];
+}
+
+/** Runtime validation for the fixed successful commit carried by a run's done event. */
+export function parseSurfaceCommit(value: unknown): NexusSurfaceCommit | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const c = value as Record<string, unknown>;
+  if (
+    c.sessionVersion !== NEXUS_SESSION_VERSION ||
+    c.contractVersion !== CATALOG_CONTRACT_VERSION ||
+    !Number.isSafeInteger(c.surfaceRevision) ||
+    (c.surfaceRevision as number) <= 0 ||
+    !['runId', 'surfaceId', 'catalogId'].every(
+      (key) => typeof c[key] === 'string' && c[key] !== '',
+    ) ||
+    typeof c.catalogHash !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(c.catalogHash)
+  )
+    return null;
+  return c as unknown as NexusSurfaceCommit;
 }

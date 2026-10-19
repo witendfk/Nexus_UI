@@ -18,7 +18,7 @@ export interface SendMessagesResult {
   ok: boolean;
 }
 
-type BeforeDone = (messages: unknown[]) => void | Promise<void>;
+type BeforeDone = (messages: unknown[]) => unknown | Promise<unknown>;
 
 export interface SendMessagesOptions {
   signal?: AbortSignal;
@@ -95,7 +95,7 @@ async function pumpMessages(
   try {
     let index = 0;
     let hasRoot = sequence.kind === 'action';
-    const streamState = createAgentStreamState();
+    const streamState = createAgentStreamState(sequence);
     for await (const candidate of messages) {
       if (options.signal?.aborted) throw new Error('客户端断开，Agent 流已取消');
       const protocolResult = validateProtocolMessage(candidate);
@@ -147,8 +147,8 @@ async function pumpMessages(
         finalIssue.boundaryCode,
       );
     }
-    await beforeDone(sent);
-    stream.write(formatSseEvent('done', {}, `${idPrefix}:done`));
+    const commit = await beforeDone(sent);
+    stream.write(formatSseEvent('done', commit ?? {}, `${idPrefix}:done`));
   } catch (error) {
     const streamError = error as AgentStreamError;
     const diagnostics = streamError.diagnostics;
@@ -215,7 +215,6 @@ export function sendAgentRun(
   const manager = options.manager;
   // Claim the run before anything consumes it: the per-surface lock from
   // prepareAction must only release after this queue settles commit/onError.
-  run.streamClaimed = true;
   // Claim the response before enqueueing: a run waiting behind a same-surface
   // predecessor must already own its response, or Koa answers 404 while the
   // queued run still streams and commits.
@@ -247,7 +246,10 @@ export function sendAgentRun(
         run.source,
         idPrefix,
         run.sequence,
-        (messages) => run.commit(messages),
+        async (messages) => {
+          const result = await run.commit(messages);
+          return result ? { ...result, runId: idPrefix } : undefined;
+        },
         {
           signal: controller.signal,
           ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),

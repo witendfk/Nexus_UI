@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, describe, it } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { NEXUS_BASIC_TASK_CATALOG, TASK_CATALOG } from '../src/agent/catalog';
+
+function actionEnvelope(message: unknown, output: string) {
+  const frame = output.split('\n\n').find((part) => part.includes('event: done\n'));
+  assert(frame, 'successful stream must publish its own fixed commit');
+  const commit = JSON.parse(
+    frame
+      .split('\n')
+      .find((line) => line.startsWith('data: '))!
+      .slice(6),
+  );
+  return {
+    message,
+    nexus: {
+      sessionVersion: commit.sessionVersion,
+      actionId: randomUUID(),
+      surfaceRevision: commit.surfaceRevision,
+      catalogHash: commit.catalogHash,
+      inputs: [],
+    },
+  };
+}
 
 process.env.NODE_ENV = 'test';
 delete process.env.OPENAI_API_KEY;
@@ -69,16 +91,21 @@ describe('Agent line routes', () => {
     const response = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'call',
-          surfaceId,
-          sourceComponentId: 'callBtn',
-          timestamp: new Date().toISOString(),
-          context: {},
-        },
-      }),
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: 'call',
+              surfaceId,
+              sourceComponentId: 'callBtn',
+              timestamp: new Date().toISOString(),
+              context: {},
+            },
+          },
+          generated,
+        ),
+      ),
     });
     const text = await response.text();
 
@@ -108,16 +135,21 @@ describe('Agent line routes', () => {
     const startResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'start',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: 'start',
+              surfaceId,
+              sourceComponentId: 'button',
+              timestamp: new Date().toISOString(),
+              context: { taskId: 'task-001' },
+            },
+          },
+          generated,
+        ),
+      ),
     });
     const startText = await startResponse.text();
 
@@ -132,16 +164,21 @@ describe('Agent line routes', () => {
     const completeResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'complete',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: 'complete',
+              surfaceId,
+              sourceComponentId: 'button',
+              timestamp: new Date().toISOString(),
+              context: { taskId: 'task-001' },
+            },
+          },
+          startText,
+        ),
+      ),
     });
     const completeText = await completeResponse.text();
 
@@ -153,16 +190,21 @@ describe('Agent line routes', () => {
     const duplicateResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'complete',
-          surfaceId,
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: { taskId: 'task-001' },
-        },
-      }),
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: 'complete',
+              surfaceId,
+              sourceComponentId: 'button',
+              timestamp: new Date().toISOString(),
+              context: { taskId: 'task-001' },
+            },
+          },
+          completeText,
+        ),
+      ),
     });
 
     assert.equal(duplicateResponse.status, 400);
@@ -174,13 +216,22 @@ describe('Agent line routes', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: 'missing',
-          surfaceId: 'surface-missing-handler',
-          sourceComponentId: 'button',
-          timestamp: new Date().toISOString(),
-          context: {},
+        message: {
+          version: 'v0.9',
+          action: {
+            name: 'missing',
+            surfaceId: 'surface-missing-handler',
+            sourceComponentId: 'button',
+            timestamp: new Date().toISOString(),
+            context: {},
+          },
+        },
+        nexus: {
+          sessionVersion: 1,
+          actionId: randomUUID(),
+          surfaceRevision: 1,
+          catalogHash: `sha256:${'0'.repeat(64)}`,
+          inputs: [],
         },
       }),
     });

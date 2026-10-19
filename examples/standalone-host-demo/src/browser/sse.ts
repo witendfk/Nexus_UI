@@ -1,12 +1,14 @@
 export interface SseEvent {
   event: string;
   data: string;
+  id?: string;
 }
 
 const FRAME_BOUNDARY = /\r\n\r\n|\n\n|\r\r/;
 
 function parseSseFrame(frame: string): SseEvent | null {
   let eventName = 'message';
+  let id: string | undefined;
   const data: string[] = [];
   for (const rawLine of frame.split(/\r\n|\n|\r/)) {
     if (!rawLine || rawLine.startsWith(':')) continue;
@@ -17,8 +19,11 @@ function parseSseFrame(frame: string): SseEvent | null {
     if (value.startsWith(' ')) value = value.slice(1);
     if (field === 'event') eventName = value || 'message';
     if (field === 'data') data.push(value);
+    if (field === 'id' && !value.includes('\0')) id = value;
   }
-  return data.length === 0 ? null : { event: eventName, data: data.join('\n') };
+  return data.length === 0
+    ? null
+    : { event: eventName, data: data.join('\n'), ...(id === undefined ? {} : { id }) };
 }
 
 export async function streamSse({

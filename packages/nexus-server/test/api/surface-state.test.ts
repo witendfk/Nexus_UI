@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { validateNexusProfileMessage, validateProtocolMessage } from '@nexus-ui/core';
 import type { SurfaceStateBaseline } from '../../src/api/surface-state';
+import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { InMemorySurfaceActionStateStore } from '../../src/agent/surface-action-state';
+import type { SurfaceActionContract } from '../../src/agent/surface-action-state';
 import type { SurfaceActionSnapshot } from '../../src/agent/surface-action-state';
 
 const fixtureRoot = new URL('../../../../fixtures/catalog-v2/', import.meta.url);
@@ -48,9 +50,25 @@ for (const filename of [
         assert.equal(validateNexusProfileMessage(message), null);
       }
       if (run.kind === 'generate') {
-        await store.commitGeneration(create.surfaceId, create.catalogId, messages);
+        // 契约与声明副本按引用 Catalog 夹具实算固定（hash 与 catalog 一体）：
+        // baseline 夹具的 initial.catalog 是 catalog 夹具 id，定义在该夹具文件内
+        const catalogFixtureId = (initial as { catalog: string }).catalog;
+        const catalogFixture = JSON.parse(
+          readFileSync(new URL(`catalog-accept-${catalogFixtureId}.json`, fixtureRoot), 'utf8'),
+        ) as { catalog: SurfaceActionContract['catalog'] };
+        const contract: SurfaceActionContract = {
+          catalogHash: createCatalogContractHash(catalogFixture.catalog),
+          contractVersion: 2,
+          catalog: catalogFixture.catalog,
+        };
+        await store.commitGeneration(create.surfaceId, create.catalogId, messages, contract);
       } else {
-        await store.commitAction(messages);
+        const current = await store.get(fixture.query.surfaceId);
+        assert(current, 'commit 前必须有已提交快照');
+        await store.commitAction(messages, {
+          expectedEpoch: current.epoch,
+          expectedRevision: current.version,
+        });
       }
       const snapshot = await store.get(fixture.query.surfaceId);
       assert(snapshot);

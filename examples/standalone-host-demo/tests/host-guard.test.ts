@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { PassThrough } from 'node:stream';
@@ -257,10 +258,16 @@ describe('standalone host example', () => {
 
     const actionEvent = actionEvents[0];
     assert.ok(actionEvent);
+    const contractView = await adapter.describeSurfaceContract(actionEvent.surfaceId);
+    assert.ok(contractView);
     const action = await adapter.prepareAction({
       ...actionEvent,
       sourceComponentId: actionEvent.sourceComponentId,
       timestamp: new Date().toISOString(),
+      actionId: 'host-guard-action-001',
+      sessionVersion: 1,
+      surfaceRevision: contractView.surfaceRevision,
+      catalogHash: contractView.catalogHash,
     });
     assert.ok(action.ok);
     const actionTransport = createSseContext();
@@ -430,19 +437,24 @@ describe('standalone host example', () => {
     const actionResponse = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        version: 'v0.9',
-        action: {
-          name: STANDALONE_HOST_ACTION,
-          surfaceId,
-          sourceComponentId: 'submit',
-          timestamp: new Date().toISOString(),
-          context: {
-            approvalId: 'approval-001',
-            amount: 'USD 12,000',
+      body: JSON.stringify(
+        actionEnvelope(
+          {
+            version: 'v0.9',
+            action: {
+              name: STANDALONE_HOST_ACTION,
+              surfaceId,
+              sourceComponentId: 'submit',
+              timestamp: new Date().toISOString(),
+              context: {
+                approvalId: 'approval-001',
+                amount: 'USD 12,000',
+              },
+            },
           },
-        },
-      }),
+          generationText,
+        ),
+      ),
     });
     const actionText = await actionResponse.text();
 
@@ -459,3 +471,24 @@ describe('standalone host example', () => {
     assert.match(requests[1]?.history?.[0]?.content ?? '', /创建独立宿主审批任务面/);
   });
 });
+
+function actionEnvelope(message: unknown, output: string) {
+  const frame = output.split('\n\n').find((part) => part.includes('event: done\n'));
+  assert(frame, 'successful stream must publish its own fixed commit');
+  const commit = JSON.parse(
+    frame
+      .split('\n')
+      .find((line) => line.startsWith('data: '))!
+      .slice(6),
+  );
+  return {
+    message,
+    nexus: {
+      sessionVersion: commit.sessionVersion,
+      actionId: randomUUID(),
+      surfaceRevision: commit.surfaceRevision,
+      catalogHash: commit.catalogHash,
+      inputs: [],
+    },
+  };
+}

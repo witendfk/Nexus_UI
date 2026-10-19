@@ -1,6 +1,6 @@
 # CURRENT — 唯一任务与进度源
 
-更新：2026-10-18。产品判据见 [PRD](../PRD.md)，契约见 [SPEC](../SPEC.md)，结构与取舍见 [ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件维护唯一实施计划，不以目标设计替代交付证据。
+更新：2026-10-19。产品判据见 [PRD](../PRD.md)，契约见 [SPEC](../SPEC.md)，结构与取舍见 [ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件维护唯一实施计划，不以目标设计替代交付证据。
 
 ## 当前结论
 
@@ -8,7 +8,7 @@
 
 当前只有 core/react/server 三包；目标新增 client。S1 已完成：core 安全反例（保留段、媒体 URL scheme、schema.pattern）先证伪后修复；Adapter/guard 显式装配（registry 必填、policy 无默认、LLM 生成源与 catalogId 必填，缺失即报错）；runs 查询宿主 `runsAccess` 准入（未配置一律 403）；参考服务与演示 Catalog/LLM/Policy 迁至 `examples/playground-server/`，只消费公开 SDK 入口。S3/S4 尚未实施（模块级 per-surface 队列按 S3 计划收编，client 待 S4 新建）。验证宿主与 Agent 尚未选定，不能将已有 demo 或 `examples/agent-demo/` 占位视为已选接入工程。SDK 通过可替换的确定性夹具和仓外契约验收验证，不评审接入方应用内部工程，也不等待其重建。
 
-**当前任务：S2 Catalog v2、输入与 action，S2.1 契约锁定、S2.2 共享解释器及评审修复与 S2.3 本地写回/输入收集及四项评审修复已完成，下一步为 S2.4。** S1 及独立评审修复（`b44b639`）、S2.1 契约锁定（`6c93780`）与 S2.2 共享解释器（`71ab59a`）已提交并推送。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；路由、结果留存与浏览器接线由 S2.5 实施，完整 Session/SSE 生命周期仍由 S3/S4 完成。
+**当前任务：S2 Catalog v2、输入与 action，S2.1–S2.4 已完成，下一步为 S2.5 请求与发布接线。** S1 及独立评审修复（`b44b639`）、S2.1 契约锁定（`6c93780`）、S2.2 共享解释器（`71ab59a`）、S2.3 本地写回（`35778e2`）及其 playground 收尾（`734430c`）已提交并推送。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；最小 HTTP envelope、成功 done 固定结果与两个浏览器门控已随 S2.4 复审修复提前接通；结果留存/按 run 查询、响应头、verifier/RPC 与完整发布核对仍由 S2.5 实施，完整 Session/SSE 生命周期仍由 S3/S4 完成。
 
 补充决定（2026-10-16）：DESIGN D12 / SPEC §8.2 明确保留分包、以层内高层 API 简化接入，暂不新增总门面包。S3/S4 完善 server/session/视图组合，S5 验证公开入口环境隔离与跨包兼容；本次仅补充文档，不改变代码阶段状态。
 
@@ -18,7 +18,7 @@
 | ------------------------ | -------------------- | ------------------------------------------------------------------------ |
 | S0 文档与评审范围基线    | 已完成（文档/skill） | PRD/SPEC/ARCHITECTURE/DESIGN、README、本计划与 SDK review skill 对齐     |
 | S1 安全基线与业务中立    | 已完成（验收通过）   | 安全反例证伪修复；显式装配；参考程序迁出 playground-server；早期产物检查 |
-| S2 Catalog v2 与交互扩展 | S2.1–S2.3 已完成    | 声明式展示/输入/action；共享准入、本地写回与最新输入                      |
+| S2 Catalog v2 与交互扩展 | S2.1–S2.4 已完成    | 声明式展示/输入/action；共享准入、本地写回、服务端权威准入               |
 | S3 通用 server runtime   | 待实施，依赖 S2      | 单一调度、Session v1 与提交语义；Koa/RPC 薄适配                          |
 | S4 client 与可嵌入 React | 待实施，依赖 S2/S3   | 新 client、Provider/Surface、两个浏览器消费方迁移                        |
 | S5 独立契约验收与发行    | 待实施，依赖 S1–S4   | 当前产物仓外安装、公开 API/兼容、浏览器和 CI 门禁                        |
@@ -42,8 +42,8 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 
 - S2.3 已将 `core/runtime.setInputValue` 改为按组件 + 绑定属性写回，值域由 Catalog `inputs` 声明决定（无名字分支，未注入 registry 即拒绝）；最新输入草稿经 `getLatestInputs` 提取，S4 client 由此读取。
 - S2.2 已将 checks/action 能力准入交由当前 Catalog；Profile 保留结构、标准字段与安全基线，checks FunctionCall 豁免限定到组件 condition。`catalog/schema` 解释受限 schema 与能力声明，注册闸门拒绝非法/未知配置。
-- server 默认 `resolveDeclaredActionContext` 只读取已提交模型，看不到浏览器本地编辑；自定义 `resolveActionContext` 目前接管整个参数解析并能跳过未声明字段检查。
-- Catalog Contract 当前 v2；surface 快照已有内部 `version`，但未固定完整 Catalog version/hash；HTTP action 只解析 v0.9 action，两个浏览器消费方自行封装请求。
+- S2.4 已移除 `resolveDeclaredActionContext`：共享准入先重算参数，resolver 后置且输出仍受未声明键与 paramSchema 约束；浏览器本地编辑经 nexus inputs 到达临时模型。
+- Catalog Contract 当前 v2；surface 固定 Catalog version/hash/声明副本；HTTP 已解析版本化 envelope 并透传客户端原始基准，成功 done 返回本次固定提交结果；两个参考浏览器已迁移最小门控。
 - S2 不改变“协议到 VNode 在 core，React 仅做映射”的职责。以确定性契约 fixture 验证，宿主 Agent 未定不阻塞。S1 的安全限制、预算、公开入口与产物检查继续回归。
 
 ### 子任务与顺序
@@ -83,11 +83,42 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 
 #### S2.4 — 服务端权威准入
 
-1. 在现有 surface 锁内读取快照，核对 action 来源、Catalog version/hash 与 surfaceRevision；可编辑白名单从可信装配取得。快照固定的契约不能随 registry 原地变更悄悄漂移。
-2. 整批验证组件/绑定属性/值，再从已提交声明读取目标路径，构造临时输入模型。拒绝任意客户端路径、额外字段、重复/冲突输入和 schema 不符；中途失败不得留下局部写入。
-3. 用临时模型解析服务端持有的 action.event 声明，校验 action 参数 schema 和来源能力，再交给 handler。客户端 context 不能覆盖只读参数或业务事实。
-4. 调整 resolver 扩展点：共享准入必须先执行，扩展后的参数仍需校验，resolver 不得把被拒输入重新变为可执行 action。业务身份/对象归属/事务仍由宿主 handler 判断。
-5. 明确临时输入与已提交 UI 状态的边界：不能在准入时就发布输入或递增 revision；沿用现有 patch 提交路径。本任务不重构 failed ledger 重入、双锁与模块队列，这些属于 S3。
+**分析基线（2026-10-18）**：S2.3 与收尾修复已在本地提交（`35778e2`、`734430c`）；本节只拆分任务，不表示 S2.4 已实施。
+
+源码核实的缺口：
+
+- `server/agent/adapter.prepareAction` 已在实例内 surface 锁下读快照，但默认 resolver 只看旧模型；自定义 resolver 接管参数解析，额外客户端字段检查只在默认分支执行，尚无 inputs、白名单、revision/hash 和 paramSchema 准入。
+- `surface-action-state` 快照只有 `catalogId/version/components/dataModel`；读取只浅拷贝 Map，组件和模型共享引用；生成每次从 version 1 开始，删除后也未保留区分旧基准的信息。
+- `core/dataModel` 旧 helper 容忍相对路径，把 `/` 当根，数组寻址使用 `Number(segment)`；精确白名单和路径冲突不能先按严格指针判定，再交给这套宽松语义写入。
+- `api/client-event` 与 HTTP 路由仍只传 v0.9 action，`NexusActionRequest` 仅有类型；当前 store 提交只应用 handler 返回的消息，尚无临时输入与 patch 的组合提交。
+
+按下列切片推进；表中位置为包内模块，新增测试在相应包 `test/` 下镜像 `src/`。
+
+| ID | 交付 | 主要位置 | 依赖 | 完成判据 |
+| --- | --- | --- | --- | --- |
+| S2.4.1 | 严格路径与共享字面值校验 | core/dataModel、catalog/schema | S2.2/S2.3 | 白名单、冲突比较、绑定读取与实际写入使用一致的路径段语义；输入/参数复用 schema 解释器，不复制组件规则 |
+| S2.4.2 | 固定契约与隔离快照 | server/agent/surface-action-state、catalog-contract | 无 | 快照固定 Catalog 声明副本及 contractVersion/hash；组件/模型/读取结果无可变别名；同 surface 再生成、删除重建的 revision 不与旧基准碰撞 |
+| S2.4.3 | 宿主可编辑范围装配 | server 可信运行配置与路径规则 | S2.4.1 | 按 surface 提供精确白名单；缺省为空，非法/规范化重复配置显式失败；请求和模型不能扩权 |
+| S2.4.4 | 整批输入与来源准入 | core 纯输入规则、server/agent/action-admission（拟新增） | S2.4.1–3 | 核对请求结构、session/revision/hash、action 来源与声明；整批 inputs 校验后构造隔离临时模型；任一项失败不产生局部状态 |
+| S2.4.5 | 参数重算与 resolver 后置 | core 字面值规则、server/agent 参数解析 | S2.4.4 | 从服务端 action 声明及临时模型重算；客户端值不覆盖参数；resolver 之前执行共享准入，之后再次检查参数字段/schema |
+| S2.4.6 | 准入与 UI 提交组合 | server/agent 状态、准入/提交组合原语 | S2.4.2/5 | 锁内读基准；合法输入与 handler patch 经 guard 后一次提交；准入/流失败不发布输入或递增 revision；并发提交不能覆盖新状态 |
+| S2.4.7 | 证伪矩阵与切片复核 | core/server test、共享 fixture、公开 API、文档 | 各切片持续补测试，最终依赖 S2.4.1–6 | 共享请求 fixture 与拒绝不变式通过；真实状态存储/提交路径反例、门禁与 SDK review 完成，明确尚未接线的入口 |
+
+**S2.4.1：先解决实际寻址一致性。** 按 SPEC §4.3 固定严格绝对 JSON Pointer：空串根指针、非法 `~` 转义、保留段拒绝；对象键与数组索引按容器分别处理，数组不得通过 `01`、`+1` 等别名绕过冲突或权限判断。`/` 在 RFC 6901 中表示空键，不能被写入 helper 当成整表替换；实现须区分输入寻址与既有 `updateDataModel` 根替换约定，统一底层段解析并对原有协议语义、转义和 conformance 做回归。参数按完整字面对象校验，不能借组件 props helper 丢弃 `id/component/children/action` 等键后再判定合法。
+
+**S2.4.2–3：可信事实由宿主提供。** Catalog hash 不从客户端或查询时的最新 registry 补齐；快照持有实际提交使用的声明和固定版本/hash，后续 registry 变动不得悄悄改变既有 surface 的准入语义。白名单允许配置 `/profile` 与 `/profile/name`，授权只精确匹配，不按前缀继承；同批输入是否冲突另行判断。未配置可编辑路径时，`inputs=[]` 的合法 action 仍可执行；非空输入默认拒绝。常量配置在初始化校验，按 surface 动态取得的配置在调用边界校验。
+
+**S2.4.4：先验证整批，再构造临时模型。** 输入项只接受 `{ componentId, property, value }`，目标从快照组件的 `{ path }` 绑定解析；复用 Catalog `inputs`、值 schema 与自有属性规则。拒绝未知/只读字段、伪造路径、缺失绑定、schema 不符、危险路径、同组件同属性重复、同目标路径和按段比较的祖先/后代冲突，两种输入顺序结论一致。未变化输入幂等合法。纯规则结果带稳定的拒绝类别和诊断，不绑定 HTTP 状态；结构解析与 S2.5 HTTP 入口复用同一实现，不另建一套请求解释器。
+
+**S2.4.5：扩展点不能替换准入。** 查找快照中的 action.event，再核对固定 Catalog 的 action/sources。客户端 context 只允许服务端 action 声明的字段，值仅作非权威上下文；参数从临时模型重算。resolver 只接收隔离的已准入输入/参数，不能修改权威快照或绕过失败；输出必须是 JSON 对象，并执行声明字段与 `paramSchema` 校验，缺省 paramSchema 只接受空对象。参数不满足时不能调用 handler；不得把流式绑定的 pending 宽容语义用于必需的 action 参数。身份、业务对象归属和事务仍由宿主判断。
+
+**S2.4.6：准入成功不等于状态已提交。** 临时输入只用于参数重算及本次待提交 UI，handler 调用前不修改快照。成功提交需包含已准入输入，partial patch 无需回显输入；同路径归一化或根替换以 handler 为准；输入更新与 patch 使用同一 guard/最终模型语义，不做两次提交或重复递增 revision。前置准入拒绝保证 resolver/handler 未调用；resolver 结果拒绝保证 handler 未调用；两者都保证快照/revision 不变。handler 已执行后若 patch/传输失败，只能说明 UI 未确认提交，不能宣称宿主副作用被回滚。
+
+并发验证须使用真实写入交错：两个 action 竞争旧 revision、排队期间状态改变、同 ID generation 提交与 action 相交、删除重建及版本上溢。现有 action 锁并未覆盖 generation 提交，不能据其存在宣称全部写入已隔离；S2.4 最小补齐同 surface 写入临界区与提交时基准核对，S3 再统一运行调度所有权。failed ledger 重入策略、模块队列、全套取消/背压/并发预算重构仍归 S3。
+
+**S2.4.7：验收分层且可证伪。** 消费 `fixtures/catalog-v2/` 正常/非法请求，hash 占位符按真实 Catalog 实算；先验证 fixture 前置消息合法，再对照预期拒绝类别。补白名单缺省/非法配置、转义/空键/数组别名、未配置 paramSchema、恶意 resolver、调用参数别名、失败后快照不变、并发与重建等反例。覆盖两个无关 Catalog、自定义非 `value` 输入及非 Button action；共享规则在 core/server 对同一数据给出一致结论。baseline 两种查询时序只在本阶段验证旧 revision 会被准入内核拒绝，实际查询响应及浏览器关联验收仍归 S2.5。
+
+**与 S2.5 的接线边界（2026-10-19 修订）。** 为封堵可达 HTTP 旁路，S2.4 复审修复已提前切换公开 prepareAction 与 HTTP envelope、成功 done 固定结果及两个参考浏览器的最小门控；默认 HTTP 与非 HTTP 均经权威准入。S2.5 继续完成有界 run 结果留存/查询、响应头、verifier/RPC 元数据贯通与完整发布核对，补齐查询缺失/淘汰等反例；S2.6 完整双 Catalog 场景和迁移说明、S3/S4 完整会话/预览隔离保持原计划。
 
 #### S2.5 — 请求与发布接线
 
@@ -217,6 +248,42 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 - 门禁（Node v24.16.0）：根 `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test` 均退出 0；测试 core 224 / React 50 / server 101 / playground-server 73 / playground 9 / standalone 21 + jsdom 1，与 S1 基线一致（本轮无运行行为变化）。core public-api 导出清单测试同步新增 `NEXUS_SESSION_VERSION`。三包 dist 根入口原生 ESM 加载实测通过。
 - 格式与扫描：变更 TS/JSON/Markdown 定向 Prettier 检查通过（SPEC/CURRENT 表格经 --write 修整）；五份文档本地链接 21 个全部存在；`git diff --check` 通过；新增文件与改动段落旧业务词扫描零新增残留。
 - 未执行：仓外安装、真实浏览器、远端 CI、conformance 重跑（无运行代码与协议校验行为变化，S2.2 改动解释器时重跑）。
+
+## S2.4 实施验证（2026-10-19）
+
+范围为 S2.4 服务端权威输入与 action 参数准入：server 新增 `agent/action-admission.ts` 共享编排（可编辑白名单规范化、严格/兼容双入口、整批输入校验、临时模型参数重算）、`AgentAdapter.prepareAction` 准入接线与 resolver 后置、`SurfaceActionSnapshot` 提交边界固定 Catalog hash/contractVersion、core 公开导出 `isUnsafeDataPath`。实际提交哈希只在提交成功后回填。
+
+- 准入顺序（surface 锁内）：客户端 context 未声明键拒绝 → nexus 核对（严格入口缺失 `nexus` 即按旧格式拒绝；兼容入口逐字段核对已提供的 sessionVersion/actionId/surfaceRevision/catalogHash）→ action 来源能力（`actions.sources`）→ 整批输入校验（组件与 `inputs` 声明、白名单精确匹配、`{ path }` 绑定与保留段、值 schema、重复/同路径/祖先-后代冲突）→ 临时模型重算参数。`paramSchema` 校验作用于最终交给 handler 的参数（默认=重算值，resolver=其输出），共享准入不提前否决 resolver 整形；resolver 输出仍受未声明键与参数 schema 约束。拒绝满足不变式：handler 未调用、快照与 revision 不变、ledger 失败记录可重试；临时模型不发布输入、不递增 revision，提交沿既有 patch 路径。
+- 共享 oracle 对测：`fixtures/catalog-v2/` 全部 12 份请求夹具经真实 `InMemorySurfaceActionStateStore` + 严格准入入口对测一致（accept/reject 各按 fixture `expect`）。
+- 证伪：新准入规则使既有消费方测试 6 处 server + 5 处 standalone 先失败（resolver 透传客户端 context、paramSchema 缺省-空对象、无 paramSchema 演示 Catalog），随契约成组迁移后全绿；新增准入单元 18 项与 adapter 不变式 4 项针对已实现模块编写（含白名单转义归一防碰撞反例：`/a~1b` 与 `/a/b` 不冲突）。新增测试未先红，以既有用例的语义红承担证伪。
+- 消费方成组迁移：standalone 演示 Catalog 补 paramSchema（approvalId/amount）；playground-server 演示 Catalog 的 Workbench priority 修正为真实形状（字符串数组，恰选其一与取值合法性保留为 Policy 业务规则）；两个测试内联 Catalog 补 paramSchema；external-agent RPC 夹具按「客户端键必须已声明」改为空 context；standalone prompt 断言随 paramSchema 发布更新。
+- 门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint` 与根 `pnpm test` 均退出 0；测试 core 302（含 conformance，基线未动）/ React 51 / server 167 / playground 13 / standalone 21 + jsdom 1 / playground-server 73。触碰文件定向 Prettier、`git diff --check`、core dist 根入口加载实测通过。
+- 未执行：仓外安装、真实浏览器、远端 CI；action HTTP envelope 解析、`X-Nexus-Run-Id`、基线路由、verifier/RPC 元数据传递与旧格式入口拒绝归 S2.5，不据本轮宣称请求接线已完成。
+
+## S2.4 首轮独立评审整改记录（2026-10-19，部分方案由下节取代）
+
+本节保留首轮记录与当时门禁；后续复核发现八项缺口，当前语义以「S2.4 二次复核修复」为准。
+
+独立评审七项 P1 全部整改并补反例：①准入输入随 handler patch 在提交边界一次原子落库（patch 先应用、输入后写回，不依赖回显；原测试手动回显掩盖的问题已由反例固化）；②快照深拷贝出界（组件表/模型/声明副本独立），resolver 拒绝不污染权威状态；③统一严格寻址——根指针 `/` 与非规范数组下标（前导零）拒绝；④重新生成/删除重建跨代单调 revision，上溢显式失败；⑤排队提交按生成代（epoch）核对基准——同代串行队列语义保留，新生成替换快照后旧 patch 拒绝应用；⑥准入与 guard 使用提交边界固定的 Catalog 声明副本（随 hash 一并固定），registry 原地变更不翻转结论；⑦移除「缺元数据则跳过」兼容旁路，`nexus` 必填，S2.5 前参考 HTTP 层经 `describeSurfaceContract` 以可信装配身份提供元数据，演示流保持可用。反例按七项逐一补齐（组合提交/深隔离/严格寻址/单调版本/代基准/固定副本/无旁路），server 175 项全绿；门禁（Node v24.16.0）根 build/typecheck/lint/test 退出码全 0，core 302 / React 51 / server 175 / playground 13 / standalone 21+1 / playground-server 73。整改顺序与 S2.5 归属按评审建议执行，未执行仓外安装、真实浏览器、远端 CI。
+
+## S2.4 二次复核修复（2026-10-19）
+
+用户授权修复八项缺口，当前实现替代首轮中的相关结论：
+
+1. HTTP 仅接受 `{ message, nexus }`，原样保留 actionId/revision/hash；不以 `describeSurfaceContract` 或新 UUID 替代客户端基准。commit 返回提交时捕获的固定结果，成功 done 发布；两个浏览器将其与同次已消费视图关联，EOF/错误/本地拒绝后不能继续 action。旧格式、过期基准与 actionId 重放均有真实 HTTP 回归，handler 调用次数断言保持不变。
+2. 输入作为基础模型，handler patch 后应用，归一化值优先；根替换以 handler 全量模型为准。输入模型经消息源先发出，浏览器与存储按同序组合；partial patch 无需回显输入。
+3. core 共用容器感知的严格输入寻址，拒绝所有数组别名（`01`、`+1`、`1e0`、空段等），普通对象同形字面键允许；空串与 `/` 禁止作为输入根目标，既有协议根替换语义不变。
+4. 临时模型、待提交 inputWrites、resolver/handler 的参数与上下文持有独立值快照，扩展修改不穿透验证后的待提交输入。
+5. 消息组件与模型在存储入界/出界均克隆，原消息后续改动不污染权威状态。
+6. store 使用实例级单调安全整数计数器，删除/容量淘汰后重建不重号；无无界墓碑 Map，上溢显式失败。
+7. 非 HTTP 正常 source EOF 不释放锁；消费者必须 commit/onError/dispose。提交同时核对 revision/epoch，排队的旧 revision 在 handler 前拒绝；终止回调幂等且不会把已成功的 ledger 改为失败。
+8. 实际流 guard 与提交前复核使用固定 Catalog 副本，以原组件表与临时模型校验增量 patch，registry 变化不改变当前运行解释。
+
+为堵住可达的 HTTP 旁路，S2.5 最小 envelope、done 固定结果及参考浏览器接线已提前；不表示 S2.5 整体完成。剩余有界结果留存、按 run 查询、响应头、verifier/RPC 与发布核对保持原计划；S3/S4 的完整会话与预览隔离未实施。
+
+门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、各包递归 lint 与根 `pnpm test` 退出码均为 0；core 306 / React 51 / server 186 / playground 16 / standalone 21+1 / playground-server 73，共 654 项。core 构建后运行 React/消费方测试；完整测试因 tsx IPC/本地 HTTP 需要在获准后于沙箱外执行。定向 Prettier、`git diff --check` 与 dist 公开入口检查通过。
+
+按 SDK review skill 的架构边界、安全、质量和删除清单复核八项修复，无本轮新增待修 finding；移除可信 HTTP 补基准、actionId 重建及 streamClaimed 锁转移逻辑。回归覆盖实际 HTTP、非 HTTP、存储及 jsdom App，不以其替代真实浏览器、仓外安装或远端 CI；这三项未执行。原有用户改动保留并纳入本次 S2.4 提交范围；本节为提交前验证记录，提交与推送状态以 Git 实际记录为准。
 
 ## S2.3 实施验证（2026-10-18）
 

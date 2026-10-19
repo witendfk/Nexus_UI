@@ -67,6 +67,19 @@ describe('setInputValue 声明驱动写回与输入收集（S2.3）', () => {
     assert.deepEqual(rt.getLatestInputs('s'), [{ componentId: 'r1', property: 'score', value: 7 }]);
   });
 
+  it('array aliases and root input targets reject without changing model or drafts', () => {
+    for (const path of ['/', '/arr/01', '/arr/+1', '/arr/1e0', '/arr/']) {
+      const { rt } = runtimeWith(
+        [{ id: 'r1', component: 'RatingInput', score: { path } } as Component],
+        { dataModel: { arr: [2, 3] } },
+      );
+      const before = rt.store.getState().dataModelBySurface.s;
+      assert.equal(rt.setInputValue('r1', 's', 'score', 7), false, path);
+      assert.equal(rt.store.getState().dataModelBySurface.s, before);
+      assert.deepEqual(rt.getLatestInputs('s'), []);
+    }
+  });
+
   it('值域由声明值 schema 决定：越界/非整数/错误类型拒绝且状态与草稿不变', () => {
     const { rt } = runtimeWith(
       [{ id: 'r1', component: 'RatingInput', score: { path: '/score' } } as Component],

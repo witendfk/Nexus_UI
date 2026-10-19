@@ -37,8 +37,18 @@ function button(text: string): HTMLButtonElement {
 }
 
 function installServer(
-  options: { fail?: boolean; wrongId?: boolean; invalidSchema?: boolean } = {},
+  options: {
+    fail?: boolean;
+    wrongId?: boolean;
+    invalidSchema?: boolean;
+    noDone?: boolean;
+    wrongCommit?: boolean;
+    invalidMessage?: boolean;
+  } = {},
 ) {
+  let currentCatalog = '';
+  const done = () =>
+    `event: done\ndata: ${JSON.stringify({ sessionVersion: 1, runId: 'fixture-run', surfaceId: 's', catalogId: options.wrongCommit ? 'different-catalog' : currentCatalog, contractVersion: 2, catalogHash: `sha256:${'0'.repeat(64)}`, surfaceRevision: 1 })}\n\n`;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     if (url.pathname === '/api/a2ui/catalog-contract') {
@@ -60,6 +70,7 @@ function installServer(
     }
     if (url.pathname === '/api/a2ui/generate') {
       const { catalogId } = JSON.parse(String(init?.body));
+      currentCatalog = catalogId;
       const messages = [
         { createSurface: { surfaceId: 's', catalogId } },
         { updateDataModel: { surfaceId: 's', value: { name: 'initial', subscribed: false } } },
@@ -97,11 +108,15 @@ function installServer(
             (message) =>
               `event: message\ndata: ${JSON.stringify({ version: 'v0.9', ...message })}\n\n`,
           )
-          .join(''),
+          .join('') +
+          (options.invalidMessage
+            ? 'event: message\ndata: {"version":"v0.9","unexpected":true}\n\n'
+            : '') +
+          (options.noDone ? '' : done()),
         { headers: { 'Content-Type': 'text/event-stream' } },
       );
     }
-    return new Response('event: done\ndata: {}\n\n', {
+    return new Response(done(), {
       headers: { 'Content-Type': 'text/event-stream' },
     });
   });
@@ -136,12 +151,32 @@ describe('Playground 公开 Catalog 装配', () => {
     await act(async () => button('Submit').click());
     const request = fetchMock.mock.calls.find(([url]) => String(url) === '/api/a2ui/event');
     expect(request).toBeDefined();
-    expect(JSON.parse(String(request![1]?.body)).action.context).toEqual({
+    expect(JSON.parse(String(request![1]?.body)).message.action.context).toEqual({
       name: 'edited',
       subscribed: true,
     });
+    const metadata = JSON.parse(String(request![1]?.body)).nexus;
+    expect(metadata.surfaceRevision).toBe(1);
+    expect(metadata.actionId).toBeTruthy();
+    expect(metadata.inputs).toEqual([
+      { componentId: 'name', property: 'value', value: 'edited' },
+      { componentId: 'subscribed', property: 'value', value: true },
+    ]);
     expect(container.querySelector('.nexus-surface input[type="text"]')).toBe(field);
   });
+
+  for (const options of [{ noDone: true }, { wrongCommit: true }, { invalidMessage: true }]) {
+    it(`does not send actions from an unconfirmed local view ${JSON.stringify(options)}`, async () => {
+      const fetchMock = installServer(options);
+      await mount();
+      await act(async () => button('Nexus Basic').click());
+      await act(async () => button('生成 UI').click());
+      await act(async () => button('Submit').click());
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url) === '/api/a2ui/event'),
+      ).toHaveLength(0);
+    });
+  }
 
   for (const options of [{ fail: true }, { wrongId: true }, { invalidSchema: true }]) {
     it(`配置失败时显式报错，不挂载缺少声明的交互入口 ${JSON.stringify(options)}`, async () => {

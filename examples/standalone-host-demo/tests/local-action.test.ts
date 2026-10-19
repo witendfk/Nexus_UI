@@ -178,11 +178,18 @@ describe('standalone host local action assembly', () => {
       amount: 'USD 12,000',
     });
 
+    // S2.4：nexus 元数据必填——fresh surface 经 describeSurfaceContract 取固定契约
+    const contractView = await adapter.describeSurfaceContract(surfaceId);
+    assert.ok(contractView);
     const actionPlan = await adapter.prepareAction({
       name: action.name,
       surfaceId,
       sourceComponentId: 'submit',
       timestamp: new Date().toISOString(),
+      actionId: 'local-approval-001',
+      sessionVersion: 1,
+      surfaceRevision: contractView.surfaceRevision,
+      catalogHash: contractView.catalogHash,
       context: action.context,
     });
     assert.ok(actionPlan.ok);

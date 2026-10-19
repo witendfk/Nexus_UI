@@ -7,6 +7,7 @@ import type Koa from 'koa';
 import { AgentAdapter } from '../src/agent/adapter';
 import type { AgentMessageSource } from '../src/agent/adapter';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import { createCatalogContractHash } from '../src/agent/catalog-contract';
 
 const registry = createTestRegistry();
 import {
@@ -241,7 +242,13 @@ describe('external agent RPC', () => {
       surfaceId,
       sourceComponentId: 'submitButton',
       timestamp: new Date().toISOString(),
-      context: { keyword: 'A2UI Runtime' },
+      actionId: 'external-rpc-action',
+      sessionVersion: 1,
+      surfaceRevision: 1,
+      catalogHash: createCatalogContractHash(registry.get(TEST_CATALOG_ID)!),
+      // 新契约：客户端 context 键必须是已声明绑定字段；该 action 声明无绑定，
+      // 透传未声明键（旧写法）按 SPEC §4.3 拒绝，客户端只能提交空 context。
+      context: {},
     });
     assert.ok(action.ok);
     const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action', {
@@ -274,9 +281,7 @@ describe('external agent RPC', () => {
     assert.equal(actionContract.hash, generationContract.hash);
     assert.equal(actionContract.url, generationContract.url);
     assert.equal(actionRequest.kind, 'action');
-    assert.deepEqual((actionRequest.action as { context?: unknown }).context, {
-      keyword: 'A2UI Runtime',
-    });
+    assert.deepEqual((actionRequest.action as { context?: unknown }).context, {});
     const actionHistory = actionRequest.history as Array<{ content: string }>;
     assert.equal(actionHistory[0]?.content, '创建外部任务面');
     assert.match(actionHistory[1]?.content ?? '', /External generation/);

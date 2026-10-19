@@ -65,6 +65,10 @@ describe('FileSurfaceHistoryStore', () => {
       surfaceId,
       sourceComponentId: 'submitButton',
       timestamp: '2026-09-21T00:00:00.000Z',
+      actionId: 'file-history-restore',
+      sessionVersion: 1,
+      surfaceRevision: 1,
+      catalogHash: 'sha256:' + '0'.repeat(64),
       context: {},
     });
     assert.ok(!action.ok);

@@ -1,3 +1,4 @@
+import { setStrictPath } from '../dataModel/strict-path';
 /**
  * @nexus-ui/core/runtime —— 协议运行时。
  *
@@ -215,7 +216,11 @@ export class A2UIRuntime {
       return false;
     }
     try {
-      st.setDataModelValueAtPath(surfaceId, binding.path, written);
+      st.setDataModelValueAtPath(
+        surfaceId,
+        '',
+        setStrictPath(st.dataModelBySurface[surfaceId], binding.path, written),
+      );
     } catch {
       // 中间节点非容器等写失败：状态未变，与显式拒绝同一语义
       return false;

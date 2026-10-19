@@ -113,7 +113,8 @@ const submitWorkbenchParamSchema = {
   required: ['taskTitle', 'priority', 'reminderAt', 'customerId', 'customerName'],
   properties: {
     taskTitle: { type: 'string' },
-    priority: { type: 'string' },
+    // 形状仅约束「字符串数组」；恰选其一与取值合法性是演示 Policy 的业务规则
+    priority: { type: 'array', items: { type: 'string' } },
     reminderAt: { type: 'string' },
     customerId: { type: 'string' },
     customerName: { type: 'string' },

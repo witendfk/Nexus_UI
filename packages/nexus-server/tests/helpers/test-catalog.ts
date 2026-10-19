@@ -26,7 +26,20 @@ export const testCatalog: CatalogDefinition = {
   },
   actions: [
     // submit 允许 Button 与 Text：证明挂载由声明决定，不按组件名特判。
-    { name: 'submit', sources: ['Button', 'Text'] },
+    // paramSchema 覆盖 SDK 通用测试实际绑定的字段；空 context（参数空对象）合法。
+    {
+      name: 'submit',
+      sources: ['Button', 'Text'],
+      paramSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string' },
+          counter: { type: 'number' },
+          note: { type: 'string' },
+        },
+      },
+    },
     { name: 'call', sources: ['Button'] },
   ],
 };

@@ -10,3 +10,33 @@ export interface NexusActionRequest {
   readonly message: ClientActionMessage;
   readonly nexus: NexusActionMetadata;
 }
+
+import { parseClientActionMessage } from './client-event';
+import { isRecord } from './request';
+
+/** Reject legacy messages; never reconstruct a client baseline from current server state. */
+export function parseNexusActionRequest(value: unknown): NexusActionRequest | null {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== 'message' && key !== 'nexus'))
+    return null;
+  const message = parseClientActionMessage(value.message);
+  const nexus = value.nexus;
+  if (
+    !message ||
+    !isRecord(nexus) ||
+    Object.keys(nexus).some(
+      (key) =>
+        !['sessionVersion', 'actionId', 'surfaceRevision', 'catalogHash', 'inputs'].includes(key),
+    ) ||
+    nexus.sessionVersion !== 1 ||
+    typeof nexus.actionId !== 'string' ||
+    nexus.actionId.trim() === '' ||
+    !Number.isSafeInteger(nexus.surfaceRevision) ||
+    (nexus.surfaceRevision as number) <= 0 ||
+    typeof nexus.catalogHash !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(nexus.catalogHash) ||
+    !Array.isArray(nexus.inputs) ||
+    (message.action.actionId !== undefined && message.action.actionId !== nexus.actionId)
+  )
+    return null;
+  return { message, nexus: nexus as unknown as NexusActionMetadata };
+}

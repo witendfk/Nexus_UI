@@ -1,9 +1,18 @@
 import { isRecord } from './request';
 import type { AgentAction } from '../agent/adapter';
 
+/**
+ * 浏览器提交的 v0.9 action 载荷（SDK 元数据由客户端在 nexus envelope 携带；
+ * HTTP 层原样传递提交基准和 actionId，不从最新快照重建）。
+ */
+export type ClientActionPayload = Pick<
+  AgentAction,
+  'name' | 'surfaceId' | 'sourceComponentId' | 'timestamp' | 'context'
+> & { actionId?: string };
+
 export interface ClientActionMessage {
   version: 'v0.9';
-  action: AgentAction;
+  action: ClientActionPayload;
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {

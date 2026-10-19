@@ -13,6 +13,7 @@ import type {
   AgentRun,
 } from '../src/agent/adapter';
 import { OFFICIAL_BASIC_CATALOG } from '../src/agent/catalog-identity';
+import { createCatalogContractHash } from '../src/agent/catalog-contract';
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { InMemorySurfaceActionStateStore } from '../src/agent/surface-action-state';
@@ -30,12 +31,21 @@ async function collect(source: AgentMessageSource): Promise<unknown[]> {
 
 const firstDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+let actionSeq = 0;
+const TEST_CATALOG_HASH = createCatalogContractHash(registry.get(TEST_CATALOG_ID)!);
+
+/** 组装必填 nexus 元数据（S2.4：缺失即旧格式拒绝；测试 surface 均为 fresh revision 1）。 */
 function createAction(name: string, surfaceId: string) {
+  actionSeq += 1;
   return {
     name,
     surfaceId,
     sourceComponentId: 'button',
     timestamp: new Date().toISOString(),
+    actionId: `action-${actionSeq}`,
+    sessionVersion: 1,
+    surfaceRevision: 1,
+    catalogHash: TEST_CATALOG_HASH,
     context: {},
   };
 }
@@ -632,6 +642,7 @@ describe('AgentAdapter 显式装配', () => {
       },
     ]);
 
+    action.run.dispose?.();
     const unknown = await adapter.prepareAction(createAction('missing', surfaceId));
     assert.ok(!unknown.ok);
     assert.match(unknown.message, /与服务端 surface 状态不匹配/);
@@ -712,7 +723,7 @@ describe('AgentAdapter 显式装配', () => {
       timestamp: '2026-09-28T00:00:01.000Z',
     });
 
-    // Consume the first source; the handler runs and the lock is released.
+    // Source exhaustion keeps the lock; only commit releases it.
     const firstMessages = await collect(firstPlan.run.source);
     await firstPlan.run.commit(firstMessages);
     assert.ok(executionOrder.includes('handler-start'));
@@ -720,13 +731,11 @@ describe('AgentAdapter 显式装配', () => {
 
     // The second prepareAction should have waited for the first to complete.
     const secondPlan = await secondPromise;
-    assert.ok(secondPlan.ok);
-    const secondMessages = await collect(secondPlan.run.source);
-    await secondPlan.run.commit(secondMessages);
+    assert.ok(!secondPlan.ok, 'the queued request carries the stale first revision');
     assert.equal(
       executionOrder.filter((entry) => entry === 'handler-start').length,
-      2,
-      'both handlers should run sequentially, not concurrently',
+      1,
+      'stale queued actions must be rejected before executing their handler',
     );
   });
 
@@ -927,16 +936,16 @@ describe('AgentAdapter 显式装配', () => {
     let commitEntered = false;
     const actionStore: SurfaceActionStateStore = {
       get: (id) => inner.get(id),
-      commitGeneration: (id, catalogId, messages) =>
-        inner.commitGeneration(id, catalogId, messages),
+      commitGeneration: (id, catalogId, messages, contract) =>
+        inner.commitGeneration(id, catalogId, messages, contract),
       removeSnapshot: (id) => inner.removeSnapshot(id),
-      commitAction: async (messages) => {
+      commitAction: async (messages, commit) => {
         if (!gated) {
           gated = true;
           commitEntered = true;
           await commitGate;
         }
-        await inner.commitAction(messages);
+        return inner.commitAction(messages, commit);
       },
     };
 
@@ -1000,7 +1009,7 @@ describe('AgentAdapter 显式装配', () => {
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:00.000Z',
     });
-    assert.ok(firstPlan.ok);
+    assert.ok(firstPlan.ok, firstPlan.ok ? '' : firstPlan.message);
 
     // The handler body is lazy: it runs at the first pull inside the queue.
     const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, 'commit-visibility-a', {
@@ -1011,10 +1020,12 @@ describe('AgentAdapter 显式装配', () => {
     assert.ok(commitEntered, 'first commit is now gated inside sendAgentRun');
 
     // Fire the second action while the first commit is still in flight.
+    // 准入发生在首笔提交之后：客户端观测的 revision 随之为 2（基准刷新语义）。
     const secondPlanPromise = adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:01.000Z',
+      surfaceRevision: 2,
     });
     await firstDelay(5);
     assert.equal(

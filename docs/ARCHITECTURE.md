@@ -187,6 +187,8 @@ handler 在排队准入完成后调用。输入只形成临时模型；未经接
 
 ### 6.3 调度、存储与所有权
 
+当前 S2.4 复审实现（2026-10-19）：action 在准备到 commit/onError/dispose 期间持锁，非 HTTP 正常 EOF 不释放；store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增。准入与 patch guard 使用固定 Catalog，guard 从已提交组件与临时输入模型起步；输入基础模型先于 handler patch 应用并随消息源发送，存储入界/出界均深拷贝。HTTP 不补当前基准、不换 actionId；成功 done 发布提交时捕获的固定结果，两个参考消费方用其为实际视图提供后续请求基准。按运行结果留存/查询及完整 Session 生命周期仍待 S2.5/S3/S4。
+
 同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。所有监听器、源迭代器和锁都在终态或 dispose 路径释放。
 
 默认状态、ledger 和调度按实例隔离，禁止模块全局 store 把无关宿主绑在一起。UI revision 的发布点明确；已发布后连接或 history/观测失败，不得伪报未提交。默认内存重启后旧 surface 失效；可注入持久化存储，但首发不宣称多实例调度或业务幂等。

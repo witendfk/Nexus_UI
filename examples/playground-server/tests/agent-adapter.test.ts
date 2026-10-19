@@ -2,8 +2,15 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import type Koa from 'koa';
-import { AgentAdapter, InMemoryAgentRunManager, sendAgentRun, InMemorySurfaceHistoryStore } from '@nexus-ui/server';
+import {
+  AgentAdapter,
+  InMemoryAgentRunManager,
+  sendAgentRun,
+  InMemorySurfaceHistoryStore,
+} from '@nexus-ui/server';
 import type { AgentLlmStreamRequest, AgentMessageSource } from '@nexus-ui/server';
+import { createCatalogContractHash } from '@nexus-ui/server';
+import { agentCatalogRegistry } from '../src/agent/catalog';
 import {
   BASIC_CATALOG,
   LEGACY_BASIC_TASK_CATALOG,
@@ -28,12 +35,30 @@ function createSseContext(): Koa.Context {
   } as unknown as Koa.Context;
 }
 
-function createAction(name: string, surfaceId: string) {
+let actionSeq = 0;
+let litSeq = 0;
+function nextLitId(): string {
+  litSeq += 1;
+  return `lit-${litSeq}`;
+}
+const TEST_CATALOG_HASH = createCatalogContractHash(agentCatalogRegistry.get(BASIC_CATALOG)!);
+const WORKBENCH_CATALOG_HASH = createCatalogContractHash(
+  agentCatalogRegistry.get(WORKBENCH_CATALOG)!,
+);
+const TASK_CATALOG_HASH = createCatalogContractHash(agentCatalogRegistry.get(TASK_CATALOG)!);
+
+/** 组装必填 nexus 元数据（S2.4：缺失即旧格式拒绝）。 */
+function createAction(name: string, surfaceId: string, catalogHash: string = TEST_CATALOG_HASH) {
+  actionSeq += 1;
   return {
     name,
     surfaceId,
     sourceComponentId: 'button',
     timestamp: new Date().toISOString(),
+    actionId: `action-${actionSeq}`,
+    sessionVersion: 1,
+    surfaceRevision: 1,
+    catalogHash,
     context: {},
   };
 }
@@ -60,7 +85,7 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     await generation.run.commit(messages);
 
     const start = await adapter.prepareAction(
-      createAction('start', generation.run.sequence.surfaceId),
+      createAction('start', generation.run.sequence.surfaceId, TASK_CATALOG_HASH),
     );
     assert.ok(start.ok);
     assert.equal(start.run.sequence.catalogId, TASK_CATALOG);
@@ -69,20 +94,22 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     assert.match(JSON.stringify(startResponse), /"name":"complete"/);
     await start.run.commit(startResponse);
 
-    const complete = await adapter.prepareAction({
-      ...createAction('complete', generation.run.sequence.surfaceId),
+    // complete 在 start 提交（revision 2）之后准入：客户端观测随之刷新为 2
+    const completeAction = {
+      ...createAction('complete', generation.run.sequence.surfaceId, TASK_CATALOG_HASH),
+      surfaceRevision: 2,
       timestamp: '2026-09-21T00:00:01.000Z',
-    });
+    };
+    const complete = await adapter.prepareAction(completeAction);
     assert.ok(complete.ok);
     const completeResponse = await collect(complete.run.source);
     assert.match(JSON.stringify(completeResponse), /已完成/);
     assert.match(JSON.stringify(completeResponse), /"disabled":true/);
     await complete.run.commit(completeResponse);
 
-    const duplicate = await adapter.prepareAction({
-      ...createAction('complete', generation.run.sequence.surfaceId),
-      timestamp: '2026-09-21T00:00:01.000Z',
-    });
+    // 重放以 actionId 为键：同一提交标识再次到达即拒绝（ledger 终态可重试的
+    // 是失败记录，不是成功提交）
+    const duplicate = await adapter.prepareAction(completeAction);
     assert.ok(!duplicate.ok);
     assert.match(duplicate.message, /Action 重放或重复提交已被拒绝/);
   });
@@ -112,7 +139,19 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       surfaceId: 'surface-workbench',
       sourceComponentId: 'submitButton',
       timestamp: new Date().toISOString(),
-      context: { taskTitle: '', reminderAt: '', customerId: 'customer-1024' },
+      actionId: nextLitId(),
+      sessionVersion: 1,
+      surfaceRevision: 1,
+      catalogHash: WORKBENCH_CATALOG_HASH,
+      // S2.4：参数形状由 paramSchema 先行校验（客户端须发送完整表单批次），
+      // 业务文案（空标题）仍由演示 Policy 在形状合法后给出。
+      context: {
+        taskTitle: '',
+        priority: [],
+        reminderAt: '',
+        customerId: 'customer-1024',
+        customerName: '华云科技',
+      },
     });
     assert.ok(!empty.ok);
     assert.equal(empty.message, '请输入跟进任务标题');
@@ -123,6 +162,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         surfaceId: 'surface-workbench',
         sourceComponentId: 'submitButton',
         timestamp: new Date().toISOString(),
+        actionId: nextLitId(),
+        sessionVersion: 1,
+        surfaceRevision: 1,
+        catalogHash: WORKBENCH_CATALOG_HASH,
         context: {
           taskTitle: '发送方案修订版',
           priority,
@@ -144,6 +187,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         surfaceId: 'surface-workbench',
         sourceComponentId: 'submitButton',
         timestamp: new Date().toISOString(),
+        actionId: nextLitId(),
+        sessionVersion: 1,
+        surfaceRevision: 1,
+        catalogHash: WORKBENCH_CATALOG_HASH,
         context: {
           taskTitle: '发送方案修订版',
           priority: ['high'],
@@ -161,6 +208,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       surfaceId: 'surface-workbench',
       sourceComponentId: 'submitButton',
       timestamp: new Date().toISOString(),
+      actionId: nextLitId(),
+      sessionVersion: 1,
+      surfaceRevision: 1,
+      catalogHash: WORKBENCH_CATALOG_HASH,
       context: {
         taskTitle: '发送方案修订版',
         priority: ['high'],
@@ -173,6 +224,7 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     assert.equal(plan.run.sequence.catalogId, WORKBENCH_CATALOG);
     const response = await collect(plan.run.source);
     const serialized = JSON.stringify(response);
+    await plan.run.commit(response);
 
     assert.match(serialized, /followup-0001/);
     assert.match(serialized, /发送方案修订版/);
@@ -186,11 +238,16 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       surfaceId: 'surface-workbench',
       sourceComponentId: 'submitButton',
       timestamp: new Date().toISOString(),
+      actionId: nextLitId(),
+      sessionVersion: 1,
+      surfaceRevision: 2,
+      catalogHash: WORKBENCH_CATALOG_HASH,
       context: {
         taskTitle: '再次提交',
         priority: ['low'],
         reminderAt: '2026-09-21T10:00:00',
         customerId: 'customer-1024',
+        customerName: '华云科技',
       },
     });
     assert.ok(!duplicate.ok);
@@ -291,10 +348,27 @@ describe('playground reference adapter（参考装配，注册表与生成源显
                 id: 'submitButton',
                 component: 'Button',
                 child: 'submitLabel',
-                action: { event: { name: 'submit', context: {} } },
+                // S2.4：客户端 context 键必须是已声明绑定字段——旧夹具依赖
+                // 空 context 透传客户端值，现按契约显式声明绑定并由服务端重算。
+                action: {
+                  event: {
+                    name: 'submit',
+                    context: {
+                      name: { path: '/name' },
+                      subscribed: { path: '/subscribed' },
+                    },
+                  },
+                },
               },
               { id: 'submitLabel', component: 'Text', text: 'Submit' },
             ],
+          },
+        },
+        {
+          version: 'v0.9',
+          updateDataModel: {
+            surfaceId,
+            value: { name: 'A2UI Runtime', subscribed: true },
           },
         },
       ],
@@ -385,12 +459,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     });
     const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
     assert.ok(plan.ok);
-    const result = await sendAgentRun(
-      createSseContext(),
-      plan.run,
-      'reference-run',
-      { manager: new InMemoryAgentRunManager(), streamDelayMs: 0 },
-    );
+    const result = await sendAgentRun(createSseContext(), plan.run, 'reference-run', {
+      manager: new InMemoryAgentRunManager(),
+      streamDelayMs: 0,
+    });
     assert.equal(result.ok, true);
   });
 

@@ -65,6 +65,7 @@ export {
   resolveDynamic,
   resolveContext,
   toDisplayString,
+  isUnsafeDataPath,
 } from './dataModel/index';
 export { buildTree } from './render/index';
 export { buildActionEvent } from './action/index';
@@ -102,3 +103,8 @@ export type {
 } from './catalog/schema';
 export { NEXUS_SESSION_VERSION } from './session/index';
 export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from './session/index';
+
+export { normalizeJsonPointer, getStrictPath, setStrictPath } from './dataModel/strict-path';
+export { parseSurfaceCommit } from './session';
+
+export { CATALOG_CONTRACT_VERSION } from './catalog';
