@@ -1,4 +1,3 @@
-import type { CatalogDefinition } from '@nexus-ui/core';
 import {
   AGENT_ONBOARDING_BOUNDARY_CODES,
   AGENT_ONBOARDING_CHECKS,
@@ -6,7 +5,7 @@ import {
   type AgentOnboardingContractPayload,
 } from '../api/agent-onboarding';
 import { SERVER_API_VERSION } from '../version';
-import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from './catalog-contract';
+import { assertValidCatalogContractPayload } from './catalog-contract-validation';
 import {
   verifyExternalAgentIntegration,
   type ExternalAgentVerificationOptions,
@@ -73,7 +72,7 @@ async function readErrorResponse(response: Response): Promise<string> {
 async function fetchOnboardingContract(
   contractUrl: string,
   options: ExternalAgentOnboardingVerificationOptions,
-): Promise<AgentOnboardingContractPayload> {
+): Promise<unknown> {
   assertHttpUrl(contractUrl, 'Agent onboarding contract URL');
   const timeoutMs = options.contractTimeoutMs ?? 15_000;
   const maxBytes = options.contractMaxBytes ?? 1_000_000;
@@ -104,7 +103,7 @@ async function fetchOnboardingContract(
     if (body.byteLength > maxBytes) {
       throw new Error(`Agent onboarding contract 超过 ${maxBytes} 字节上限`);
     }
-    return JSON.parse(new TextDecoder().decode(body)) as AgentOnboardingContractPayload;
+    return JSON.parse(new TextDecoder().decode(body)) as unknown;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Agent onboarding contract 请求超过 ${timeoutMs}ms 未完成`);
@@ -147,34 +146,12 @@ function validateContract(
   }
 
   const catalogContract = value.catalogContract;
-  if (!isRecord(catalogContract) || catalogContract.kind !== 'catalog-contract') {
-    throw new Error('Agent onboarding contract 缺少 catalog-contract');
-  }
-  if (catalogContract.contractVersion !== CATALOG_CONTRACT_VERSION) {
-    throw new Error(`Catalog contract contractVersion 必须是 ${CATALOG_CONTRACT_VERSION}`);
-  }
-  const catalog = catalogContract.catalog as CatalogDefinition | undefined;
-  if (
-    !isRecord(catalog) ||
-    typeof catalog.catalogId !== 'string' ||
-    catalog.catalogId === '' ||
-    typeof catalog.components !== 'object' ||
-    catalog.components === null ||
-    Array.isArray(catalog.components) ||
-    Object.keys(catalog.components).length === 0
-  ) {
-    throw new Error('Agent onboarding contract 缺少可用 catalog');
-  }
+  assertValidCatalogContractPayload(catalogContract);
+  const catalog = catalogContract.catalog;
   if (expectedCatalogId !== undefined && catalog.catalogId !== expectedCatalogId) {
     throw new Error(
       `Agent onboarding contract catalogId 不匹配：预期 ${expectedCatalogId}，实际 ${catalog.catalogId}`,
     );
-  }
-  if (
-    typeof catalogContract.contractHash !== 'string' ||
-    catalogContract.contractHash !== createCatalogContractHash(catalog)
-  ) {
-    throw new Error('Catalog contract hash 不匹配，catalog 能力契约可能已变更');
   }
 
   const rpc = value.rpc;
@@ -251,5 +228,13 @@ export async function verifyExternalAgentOnboarding(
     endpoint,
     catalog: contract.catalogContract.catalog,
   });
+  // RPC、onboarding 声明与 verifier 报告的检查项一致：报告的 id 与顺序必须
+  // 与契约 verification.checks 完全对齐，不对齐即拒绝，不虚报通过。
+  if (
+    report.checks.length !== contract.verification.checks.length ||
+    !report.checks.every((check, index) => check.id === contract.verification.checks[index].id)
+  ) {
+    throw new Error('verifier 报告检查项与 onboarding 契约声明不一致');
+  }
   return { ...report, contractUrl: options.contractUrl, contract };
 }

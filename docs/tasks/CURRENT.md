@@ -8,7 +8,7 @@
 
 当前只有 core/react/server 三包；目标新增 client。S1 已完成：core 安全反例（保留段、媒体 URL scheme、schema.pattern）先证伪后修复；Adapter/guard 显式装配（registry 必填、policy 无默认、LLM 生成源与 catalogId 必填，缺失即报错）；runs 查询宿主 `runsAccess` 准入（未配置一律 403）；参考服务与演示 Catalog/LLM/Policy 迁至 `examples/playground-server/`，只消费公开 SDK 入口。S3/S4 尚未实施（模块级 per-surface 队列按 S3 计划收编，client 待 S4 新建）。验证宿主与 Agent 尚未选定，不能将已有 demo 或 `examples/agent-demo/` 占位视为已选接入工程。SDK 通过可替换的确定性夹具和仓外契约验收验证，不评审接入方应用内部工程，也不等待其重建。
 
-**当前任务：S2 Catalog v2、输入与 action，S2.1–S2.4 已完成；S2.5 已完成 .1/.2/.5，.3/.4/.6/.7 待实施。** S1 及独立评审修复（`b44b639`）、S2.1 契约锁定（`6c93780`）、S2.2 共享解释器（`71ab59a`）、S2.3 本地写回（`35778e2`）及其 playground 收尾（`734430c`）、S2.4 与复审修复（`69ab5a7`）已提交并推送。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；最小 HTTP envelope、成功 done 固定结果与两个浏览器门控已随 S2.4 复审修复提前接通；统一运行标识、有界结果留存与发布契约一致性已由 S2.5.1/.2/.5 完成并通过根门禁；按 run 查询路由、响应头与 verifier/RPC 贯通归 S2.5.3/.4/.6，完整 Session/SSE 生命周期仍由 S3/S4 完成。
+**当前任务：S2 Catalog v2、输入与 action——S2.1–S2.5 已完成，S2.6（消费方迁移）与 S2.7（阶段验收）待实施。** S1 及独立评审修复（`b44b639`）、S2.1 契约锁定（`6c93780`）、S2.2 共享解释器（`71ab59a`）、S2.3 本地写回（`35778e2`）及其 playground 收尾（`734430c`）、S2.4 与复审修复（`69ab5a7`）已提交并推送；S2.5.1/.2/.5 并行实施与评审修复（`23f1a9c`）已提交；S2.5.3/.4 已提交（`80b70f8`）；S2.5.6/.7 与整体评审修复已通过根门禁，纳入本次提交。S2 按下述 S2.1–S2.7 推进；契约已定型（SPEC §4/§5.1/§8、DESIGN D8、core/server 公开类型、`fixtures/catalog-v2/` 共享 fixture）。复审补齐按 runId 固定提交基准与两种并发时序反例，不能用最新 revision 给旧视图刷新资格；最小 HTTP envelope、成功 done 固定结果与两个浏览器门控已随 S2.4 复审修复提前接通；S2.5 七项（统一运行标识、有界结果留存、发布契约一致性、按 run 查询路由、`X-Nexus-Run-Id` 响应头、verifier/RPC 贯通、并发关联复核）已全部完成，整体评审四项修复通过最新根门禁（753 项）；消费方完整关联门控归 S2.6.3，完整 Session/SSE 生命周期由 S3/S4 完成。
 
 补充决定（2026-10-16）：DESIGN D12 / SPEC §8.2 明确保留分包、以层内高层 API 简化接入，暂不新增总门面包。S3/S4 完善 server/session/视图组合，S5 验证公开入口环境隔离与跨包兼容；本次仅补充文档，不改变代码阶段状态。
 
@@ -18,7 +18,7 @@
 | ------------------------ | -------------------- | ------------------------------------------------------------------------ |
 | S0 文档与评审范围基线    | 已完成（文档/skill） | PRD/SPEC/ARCHITECTURE/DESIGN、README、本计划与 SDK review skill 对齐     |
 | S1 安全基线与业务中立    | 已完成（验收通过）   | 安全反例证伪修复；显式装配；参考程序迁出 playground-server；早期产物检查 |
-| S2 Catalog v2 与交互扩展 | S2.1–S2.4 已完成    | 声明式展示/输入/action；共享准入、本地写回、服务端权威准入               |
+| S2 Catalog v2 与交互扩展 | S2.1–S2.5 已完成    | 声明式展示/输入/action；共享准入、本地写回、服务端权威准入               |
 | S3 通用 server runtime   | 待实施，依赖 S2      | 单一调度、Session v1 与提交语义；Koa/RPC 薄适配                          |
 | S4 client 与可嵌入 React | 待实施，依赖 S2/S3   | 新 client、Provider/Surface、两个浏览器消费方迁移                        |
 | S5 独立契约验收与发行    | 待实施，依赖 S1–S4   | 当前产物仓外安装、公开 API/兼容、浏览器和 CI 门禁                        |
@@ -122,9 +122,9 @@ S1–S4 每个切片同步其消费方与迁移说明，保持已交付路径可
 
 #### S2.5 — 请求与发布接线
 
-**实施状态（2026-10-20）**：S2.5.1/.2/.5 已完成（首轮记录见文末「并行实施验证」，当前契约与证据以其后的评审修复记录为准），S2.5.3/.4/.6/.7 待实施。S2.4 已完成 HTTP `{ message, nexus }` 解析、原始 actionId 传递、共享权威准入、commit 返回固定结果与成功 done 发布；这些能力只补回归，不再重新实现。已有 baseline fixture 只证明存储/准入规则；真实查询路由仍待 S2.5.3。
+**实施状态（2026-10-20）**：S2.5.1–.7 全部完成（首轮/评审修复/组 2/组 3 验证记录见文末），S2.6 待实施。S2.4 已完成 HTTP `{ message, nexus }` 解析、原始 actionId 传递、共享权威准入、commit 返回固定结果与成功 done 发布；这些能力只补回归，不再重新实现。baseline 时序夹具已由 S2.5.3 升级到真实 HTTP 查询路由验证。
 
-剩余缺口（2026-10-20 复核）：runId 统一、有界结果留存与发布契约一致性已由 S2.5.1/.2/.5 收口；surface-state 仍只有类型别名，没有查询路由；响应尚无运行标识头；RPC/verifier 尚未完整覆盖 v2 输入和固定结果，verifier 仍从最新快照取得 action 基准。
+剩余缺口（2026-10-20 S2.5 收口复核）：S2.5 七项无剩余缺口——verifier 已改为消费本次 done 固定结果并整体删除 `describeSurfaceContract` 补基准调用；并发查询时序、非 HTTP/HTTP 同源、重复标识、旧 envelope 混入与查询-淘汰窗口交错全部经真实入口验证。消费方完整关联门控与 verifier 端到端验收归 S2.6.3，运行调度/队列/完整 commitState 归 S3。
 
 | ID     | 交付                   | 主要位置                                                                        | 依赖     | 完成判据                                                                                                                  |
 | ------ | ---------------------- | ------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -426,7 +426,7 @@ P1/P2 均已修复：Profile 移除固定 SDK 标准声明查表与 DateTimeInpu
 
 本节保留首轮历史记录。随后评审确认结果校验、实际执行声明绑定、非 HTTP 记录所有权、onboarding 校验与初始化清理仍有缺口，当前实现及证据以下节为准。
 
-范围为 S2.5 三个并行切片：统一运行标识与版本边界（.1）、有界固定提交结果留存（.2）、发布内容与执行契约一致（.5）。按「并行调度决定」分两批 agent 实施（.1 先行为关键路径，.2‖.5 文件所有权不相交并行），主线程统一维护本文件与根门禁。实际提交哈希只在提交成功后回填。
+范围为 S2.5 三个并行切片：统一运行标识与版本边界（.1）、有界固定提交结果留存（.2）、发布内容与执行契约一致（.5）。按「并行调度决定」分两批 agent 实施（.1 先行为关键路径，.2‖.5 文件所有权不相交并行），主线程统一维护本文件与根门禁。实际提交哈希：`23f1a9c`（2026-10-20，与下节评审修复同提交）。
 
 - **S2.5.1 统一运行标识**：adapter 在 `prepareGeneration`/`prepareAction` 内各分配一次 `randomUUID()`；`AgentRun` 新增必填 `runId`，`commit` 类型收窄为必返固定 `NexusSurfaceCommit`（void/null 运行时兜底拒绝——流转 `error` 终态、记录转 `failed`，不伪造成功提交）；发送层不再以 idPrefix 改写 `commit.runId`（旧四参签名保留为 @deprecated 槽位、字符串实参被忽略，删除归 S2.6.5）；SSE event id 根、done 载荷与运行记录 id 同值；缺失/空 runId 在占用 SSE 响应之前同步抛错。版本边界写入 SPEC §5.1/§8：Catalog Contract 保持 2、session 保持 1、onboarding 保持 1、RPC 保持 1，包版本不动。
 - **S2.5.2 结果留存**：发送层 beforeDone 在提交边界成功返回后调 `manager.recordCommit(runId, commit)`，代码顺序保证先于成功 done 可读（recordCommit 抛错则 error 帧收场，不发布成功 done，已提交快照不回滚）；`manager.create` 移到响应占用之前，拒绝路径无响应/锁/消息源泄漏（action 运行经 dispose 走 abortRun）；记录写入与 `get`/`listBySurface` 读取均深拷贝，终态迁移保留已留存 commit 不被覆盖；重复 create/recordCommit、终态补记显式拒绝；容量满按插入序优先淘汰终态记录，queued/running 受保护，全部活动时显式拒绝新建。非 HTTP 消费的固定结果即 `run.commit()` 返回值、不进入 manager（发送层为记录唯一所有者）；HTTP/非 HTTP 同源由构造保证（同出 adapter 提交边界 `commitResult`），该口径列为 S2.5.7/SDK review 复核项。SPEC §5.1 追加留存语义。
@@ -434,10 +434,31 @@ P1/P2 均已修复：Profile 移除固定 SDK 标准声明查表与 DateTimeInpu
 - **证伪与迁移**：.1 新测试实现前 9 红→10 绿；.2 新增 12 项，其范围实现前 11 红/3 绿→实现 14/14 绿；.5 新增 21 项（4 个测试文件）+2 个既有测试成组迁移，实现前 12 红→全绿；legacy 消费方迁移共 5 个文件（agent-adapter/run-manager/sse-response-claim/catalog-discovery-client/onboarding-verification），verifier 敌意宿主反例（原始 JSON 下发过期 hash）原样保留。
 - **根门禁（Node v24.16.0，主线程执行）**：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、根 `pnpm test` 均退出 0；测试 core 306 / React 51 / server 229 / playground 16 / standalone 21 + jsdom 1 / playground-server 73，共 697 项；根 build 先于 React/消费方测试产物。触碰文件定向 Prettier 全绿（5 个测试文件差异已修复）、`git diff --check` 通过。未执行仓外安装、真实浏览器、远端 CI；按 run 查询路由、`X-Nexus-Run-Id` 响应头、RPC/verifier 贯通与并发关联复核归 S2.5.3/.4/.6/.7。
 
+## S2.5.3/2.5.4 实施验证（2026-10-20，提交组 2）
+
+范围为 S2.5 第三波并行切片：按 run 查询与访问控制（.3）、响应头与传输关联（.4）。实际提交：`80b70f8`。文件所有权不相交（.3：surface-state/routes/run-manager + SPEC §5.1；.4：send-messages/transport-sse/两参考服务 CORS + 新增 SPEC §5.3），主线程完成公开导出收尾与状态句同步。实际提交哈希只在提交成功后回填。
+
+- **S2.5.3 查询路由**：`GET /api/a2ui/surface-state?surfaceId=&runId=` 落地于 `surface-state.ts`（原类型别名），routes.ts 装配注入已核对的 `adapter.runManager` 与宿主 `runsAccess`（沿用「router manager ≠ adapter manager 即装配失败」）。判定顺序：缺参 400（先于准入，未配置 runsAccess 时缺参仍 400）→ `runsAccess` 未配置/拒绝 403（先鉴权后查记录，spy 证明拒绝路径零查询，不泄露记录存在性）→ 记录不存在/跨 surface/已淘汰同一 404（不泄露区分，淘汰即明确不可用）→ `commit` 缺失 409（统一覆盖排队/执行中与失败/取消终态）→ 200 返回该运行固定 `NexusSurfaceCommit`（无包装）。查询路径只读 runManager、不持有 actionStateStore，结构上不存在回退最新快照；「淘汰 A 后同 surface 新增可查询 commit 作对照，再查 A 得 404」反例固化历史结果不受后续提交/淘汰影响。
+- **baseline 夹具升级真实入口**：两份时序夹具（并发 B 提交在查询前/查询后 action 前）经真实 HTTP 驱动——查询 A 恒返 A 的固定旧 revision，旧 revision 的下一枚 action 被 400 拒、handler 零调用、快照保持服务端 revision。
+- **S2.5.4 响应头**：`transport/sse.ts` 新增 `NEXUS_RUN_ID_HEADER` 常量与 `prepareSseResponse(ctx, options?)`，头在 `flushHeaders` 之前、`ctx.respond=false` 同步占用点写入；空/非字符串 runId 在任何头写入前显式报错；排队 run 响应被占用瞬间即带头（真实 HTTP 断言：第二请求 fetch 解析时头已在且源未启动）；客户端断开取消后同 surface 后续 run 获新标识，旧运行保持 canceled；`sendMessages` 原始路径永不带头（verifier 的「非 SDK 运行」负向信号）。两参考服务 CORS `exposeHeaders` 在宿主现有暴露集上合并该头，不接管授权策略。主线程将 `NEXUS_RUN_ID_HEADER` 提升为根入口公开导出并更新 public-api 快照与取值断言。
+- **文档**：SPEC §5.1 查询 bullet 标注实施口径、新增 §5.3「传输关联与响应头」；主线程同步 §2/§4/§5.1 状态句。
+- **证伪**：.3 新增 12 项，实现前 12 红（路由缺失全 404）→ 实现后 12 绿；.4 新增 9 项，实现前 8 红 → 9/9 绿（复跑 3 次稳定，期间修复两个测试自身的挂起/时序缺陷，与实现无关）。
+- **组 2 根门禁（Node v24.16.0，主线程执行）**：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、根 `pnpm test` 均退出 0；测试 core 306 / React 51 / server 268 / playground 16 / standalone 21 + jsdom 1 / playground-server 73，共 736 项。触碰文件定向 Prettier 全绿、`git diff --check` 通过。未执行仓外安装、真实浏览器、远端 CI；verifier/RPC（.6）与并发关联复核（.7：非 HTTP/HTTP 同源、重复标识、旧 envelope 混入、查询-淘汰窗口交错）归提交组 3。
+
+## S2.5.6/2.5.7 实施验证（2026-10-20，提交组 3）
+
+范围为 S2.5 收口两切片：RPC 与 verifier 贯通（.6）、入口与并发关联复核（.7）。主线程硬收敛令下分别 39/24 分钟交付；实际提交哈希只在提交成功后回填。
+
+- **S2.5.6 verifier 贯通**：verifier 解析成功 done 帧载荷（`parseSseRun` 捕获 commit 与全部 event id），经 `parseSurfaceCommit` 校验并核对 runId/surfaceId/catalogId 身份与 event id 前缀一致性，action 基准只取 `generationCommit.surfaceRevision/catalogHash`，**`describeSurfaceContract` 调用整体删除**，报告新增 `generationCommit`/`actionCommit`（跳过时 null）。skipped 以声明为准：展示型 `actions:[]` 跳过 action 阶段并给原因，声明了 action 但生成流无可验收组件仍硬失败。RPC 序列化以真实捕获请求体断言：`inputs` 原样、`context`=服务端重算值（客户端伪造值被覆盖）、`actionId/sessionVersion/surfaceRevision/catalogHash` 与 done 固定结果同值、无输入 action 显式 `inputs:[]`。onboarding-verification 增加报告 checks ≡ 契约 verification.checks（id+顺序）一致性闸门；`external-agent.ts` 零改动（handler 本就序列化完整权威 action，测试钉死）。
+- **S2.5.7 复核反例（8 项，全部真实 HTTP，未发现 src 缺陷）**：非 HTTP/HTTP 同源对照——非 HTTP run 经 run-lifecycle 纳入同一 manager 实证（runId 出现于 createdIds），非 HTTP commit 返回值 ≡ 真实查询 200，源 EOF 未显式提交查询 409、显式 commit 后 200；查询-容量淘汰窗口交错以观察窗口 manager 确定性构造——evict-after-get 返回被查运行自身旧 revision（非同 surface 更新的新 revision）、evict-before-get 404，证伪锚点为「若查询回退最新快照则断言失败」；`X-Nexus-Run-Id ≡ event id 前缀 ≡ done.runId ≡ 查询 200` 全链等式补齐查询路由一环，失败流（error 无 done）查询 409、对账基准不存在、报告无虚构材料；事件 id 全值作查询键 404、裸 runId 200（消费者不得解析事件 id）；旧 revision 与错 catalogHash 的 action 经真实入口 400、handler 零调用、先前固定结果 deep-equal 不变。
+- **onboarding 声明备忘裁定（.6 移交，.7 裁定）**：`action.requiredFields` 不列 `actionId/sessionVersion/surfaceRevision/catalogHash` 为现状正确、不升版——四字段是宿主侧准入与对账元数据（解释权威在宿主准入层，不委派远端 Agent），requiredFields 枚举外部 Agent 必须消费的输入；运行时强制不依赖该声明（adapter 类型必填 + 共享准入拒绝 + .6 序列化断言）。若未来把 requiredFields 重定位为完整 wire-shape 声明，属消费者可见契约变更，须按版本规则先改 SPEC 并升 `AGENT_ONBOARDING_CONTRACT_VERSION`。
+- **证伪与组 3 门禁（Node v24.16.0，主线程执行，非沙箱授权）**：.6 新增 4 项实现前 3 红 → 4/4 绿；.7 新增 8 项零回归（前 272/272 → 后 280/280）。根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、根 `pnpm test` 均退出 0；测试 core 306 / React 51 / server 280 / playground 16 / standalone 21 + jsdom 1 / playground-server 73，共 748 项；触碰文件 Prettier 全绿、`git diff --check` 通过。未执行仓外安装、真实浏览器、远端 CI。
+- **S2.5 收口边界**：七项全部完成；消费方完整关联门控（响应头/done/查询与视图一致性在浏览器侧的装配）与 verifier 端到端验收归 S2.6.3；运行调度/队列/完整 commitState 归 S3，Session v1 归 S3/S4。不据 S2.5 完成宣称 S2.6 或 Session v1 完成。
+
 状态变化同步本文件与 README；契约/结构/决策/需求分别同步 SPEC/ARCHITECTURE/DESIGN/PRD，返工经验写回根 AGENTS.md。
 
 
-## S2.5.1/.2/.5 评审修复（2026-10-20）
+## S2.5.1/.2/.5 评审修复（2026-10-20，历史切片记录）
 
 用户授权修复首轮评审的 2 P1 + 3 P2，范围仍为 .1/.2/.5，未开始 .3/.4/.6/.7。
 
@@ -453,16 +474,15 @@ P1/P2 均已修复：Profile 移除固定 SDK 标准声明查表与 DateTimeInpu
 - 未执行仓外安装、真实浏览器、远端 CI；本轮未提交或推送。按用户指定 .1+.2+.5 / .3+.4 / .6+.7 分组，后两组及 S2.6/S2.7 仍待实施。
 
 
-## S2.5.3/2.5.4 实施验证（2026-10-20，提交组 2）
+## S2.5 整体评审修复（2026-10-20）
 
-范围为 S2.5 第三波并行切片：按 run 查询与访问控制（.3）、响应头与传输关联（.4）。文件所有权不相交（.3：surface-state/routes/run-manager + SPEC §5.1；.4：send-messages/transport-sse/两参考服务 CORS + 新增 SPEC §5.3），主线程完成公开导出收尾与状态句同步。实际提交哈希只在提交成功后回填。
+用户授权修复整体评审的 1 P1 + 3 P2，保留已有 S2.5.3/.4/.6/.7 实施，未推进 S2.6/S2.7。
 
-- **S2.5.3 查询路由**：`GET /api/a2ui/surface-state?surfaceId=&runId=` 落地于 `surface-state.ts`（原类型别名），routes.ts 装配注入已核对的 `adapter.runManager` 与宿主 `runsAccess`（沿用「router manager ≠ adapter manager 即装配失败」）。判定顺序：缺参 400（先于准入，未配置 runsAccess 时缺参仍 400）→ `runsAccess` 未配置/拒绝 403（先鉴权后查记录，spy 证明拒绝路径零查询，不泄露记录存在性）→ 记录不存在/跨 surface/已淘汰同一 404（不泄露区分，淘汰即明确不可用）→ `commit` 缺失 409（统一覆盖排队/执行中与失败/取消终态）→ 200 返回该运行固定 `NexusSurfaceCommit`（无包装）。查询路径只读 runManager、不持有 actionStateStore，结构上不存在回退最新快照；「淘汰 A 后同 surface 新增可查询 commit 作对照，再查 A 得 404」反例固化历史结果不受后续提交/淘汰影响。
-- **baseline 夹具升级真实入口**：两份时序夹具（并发 B 提交在查询前/查询后 action 前）经真实 HTTP 驱动——查询 A 恒返 A 的固定旧 revision，旧 revision 的下一枚 action 被 400 拒、handler 零调用、快照保持服务端 revision。
-- **S2.5.4 响应头**：`transport/sse.ts` 新增 `NEXUS_RUN_ID_HEADER` 常量与 `prepareSseResponse(ctx, options?)`，头在 `flushHeaders` 之前、`ctx.respond=false` 同步占用点写入；空/非字符串 runId 在任何头写入前显式报错；排队 run 响应被占用瞬间即带头（真实 HTTP 断言：第二请求 fetch 解析时头已在且源未启动）；客户端断开取消后同 surface 后续 run 获新标识，旧运行保持 canceled；`sendMessages` 原始路径永不带头（verifier 的「非 SDK 运行」负向信号）。两参考服务 CORS `exposeHeaders` 在宿主现有暴露集上合并该头，不接管授权策略。主线程将 `NEXUS_RUN_ID_HEADER` 提升为根入口公开导出并更新 public-api 快照与取值断言。
-- **文档**：SPEC §5.1 查询 bullet 标注实施口径、新增 §5.3「传输关联与响应头」；主线程同步 §2/§4/§5.1 状态句。
-- **证伪**：.3 新增 12 项，实现前 12 红（路由缺失全 404）→ 实现后 12 绿；.4 新增 9 项，实现前 8 红 → 9/9 绿（复跑 3 次稳定，期间修复两个测试自身的挂起/时序缺陷，与实现无关）。
-- **组 2 根门禁（Node v24.16.0，主线程执行）**：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、根 `pnpm test` 均退出 0；测试 core 306 / React 51 / server 268 / playground 16 / standalone 21 + jsdom 1 / playground-server 73，共 736 项。触碰文件定向 Prettier 全绿、`git diff --check` 通过。未执行仓外安装、真实浏览器、远端 CI；verifier/RPC（.6）与并发关联复核（.7：非 HTTP/HTTP 同源、重复标识、旧 envelope 混入、查询-淘汰窗口交错）归提交组 3。
-
-
-当前补充：S2.5.3/.4 已完成；verifier/RPC 与并发复核 .6/.7 随下一提交收口。
+- 流消费：verifier 改为消费实际响应目的流，等待 finish 后解析，按 UTF-8 流解码并在 finally 清理 body/response；删除仅监听 body.data 的旁路采集，避免 unread res 超过缓冲阈值后截断。真实 HTTP 回归使用 13 条合法消息（含大段中文与 emoji），覆盖大于缓冲阈值的输出及最终 done。
+- 契约单源：抽取内部 catalog-contract-validation，由 onboarding 发布与消费共用版本、hash 格式/一致性、完整 Catalog 注册闸门和标准 prompt 校验；消费端在 Agent 调用前拒绝非法内嵌版本、错误/缺失 prompt 与 hash 正确但非法 Catalog。未新增公开根入口或契约版本。
+- 报告权威：actionContext 从实际 RPC handler 入口深拷贝，记录 inputs 准入和参数重算后的值；输入前客户端 context 仅用于请求。回归对照旧模型 score=3、输入/RPC/report score=4，展示型及无参数 action 的既有语义继续回归。
+- 文档：ARCHITECTURE/DESIGN 删除现状段落中 S2.5 查询/响应头/verifier 仍待实施的过期描述；server README 补查询状态码、响应头、envelope 和固定 done，SPEC 与根 README/本文件同步，根 SOP 记录教训。PRD 无需求变化。保留日期明确的历史切片证据，完整关联门控归 S2.6.3，完整调度/背压/commitState 归 S3，Session 归 S3/S4。
+- 证伪：修复前 5 个行为断言失败（大流缺 done、report 仍为 3、消费端接受内嵌非法版本及错误/缺失 prompt）；修复后定向 20 项通过，随后补入消费端非法 Catalog 拒绝反例，根测试全绿。
+- 最终门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、server 包 `pnpm -C packages/nexus-server lint`、根 `pnpm test` 均退出 0；core 306 / React 51 / server 285 / playground 16 / playground-server 73 / standalone 21 + jsdom 1，共 753 项。core 构建先于 React/消费方测试；HTTP/tsx IPC 测试使用获准的沙箱外入口。首次 build 的 unknown 类型收窄错误修正后重跑通过。
+- 产物与复核：三包 dist 公开根入口原生 ESM 加载通过；仅消费公开 dist API 的复现脚本证实大流 13 条消息和 done 完整、report/RPC 均为 score=4、非法内嵌版本在 Agent 调用前拒绝。全部变更 TS 定向 Prettier、29 个本地文档链接、`git diff --check` 通过。按 SDK review 四维清单复核，无新增 actionable finding；删除了旁路流采集与重复宽松校验，后续阶段按原计划推进。
+- 未执行仓外干净安装、真实浏览器或远端 CI；本次修复未提交、未推送。

@@ -105,7 +105,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 提交采用「输入基础模型 → handler patch」顺序，归一化结果及根替换以 handler 为准；消息源先发输入模型再发 patch，保证浏览器与存储组合一致。实例级单调计数器不因删除/淘汰重号，action 提交同时核对 revision/epoch；非 HTTP 正常 EOF 仍持锁，直到 commit/onError/dispose。移除按 HTTP 回写 `streamClaimed` 转移锁所有权的机制。
 
-复审同时提前接通最小 HTTP 契约：只接收 `{ message, nexus }`，保留客户端 actionId，不读取最新快照为旧视图填充基准。commit 捕获并返回固定 `NexusSurfaceCommit`，成功 done 直接发布；两个参考浏览器仅为成功消费的本次视图保存该结果，缺终态/失败/本地拒绝后不开放 action。**S2.5.1/.2/.5 已交付并完成评审修复（2026-10-20）**：运行 ID 与提交身份统一校验，adapter 持有传输无关的结果留存所有者；发布强制绑定实际执行声明，首次使用固定副本；onboarding 完整校验。**剩余 S2.5**：按 run 查询、`X-Nexus-Run-Id`、verifier/RPC 贯通与并发关联复核；完整会话和预览隔离仍属 S3/S4。此处替代首轮七项整改中的 patch 后写输入、仅 epoch 核对与可信 HTTP 补基准方案。
+复审同时提前接通最小 HTTP 契约：只接收 `{ message, nexus }`，保留客户端 actionId，不读取最新快照为旧视图填充基准。commit 捕获并返回固定 `NexusSurfaceCommit`，成功 done 直接发布；两个参考浏览器仅为成功消费的本次视图保存该结果，缺终态/失败/本地拒绝后不开放 action。**S2.5.1/.2/.5 已交付并完成评审修复（2026-10-20）**：运行 ID 与提交身份统一校验，adapter 持有传输无关的结果留存所有者；发布强制绑定实际执行声明，首次使用固定副本；onboarding 完整校验。**S2.5 全部七项已完成（2026-10-20）**：按 run 查询、`X-Nexus-Run-Id`、verifier/RPC 贯通与并发关联复核已交付。整体评审修正将 onboarding 发布/消费的完整校验合并为内部单一入口；verifier 观察实际 handler 权威参数，并消费响应目的流至结束，避免缓冲阈值影响验收结论。消费方完整关联门控归 S2.6.3，完整调度/背压/commitState 归 S3，会话和预览隔离仍属 S3/S4。此处替代首轮七项整改中的 patch 后写输入、仅 epoch 核对与可信 HTTP 补基准方案。
 
 **依据与代价（改造前基线）**：原写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 已随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
 

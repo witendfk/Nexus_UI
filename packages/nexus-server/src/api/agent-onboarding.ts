@@ -1,12 +1,5 @@
-import { CatalogRegistry, createCatalogPromptContract } from '@nexus-ui/core';
-import type { CatalogDefinition } from '@nexus-ui/core';
-import { SERVER_API_VERSION } from '../version';
 import type { CatalogContractPayload } from './routes';
-import {
-  CATALOG_CONTRACT_VERSION,
-  createCatalogContractHash,
-  isCatalogContractHash,
-} from '../agent/catalog-contract';
+import { assertValidCatalogContractPayload } from '../agent/catalog-contract-validation';
 
 export const AGENT_ONBOARDING_CONTRACT_VERSION = 1;
 
@@ -105,51 +98,6 @@ export interface AgentOnboardingContractPayload {
     readonly checks: typeof AGENT_ONBOARDING_CHECKS;
     readonly command?: string;
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * S2.5.5：onboarding 只内嵌已校验且与发布一致的 catalog contract。版本、hash
- * 格式、catalog 形状与 hash↔内容一致性在此核对；hash 复用 server 既有实现，
- * 不复制解释器。非法输入在装配期显式失败，不生成自相矛盾的 onboarding 契约。
- */
-function assertValidCatalogContractPayload(payload: CatalogContractPayload): void {
-  const label = 'agent onboarding 的 catalog contract 无效';
-  if (!isRecord(payload)) throw new Error(`${label}: 必须是 catalog contract 对象`);
-  if (payload.serverApiVersion !== SERVER_API_VERSION) {
-    throw new Error(`${label}: serverApiVersion 必须是 ${SERVER_API_VERSION}`);
-  }
-  if (payload.kind !== 'catalog-contract') {
-    throw new Error(`${label}: kind 必须是 catalog-contract`);
-  }
-  if (payload.contractVersion !== CATALOG_CONTRACT_VERSION) {
-    throw new Error(`${label}: contractVersion 必须是 ${CATALOG_CONTRACT_VERSION}`);
-  }
-  if (!isCatalogContractHash(payload.contractHash)) {
-    throw new Error(`${label}: contractHash 必须是 sha256:<64 hex> 格式`);
-  }
-  if (
-    !isRecord(payload.catalog) ||
-    typeof payload.catalog.catalogId !== 'string' ||
-    payload.catalog.catalogId === ''
-  ) {
-    throw new Error(`${label}: catalog 必须是带非空 catalogId 的对象`);
-  }
-  new CatalogRegistry([payload.catalog as CatalogDefinition]);
-  if (
-    payload.promptContract !== createCatalogPromptContract(payload.catalog as CatalogDefinition)
-  ) {
-    throw new Error(`${label}: promptContract 与 catalog 内容不一致`);
-  }
-  if (typeof payload.promptContract !== 'string' || payload.promptContract === '') {
-    throw new Error(`${label}: promptContract 必须是非空字符串`);
-  }
-  if (payload.contractHash !== createCatalogContractHash(payload.catalog as CatalogDefinition)) {
-    throw new Error(`${label}: contractHash 与 catalog 内容不一致`);
-  }
 }
 
 export function createAgentOnboardingContract({

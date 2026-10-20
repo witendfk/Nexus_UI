@@ -16,14 +16,17 @@ src/
 
 - `GET /health`：健康检查；`agentMode`/`actionMode` 来自宿主显式配置，默认值不读取环境或模型 key。
 - `POST /api/a2ui/generate`：接收 `{ message?, catalogId }`；`catalogId` 必填，缺失即 400，不回落默认 Catalog。
-- `POST /api/a2ui/event`：接收 v0.9 client-to-server action 消息，流式返回同 surface 更新。
+- `POST /api/a2ui/event`：仅接收 `{ message, nexus }`；message 为 v0.9 action，nexus 含 sessionVersion/actionId/surfaceRevision/catalogHash/inputs，流式返回同 surface 更新。
 - `GET /api/a2ui/runs?surfaceId=`：运行记录查询；必须配置 `runsAccess` 宿主准入回调，未配置时一律 403（`RUNS_ACCESS_NOT_CONFIGURED`），回调拒绝为 403（`RUNS_ACCESS_DENIED`）。
+- `GET /api/a2ui/surface-state?surfaceId=&runId=`：返回指定运行的固定 `NexusSurfaceCommit`；缺参 400，`runsAccess` 未配置/拒绝 403，记录缺失/错 surface/淘汰 404，尚无提交结果 409。仅查固定留存，不回退最新快照。
+
+生成/action SSE 在占用响应时即携带 `X-Nexus-Run-Id`（公开常量 `NEXUS_RUN_ID_HEADER`），与成功 done.runId、运行记录 ID 和事件 ID 前缀同值。跨源读取需由宿主 CORS 配置暴露该头；查询必须使用裸 runId，不能解析事件 ID 猜测。原始 `sendMessages` 不提供运行标识头或固定提交结果。
 
 SSE 事件：
 
 - `message`：`data` 是一个已校验的 A2UI 消息。
 - `error`：Agent、模型或协议校验失败。
-- `done`：Agent 输出和生成 history 提交均成功后的流结束事件。
+- `done`：SDK 运行成功提交 UI 后，data 直接承载本次固定 `NexusSurfaceCommit`；不代表宿主业务副作用的事务结果。
 
 ## 显式装配契约
 
@@ -45,7 +48,7 @@ HTTP 与非 HTTP 使用同一传输无关的运行生命周期，非 HTTP 首次
 
 生成源工厂与 action handler 仅在消息源消费且容量准入成功后调用；它们抛错会使运行失败，HTTP 中通过 SSE error 返回。prepare 的准入错误仍发生在流前。容量拒绝/响应占用异常会释放运行、action 锁与宿主 dispose 资源，不遗留活动记录。
 
-发布 Catalog 时自动与实际 adapter 的执行声明核对；首次发布/执行会固定该 Catalog 副本，之后修改外部 registry 不影响当前 adapter。更新固定声明需重建 adapter 与发布路由。onboarding 校验完整 Catalog、版本、hash 与 prompt 一致性。
+发布 Catalog 时自动与实际 adapter 的执行声明核对；首次发布/执行会固定该 Catalog 副本，之后修改外部 registry 不影响当前 adapter。更新固定声明需重建 adapter 与发布路由。onboarding 发布与消费共用完整 Catalog、版本、hash 与 prompt 一致性校验。verifier 完整消费响应流，以成功 done 固定结果为 action 基准；报告 actionContext 为实际交给 handler 的权威参数隔离副本。消费方完整关联门控归 S2.6.3，完整调度/背压/commitState 归 S3，Session 归 S3/S4。
 
 外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
 

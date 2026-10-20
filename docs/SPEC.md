@@ -45,7 +45,7 @@ CatalogDefinition 已切换为 v2 形状（S2.2，2026-10-16）：`catalogId`、
 
 `createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v2 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路待 S4；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；按运行结果留存与发布一致性已在 S2.5.1/.2/.5 实施；`X-Nexus-Run-Id`、按运行查询与 verifier/RPC 的完整接线仍待 S2.5 后续切片。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
+**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路待 S4；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；按运行结果留存与发布一致性已在 S2.5.1/.2/.5 实施；按运行查询路由与 `X-Nexus-Run-Id` 响应头已在 S2.5.3/.4 实施（2026-10-20）；RPC 完整序列化与 verifier 按本次 done 固定结果对账已在 S2.5.6 实施（2026-10-20）。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
@@ -144,7 +144,7 @@ managed run 在底层 commit 成功后验证完整提交结构与本次固定身
 
 `InMemoryAgentRunManager` 写入与读取均深拷贝，后续状态迁移不能覆盖已留存结果；recordCommit 同时校验结构与记录 ID/surface，重复 ID 与重复结果显式拒绝。容量按插入序优先淘汰终态记录，queued/running 受保护，全部活动时显式拒绝新建。HTTP 与非 HTTP 均留存 adapter 提交边界的同一固定结果，不从最新快照拼装；结果淘汰后明确不可用。已确认提交后的观察/传输失败保留结果和成功事实，不另造 revision；完整 commitState/history 与统一调度归 S3。
 
-后续 S2.5 提供按运行结果对账与发布接线：
+按运行查询与结果对账接线（查询路由与响应头已实施 S2.5.3/.4，2026-10-20；verifier/RPC 贯通已实施 S2.5.6，2026-10-20；入口与并发关联复核已实施 S2.5.7，2026-10-20）：
 
 - `GET /api/a2ui/surface-state?surfaceId=<id>&runId=<id>` 两项必填，缺失/空值返回 400（参数校验先于准入）；先执行宿主 `runsAccess(surfaceId, ctx)`，未配置或拒绝均为 403，准入拒绝时不查询运行记录，不泄露记录存在性，再查询该 surface 下的运行结果。
 - server 在发布 UI revision 的提交边界保存不可变的 `NexusSurfaceCommit`，先于成功 `done` 可见；不能等查询时再读取最新 surface 拼装。200 响应体即为该运行的 `NexusSurfaceCommit`（无额外包装），即使同一 surface 后续已有其他提交，历史结果也不改变。记录不存在、与 surface 不匹配或已淘汰返回 404（三种原因同一响应体，不泄露区分）；运行存在但尚无可确认的 UI 提交结果返回 409——排队/执行中与失败/取消终态都没有已留存结果，按同一 409 语义处理。查询路径只读 run 记录所有者，不读当前 surface 快照，结构上不存在回退最新基准的可能；留存条数有界，记录淘汰允许查询失败，运行标识不得复用。
@@ -152,7 +152,11 @@ managed run 在底层 commit 成功后验证完整提交结构与本次固定身
 - 只有本地该次流成功、消息全部校验通过，且运行结果（当前为同次流 done，后续也可按 run 查询）的 session version/runId/surfaceId/catalogId 与本地运行一致、contractVersion/hash 与所用 Catalog 一致时，才能把该次视图与基准成对启用。查询失败、收到晚到的旧运行结果或本地校验失败时不开放 action；保留查询所归属的本地运行，不能把结果贴到另一份视图。
 - 另一提交无论发生在流完成后查询前，还是查询后 action 前，都不能替旧视图刷新基准：例如本地渲染 run A/revision 1，run B 已提交 revision 2，查询 A 仍返回 1，下一枚 action 因旧 revision 被拒。此时禁用该 surface 的 action，通过重新生成或受控完整快照恢复视图与基准；仅重新查询元数据或让用户再次点击不能恢复一致性。
 
-成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 将报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。结果留存已实施；查询、响应头与 verifier/RPC 接线仍待 S2.5 后续切片，完整 Session 生命周期由 S3/S4 实施。
+- verifier/RPC 贯通（S2.5.6，2026-10-20）：外部 Agent RPC 在共享准入后的 handler 内序列化完整已准入 action——nexus 元数据（actionId/sessionVersion/surfaceRevision/catalogHash）、服务端重算参数与最新输入 `inputs` 都出现在请求载荷；远端响应仍过同一 guard，RPC 适配不授予额外写路径权限。`verifyExternalAgentIntegration` 以本次成功 `done` 携带的固定 `NexusSurfaceCommit` 为唯一 action 基准并核对 runId/surfaceId/catalogId 与 SSE event id 前缀的关联，不再调用 `describeSurfaceContract` 以最新快照补基准；done 缺失或与运行不一致按失败处理，不虚构通过。可编辑路径（`editablePaths`）与待编辑值（`actionInputs`）由可信宿主夹具显式配置，SDK 不按组件名猜输入；展示型 Catalog（`actions: []`）跳过 action 阶段，`action-same-surface`/`action-root-stability` 按 skipped 记录并给出原因。verifier 完整消费实际响应目的流并等待结束后解析，合法输出不因流缓冲阈值而被截断；报告 `actionContext` 是 inputs 准入、参数重算后实际交给 RPC handler 的 context 深拷贝，跳过 action 时为 `{}`。verifier 报告、onboarding 契约 `verification.checks` 与 RPC 声明的检查项保持 id/顺序一致。查询 404/409 的不可对账口径在 verifier 侧等价于失败/skipped，不回退最新快照。
+
+- 入口与并发关联复核（S2.5.7，2026-10-20）：非 HTTP 消费的运行与 HTTP 路径同出 adapter 提交边界——纳入同一记录所有者，真实查询路由返回与两条路径的固定 commit 值一致；源 EOF 未显式提交按 409 处理（正常 EOF 不是终态）。查询与容量淘汰的窗口期交错经真实路由验证：读取先于淘汰返回被查运行自己的固定结果，查询到达前已淘汰返回 404，均不回退同 surface 的更新提交；查询键严格为裸 runId，事件 id 全值与被拒 envelope 的 actionId 均得 404。消费方完整关联门控仍未实施（归 S2.6.3），不能据此宣称 S2.6 或 Session v1 完成。
+
+成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 将报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。结果留存、按 run 查询、`X-Nexus-Run-Id` 响应头与 verifier/RPC 贯通已实施（S2.5.2/.3/.4/.6），入口与并发关联复核完成（S2.5.7，2026-10-20）；完整 Session 生命周期由 S3/S4 实施。
 
 首发流适配为 POST fetch/SSE：
 
@@ -217,7 +221,7 @@ Catalog Contract 版本在 S2 升至 2：hash 算法不变（对 `{ contractVers
 
 发布一致性切片（S2.5.5，2026-10-20 评审修正）：路由装配期对每个待发布 Catalog 先复制后经 core 注册闸门校验，contractHash、promptContract 与发布声明来自同一独立副本；必须通过实际 `adapter.describeCatalog(catalogId)` 读取执行声明并核对 hash，未注册或错配即装配失败，不提供独立的 executionRegistry 作为替代权威。adapter 在每个 Catalog 首次发布/执行时校验并固定声明副本，随后外部 registry 或调用方对象变更不影响该 adapter 的发布或执行；更新已固定 Catalog 需重建 adapter 并重新装配发布。允许只发布执行 Catalog 的子集，未发布项 404，不公开私有声明。
 
-发现客户端逐项校验 serverApiVersion、契约版本、完整 `sha256:<64 hex>` hash、组件/action 非空字符串及无重复、非空发现 URL，任一非法整体拒绝。对象键顺序不影响 hash，能力/schema 变化必须影响 hash；摘要和完整发布内容由同一副本推导。`createAgentOnboardingContract` 复制输入后检查 serverApiVersion、kind、contractVersion、hash 格式、完整 Catalog 注册合法性、hash 与内容一致、prompt 与 `createCatalogPromptContract(catalog)` 完全一致，并内嵌独立副本。本切片不新增线上字段或必需验收项，Catalog Contract 2、server API 1、onboarding 1、RPC 1 均保持，包版本遵循 workspace 发行规则；严格装配验证不引入第二套契约解释器。模块内部 `isCatalogContractHash`/`CATALOG_CONTRACT_HASH_PATTERN` 未进入公开根入口。
+发现客户端逐项校验 serverApiVersion、契约版本、完整 `sha256:<64 hex>` hash、组件/action 非空字符串及无重复、非空发现 URL，任一非法整体拒绝。对象键顺序不影响 hash，能力/schema 变化必须影响 hash；摘要和完整发布内容由同一副本推导。`createAgentOnboardingContract` 复制输入后检查 serverApiVersion、kind、contractVersion、hash 格式、完整 Catalog 注册合法性、hash 与内容一致、prompt 与 `createCatalogPromptContract(catalog)` 完全一致，并内嵌独立副本；`verifyExternalAgentOnboarding` 在调用 Agent 前复用同一内部校验，内嵌契约不能采用较宽松规则（2026-10-20 整体评审修正）。本切片不新增线上字段或必需验收项，Catalog Contract 2、server API 1、onboarding 1、RPC 1 均保持，包版本遵循 workspace 发行规则；严格装配验证不引入第二套契约解释器。模块内部 `isCatalogContractHash`/`CATALOG_CONTRACT_HASH_PATTERN` 未进入公开根入口。
 
 新增 client 后，只通过四包公开入口消费；不强制所有应用安装四包。协议/Profile 与组件能力校验使用共享正常/非法 fixture 在 core、server 和 client/React 接入验证，不等待业务应用重建。conformance 变更须显式更新分类理由和基线。
 
