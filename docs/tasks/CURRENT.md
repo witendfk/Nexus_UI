@@ -451,3 +451,18 @@ P1/P2 均已修复：Profile 移除固定 SDK 标准声明查表与 DateTimeInpu
 - 最终门禁（Node v24.16.0）：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、递归各包 lint 与根 `pnpm test` 均退出 0；core 306（含 conformance，基线不变）/ React 51 / server 247 / playground 16 / playground-server 73 / standalone 21 + jsdom 1，共 715 项。core 已构建后再运行 React/消费方；HTTP/tsx IPC 测试按已获准的沙箱外入口执行。
 - 产物与文档：三包 dist 公开根入口原生 ESM 加载通过；经 dist server 公开入口实际生成、非 HTTP commit 与 adapter 结果留存一致。变更 TS 定向 Prettier、29 个本地文档链接、`git diff --check` 通过；Markdown 按仓库配置不纳入 Prettier。按 SDK review 四项清单复核修复调用链，无新增 actionable finding。
 - 未执行仓外安装、真实浏览器、远端 CI；本轮未提交或推送。按用户指定 .1+.2+.5 / .3+.4 / .6+.7 分组，后两组及 S2.6/S2.7 仍待实施。
+
+
+## S2.5.3/2.5.4 实施验证（2026-10-20，提交组 2）
+
+范围为 S2.5 第三波并行切片：按 run 查询与访问控制（.3）、响应头与传输关联（.4）。文件所有权不相交（.3：surface-state/routes/run-manager + SPEC §5.1；.4：send-messages/transport-sse/两参考服务 CORS + 新增 SPEC §5.3），主线程完成公开导出收尾与状态句同步。实际提交哈希只在提交成功后回填。
+
+- **S2.5.3 查询路由**：`GET /api/a2ui/surface-state?surfaceId=&runId=` 落地于 `surface-state.ts`（原类型别名），routes.ts 装配注入已核对的 `adapter.runManager` 与宿主 `runsAccess`（沿用「router manager ≠ adapter manager 即装配失败」）。判定顺序：缺参 400（先于准入，未配置 runsAccess 时缺参仍 400）→ `runsAccess` 未配置/拒绝 403（先鉴权后查记录，spy 证明拒绝路径零查询，不泄露记录存在性）→ 记录不存在/跨 surface/已淘汰同一 404（不泄露区分，淘汰即明确不可用）→ `commit` 缺失 409（统一覆盖排队/执行中与失败/取消终态）→ 200 返回该运行固定 `NexusSurfaceCommit`（无包装）。查询路径只读 runManager、不持有 actionStateStore，结构上不存在回退最新快照；「淘汰 A 后同 surface 新增可查询 commit 作对照，再查 A 得 404」反例固化历史结果不受后续提交/淘汰影响。
+- **baseline 夹具升级真实入口**：两份时序夹具（并发 B 提交在查询前/查询后 action 前）经真实 HTTP 驱动——查询 A 恒返 A 的固定旧 revision，旧 revision 的下一枚 action 被 400 拒、handler 零调用、快照保持服务端 revision。
+- **S2.5.4 响应头**：`transport/sse.ts` 新增 `NEXUS_RUN_ID_HEADER` 常量与 `prepareSseResponse(ctx, options?)`，头在 `flushHeaders` 之前、`ctx.respond=false` 同步占用点写入；空/非字符串 runId 在任何头写入前显式报错；排队 run 响应被占用瞬间即带头（真实 HTTP 断言：第二请求 fetch 解析时头已在且源未启动）；客户端断开取消后同 surface 后续 run 获新标识，旧运行保持 canceled；`sendMessages` 原始路径永不带头（verifier 的「非 SDK 运行」负向信号）。两参考服务 CORS `exposeHeaders` 在宿主现有暴露集上合并该头，不接管授权策略。主线程将 `NEXUS_RUN_ID_HEADER` 提升为根入口公开导出并更新 public-api 快照与取值断言。
+- **文档**：SPEC §5.1 查询 bullet 标注实施口径、新增 §5.3「传输关联与响应头」；主线程同步 §2/§4/§5.1 状态句。
+- **证伪**：.3 新增 12 项，实现前 12 红（路由缺失全 404）→ 实现后 12 绿；.4 新增 9 项，实现前 8 红 → 9/9 绿（复跑 3 次稳定，期间修复两个测试自身的挂起/时序缺陷，与实现无关）。
+- **组 2 根门禁（Node v24.16.0，主线程执行）**：根 `pnpm build`、`pnpm typecheck`、`pnpm lint`、根 `pnpm test` 均退出 0；测试 core 306 / React 51 / server 268 / playground 16 / standalone 21 + jsdom 1 / playground-server 73，共 736 项。触碰文件定向 Prettier 全绿、`git diff --check` 通过。未执行仓外安装、真实浏览器、远端 CI；verifier/RPC（.6）与并发关联复核（.7：非 HTTP/HTTP 同源、重复标识、旧 envelope 混入、查询-淘汰窗口交错）归提交组 3。
+
+
+当前补充：S2.5.3/.4 已完成；verifier/RPC 与并发复核 .6/.7 随下一提交收口。

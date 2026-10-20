@@ -97,3 +97,4 @@ export {
 export type { AgentOnboardingBoundaryCode, AgentOnboardingCheckId } from './api/agent-onboarding';
 export { sendAgentRun } from './api/send-messages';
 export type { SendMessagesResult, SendAgentRunOptions } from './api/send-messages';
+export { NEXUS_RUN_ID_HEADER } from './transport/sse';

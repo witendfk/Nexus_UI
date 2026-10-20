@@ -136,7 +136,7 @@ revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不
 
 当前最小接线（S2.4 复审修复，2026-10-19）：Adapter 的 commit 返回提交边界捕获的 `NexusSurfaceCommit`；`sendAgentRun` 成功 `done` 携带同一固定结果，其 runId 与本次 SSE event id 前缀一致，不在终态查询最新快照。core 公开 `parseSurfaceCommit` 校验版本、标识、hash 和正安全整数 revision，Catalog Contract 版本常量由 core 定义并由 server 复用。两个参考浏览器从同次流的成功 `done` 保留该基准，在 EOF、错误、版本/标识不符或本地消息拒绝时关闭后续 action；请求携带原 actionId 与 `getLatestInputs`。这只是现有消费方的最小门控，完整隔离预览/恢复会话仍由 S3/S4 实施。
 
-运行标识统一（S2.5.1，2026-10-19）：一次 run 只分配一个不可变 ID，由运行创建方生成并经 `AgentRun.runId` 暴露；非 HTTP commit、SSE event id 前缀、成功 done 与 run-manager 运行记录使用同值。发送层 `sendAgentRun` 不再以另一个 idPrefix 改写 `commit.runId`，也不为同一运行生成第二个标识；旧签名 `sendAgentRun(ctx, run, idPrefix, options)` 中的字符串实参是被忽略的兼容槽位，调用方应迁移到 `sendAgentRun(ctx, run, options)`，不留第二套身份解释。`AgentRun.commit` 必须返回结构合法且 runId、surfaceId、catalogId、catalogHash 与准备阶段捕获身份完全一致的 `NexusSurfaceCommit`；空对象、缺字段或错配都按运行失败处理，不留存结果、不发布成功 done。校验返回值只保留规范字段，不能依赖 TypeScript 签名或非空判断；原始 `sendMessages` 是非运行工具路径，不产生运行记录，其终态不承载 `NexusSurfaceCommit`。自定义 `AgentRun` 实现必须迁移到返回固定 commit 的签名；自定义 `AgentRunManager` 实现必须实现结果接口 `recordCommit(id, commit)`（记录先经 `create` 建立，提交边界写入、成功 done 之前可读），无记录时显式报错。HTTP 响应头接线归 S2.5.4，按 run 查询路由归 S2.5.3，有界留存与重复标识拒绝的完整语义归 S2.5.2。
+运行标识统一（S2.5.1，2026-10-19）：一次 run 只分配一个不可变 ID，由运行创建方生成并经 `AgentRun.runId` 暴露；非 HTTP commit、SSE event id 前缀、成功 done 与 run-manager 运行记录使用同值。发送层 `sendAgentRun` 不再以另一个 idPrefix 改写 `commit.runId`，也不为同一运行生成第二个标识；旧签名 `sendAgentRun(ctx, run, idPrefix, options)` 中的字符串实参是被忽略的兼容槽位，调用方应迁移到 `sendAgentRun(ctx, run, options)`，不留第二套身份解释。`AgentRun.commit` 必须返回结构合法且 runId、surfaceId、catalogId、catalogHash 与准备阶段捕获身份完全一致的 `NexusSurfaceCommit`；空对象、缺字段或错配都按运行失败处理，不留存结果、不发布成功 done。校验返回值只保留规范字段，不能依赖 TypeScript 签名或非空判断；原始 `sendMessages` 是非运行工具路径，不产生运行记录，其终态不承载 `NexusSurfaceCommit`。自定义 `AgentRun` 实现必须迁移到返回固定 commit 的签名；自定义 `AgentRunManager` 实现必须实现结果接口 `recordCommit(id, commit)`（记录先经 `create` 建立，提交边界写入、成功 done 之前可读），无记录时显式报错。HTTP 响应头已接线（S2.5.4，`X-Nexus-Run-Id`），按 run 查询路由已实施（S2.5.3），有界留存与重复标识拒绝的完整语义已实施（S2.5.2）。
 
 提交结果留存（S2.5.2，2026-10-20 评审修正）：传输无关的 managed run 是运行生命周期入口，adapter 持有每实例隔离的 `runManager`（可在 adapter 构造时注入），HTTP、非 HTTP generation/action 共用同一记录所有者。非 HTTP 首次消费 source 或调用 commit 时建立 queued/running 记录；HTTP 在同步占用 SSE 响应前先预留 queued 记录，排队完成后转 running。生成源工厂与 action handler 均延迟到消息源消费、记录容量准入成功之后才调用；工厂/handler 抛错属于运行失败，HTTP 已占用响应时用 SSE error 收场。prepare 阶段的协议/权限/参数/resolver 拒绝仍在流前完成。正常 source EOF 或迭代器 return 不等于提交，直接消费者必须 commit/onError/dispose 显式结束；source 异常会结束运行并释放资源。
 
@@ -146,8 +146,8 @@ managed run 在底层 commit 成功后验证完整提交结构与本次固定身
 
 后续 S2.5 提供按运行结果对账与发布接线：
 
-- `GET /api/a2ui/surface-state?surfaceId=<id>&runId=<id>` 两项必填，缺失/空值返回 400；先执行宿主 `runsAccess(surfaceId, ctx)`，未配置或拒绝均为 403，再查询该 surface 下的运行结果。
-- server 在发布 UI revision 的提交边界保存不可变的 `NexusSurfaceCommit`，先于成功 `done` 可见；不能等查询时再读取最新 surface 拼装。200 响应只返回指定运行的固定结果，即使同一 surface 后续已有其他提交，历史结果也不改变。surface/run 不存在、两者不匹配或结果已淘汰返回 404；运行存在但尚无可确认的 UI 提交结果返回 409。任何不可用情况均不得回退到最新基准；留存条数有界，记录淘汰允许查询失败，运行标识不得复用。
+- `GET /api/a2ui/surface-state?surfaceId=<id>&runId=<id>` 两项必填，缺失/空值返回 400（参数校验先于准入）；先执行宿主 `runsAccess(surfaceId, ctx)`，未配置或拒绝均为 403，准入拒绝时不查询运行记录，不泄露记录存在性，再查询该 surface 下的运行结果。
+- server 在发布 UI revision 的提交边界保存不可变的 `NexusSurfaceCommit`，先于成功 `done` 可见；不能等查询时再读取最新 surface 拼装。200 响应体即为该运行的 `NexusSurfaceCommit`（无额外包装），即使同一 surface 后续已有其他提交，历史结果也不改变。记录不存在、与 surface 不匹配或已淘汰返回 404（三种原因同一响应体，不泄露区分）；运行存在但尚无可确认的 UI 提交结果返回 409——排队/执行中与失败/取消终态都没有已留存结果，按同一 409 语义处理。查询路径只读 run 记录所有者，不读当前 surface 快照，结构上不存在回退最新基准的可能；留存条数有界，记录淘汰允许查询失败，运行标识不得复用。
 - 生成与 action 的 SSE 响应在 S2.5 显式携带 `X-Nexus-Run-Id` 响应头（跨源使用时须暴露该头），值与本次运行及其 SSE event id 前缀一致；浏览器把响应、已校验消息与成功 `done` 作为同一次本地运行关联，不能通过解析 event id 格式或查询最新 run 猜测标识。A2UI 消息形状不变；成功 `done` 已直接承载固定提交结果。
 - 只有本地该次流成功、消息全部校验通过，且运行结果（当前为同次流 done，后续也可按 run 查询）的 session version/runId/surfaceId/catalogId 与本地运行一致、contractVersion/hash 与所用 Catalog 一致时，才能把该次视图与基准成对启用。查询失败、收到晚到的旧运行结果或本地校验失败时不开放 action；保留查询所归属的本地运行，不能把结果贴到另一份视图。
 - 另一提交无论发生在流完成后查询前，还是查询后 action 前，都不能替旧视图刷新基准：例如本地渲染 run A/revision 1，run B 已提交 revision 2，查询 A 仍返回 1，下一枚 action 因旧 revision 被拒。此时禁用该 surface 的 action，通过重新生成或受控完整快照恢复视图与基准；仅重新查询元数据或让用户再次点击不能恢复一致性。
@@ -178,6 +178,16 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 成功 done 且本地消息全部通过校验，client 才把本次预览提升为已提交视图并开放 action。失败/取消丢弃本次预览；保留原已提交视图用于展示。commitState unknown、客户端与服务端 revision/hash 不一致或 done 后本地校验失败时，将该 surface 标记失同步并禁用 action，直到显式恢复/重新生成。
 
 恢复通过宿主提供的受控 surface 快照或重新生成完成；快照必须核对 revision/hash 并重新经过校验。业务结果恢复由宿主回调或查询实现，可使用宿主提供的不透明操作关联标识。SDK 不推断业务可重试，也不回滚已执行副作用。
+
+### 5.3 传输关联与响应头（S2.5.4 已实施）
+
+生成与 action 的 SSE 响应在同步占用响应时携带 `X-Nexus-Run-Id` 响应头：写入发生在 `flushHeaders` 之前、`ctx.respond = false` 接管响应生命周期的同一同步点，值为本次运行的唯一不可变 ID，与运行记录 id、SSE event id 前缀和成功 `done` 载荷的 `runId` 同值（§5.1）。响应头只依赖运行标识本身，不等待运行记录建立或队列排空——排队 run 的响应在被占用的瞬间即带头，客户端无须等待即可取得本次运行的关联标识；容量拒绝等未占用响应的失败路径不产生该头。原始 `sendMessages` 是非 SDK 运行路径，不携带该头。
+
+跨源可读由适配层与参考装配显式完成：宿主 CORS 装配以 `Access-Control-Expose-Headers` 暴露该头，并在宿主已有暴露配置上合并（参考服务在其当前为空的暴露集上合并）；SDK 不接管宿主的 CORS 授权策略，也不在宿主未显式暴露时声称跨源可读。
+
+消费者关联本次运行的权威入口是 `X-Nexus-Run-Id` 响应头与成功 `done` 载荷（按 run 查询路由已由 S2.5.3 实施，见 §5.1 后续列表）。消费者不得解析 SSE event id 格式来猜 runId：event id 只是流内帧标识，不是公开查询键；SDK 不提供也不暗示该用法，关联核对以显式响应头与 `done` 元数据为准。
+
+响应头写入失败与其它 SSE 响应头同策略：响应占用失败（含 `flushHeaders` 抛错）撤销已分配的流、运行转 failed 并释放宿主 dispose 资源，不留半占用响应。完整 Session/SSE 生命周期（`start` 事件、断线恢复）不在本切片内，归 S3/S4；按 run 查询路由已由 S2.5.3 实施（§5.1）。
 
 ## 6. 目标 server runtime（待实现）
 

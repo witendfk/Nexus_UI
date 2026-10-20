@@ -9,6 +9,7 @@ import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
 import { parseNexusActionRequest } from './nexus-request';
 import { isRecord, readJsonBody } from './request';
 import { sendAgentRun } from './send-messages';
+import { registerSurfaceStateQueryRoute } from './surface-state';
 import { SERVER_API_VERSION } from '../version';
 import {
   createAgentOnboardingContract,
@@ -314,6 +315,12 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       kind: 'agent-run-list',
       runs: runManager.listBySurface(surfaceId),
     } satisfies AgentRunListPayload;
+  });
+
+  // S2.5.3 按运行查询固定提交基线；准入沿用同一宿主 runsAccess（缺省 403）。
+  registerSurfaceStateQueryRoute(router, {
+    runManager,
+    ...(options.runsAccess === undefined ? {} : { runsAccess: options.runsAccess }),
   });
 
   router.get('/api/a2ui/agent-onboarding', (ctx) => {

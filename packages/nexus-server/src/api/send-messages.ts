@@ -13,6 +13,7 @@ import type { AgentRun } from '../agent/adapter';
 import type { AgentRunManager } from '../agent/run-manager';
 import { manageAgentRun, type ManagedAgentRun } from '../agent/run-lifecycle';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
+import type { PrepareSseResponseOptions } from '../transport/sse';
 
 export interface SendMessagesResult {
   messages: unknown[];
@@ -59,9 +60,14 @@ function createAgentStreamError(
  *    stream would be buffered into one burst. `ctx.respond = false` takes over
  *    the response lifecycle so bytes flow from the moment of the claim, no
  *    matter when — or whether — the caller returns.
+ *
+ * Response headers (including the run id header when `options.runId` is given)
+ * are written by `prepareSseResponse` before `flushHeaders`, so a claimed
+ * response — queued runs included — carries its identity from the moment it is
+ * occupied.
  */
-function claimSseResponse(ctx: Koa.Context): PassThrough {
-  prepareSseResponse(ctx);
+function claimSseResponse(ctx: Koa.Context, options?: PrepareSseResponseOptions): PassThrough {
+  prepareSseResponse(ctx, options);
   const stream = new PassThrough();
   const previousRespond = ctx.respond;
   try {
@@ -220,6 +226,13 @@ export function sendMessages(
  * whose `commit` produces no `NexusSurfaceCommit` cannot claim success — the
  * stream ends with an `error` event and the record is marked failed.
  *
+ * Transport correlation (S2.5.4): the claimed response carries the
+ * `X-Nexus-Run-Id` header set from `run.runId` before `flushHeaders` — queued
+ * runs included, since the claim is synchronous. Consumers correlate the
+ * response with the success `done` payload through this header; the SDK offers
+ * no way to derive a runId by parsing event id formats. Cross-origin reads are
+ * the host's CORS assembly responsibility (expose the header explicitly).
+ *
  * Commit retention belongs to the transport-neutral managed run. HTTP and direct
  * source/commit consumption share the adapter's record owner. Custom AgentRun
  * implementations are wrapped with an explicitly supplied manager. Reservation
@@ -267,7 +280,10 @@ export function sendAgentRun(
     managed = manageAgentRun(run, options?.manager, options?.signal);
     managed.reserve();
     // Synchronously claim even queued responses, but only after capacity was reserved.
-    stream = claimSseResponse(ctx);
+    // S2.5.4: the run id header is written inside prepareSseResponse, i.e. before
+    // flushHeaders — a queued run carries its identity from the moment its response
+    // is occupied, without waiting for the queue or any run record consumption.
+    stream = claimSseResponse(ctx, { runId: managed.runId });
   } catch (error) {
     try {
       if (managed) managed.fail(error);

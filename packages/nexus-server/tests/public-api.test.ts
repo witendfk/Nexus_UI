@@ -13,6 +13,7 @@ describe('server host-assembly public API surface', () => {
       'FileSurfaceHistoryStore',
       'InMemoryAgentRunManager',
       'InMemorySurfaceHistoryStore',
+      'NEXUS_RUN_ID_HEADER',
       'SERVER_API_VERSION',
       'VERSION',
       'createAgentOnboardingContract',
@@ -47,5 +48,6 @@ describe('server host-assembly public API surface', () => {
   it('marks the limited assembly API without starting the reference server', () => {
     assert.equal(publicApi.VERSION, '0.1.0');
     assert.equal(publicApi.SERVER_API_VERSION, 1);
+    assert.equal(publicApi.NEXUS_RUN_ID_HEADER, 'X-Nexus-Run-Id');
   });
 });

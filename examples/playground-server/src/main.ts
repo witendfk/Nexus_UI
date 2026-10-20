@@ -5,7 +5,11 @@
  */
 import Koa from 'koa';
 import cors from '@koa/cors';
-import { createAgentRouter, FileSurfaceHistoryStore, InMemorySurfaceHistoryStore } from '@nexus-ui/server';
+import {
+  createAgentRouter,
+  FileSurfaceHistoryStore,
+  InMemorySurfaceHistoryStore,
+} from '@nexus-ui/server';
 import type { SurfaceHistoryStore } from '@nexus-ui/server';
 import { loadProjectEnv } from './config/env';
 import { isLlmAgentEnabled } from './agent/llm-agent';
@@ -32,7 +36,12 @@ const router = createAgentRouter({
   runsAccess: () => true,
 });
 
-app.use(cors());
+// S2.5.4：SSE 响应携带 X-Nexus-Run-Id，跨源客户端可读需显式暴露。
+// 在宿主已有暴露头（当前为空）上合并；只增补暴露，不接管 CORS 授权策略。
+const hostExposeHeaders: string[] = [];
+const exposeHeaders = [...new Set([...hostExposeHeaders, 'X-Nexus-Run-Id'])];
+
+app.use(cors({ exposeHeaders }));
 app.use(router.routes());
 app.use(router.allowedMethods());
 
