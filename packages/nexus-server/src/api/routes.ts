@@ -1,11 +1,10 @@
 import type Koa from 'koa';
 import Router from '@koa/router';
 import { randomUUID } from 'node:crypto';
+import { CatalogRegistry, createCatalogPromptContract } from '@nexus-ui/core';
 import type { CatalogDefinition } from '@nexus-ui/core';
-import { createCatalogPromptContract } from '@nexus-ui/core';
 
 import type { AgentAdapter, AgentPlan } from '../agent/adapter';
-import { InMemoryAgentRunManager } from '../agent/run-manager';
 import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
 import { parseNexusActionRequest } from './nexus-request';
 import { isRecord, readJsonBody } from './request';
@@ -39,7 +38,7 @@ export interface AgentRouterOptions {
   };
   /** Demo-only pacing; production assemblies should omit this delay. */
   streamDelayMs?: number;
-  /** Host-replaceable run observability store. */
+  /** Optional assertion of the adapter owner; inject custom storage at AgentAdapter.runManager. */
   runManager?: AgentRunManager;
   /**
    * Host access predicate for `GET /api/a2ui/runs`. It receives the queried
@@ -91,6 +90,39 @@ function contractUrl(ctx: Koa.Context, path: string, catalogId: string): string 
   return url.toString();
 }
 
+/**
+ * S2.5.5：发布内容与执行契约一致。装配期先复制再校验，hash、prompt 与发布的
+ * catalog 全部来自同一份独立副本——初始化后修改调用方对象不能造成内容/hash
+ * 分裂。注册闸门复用 core 既有规则，不复制通用 schema 解释器。
+ */
+function buildPublishedCatalogContract(
+  catalog: CatalogDefinition,
+  adapter: AgentAdapter,
+): CatalogContractPayload {
+  const published = structuredClone(catalog);
+  try {
+    new CatalogRegistry([published]);
+  } catch (error) {
+    throw new Error(
+      `公开 Catalog 未通过注册校验: ${published.catalogId} (${
+        error instanceof Error ? error.message : String(error)
+      })`,
+    );
+  }
+  const actual = adapter.describeCatalog(published.catalogId);
+  if (!actual || createCatalogContractHash(actual) !== createCatalogContractHash(published)) {
+    throw new Error(`公开 Catalog 与 adapter 实际执行契约不一致: ${published.catalogId}`);
+  }
+  return {
+    serverApiVersion: SERVER_API_VERSION,
+    kind: 'catalog-contract',
+    contractVersion: CATALOG_CONTRACT_VERSION,
+    contractHash: createCatalogContractHash(published),
+    catalog: published,
+    promptContract: createCatalogPromptContract(published),
+  };
+}
+
 function createRequestAbortSignal(ctx: Koa.Context): {
   signal: AbortSignal;
   dispose: () => void;
@@ -112,20 +144,17 @@ function createRequestAbortSignal(ctx: Koa.Context): {
 
 export function createAgentRouter(options: AgentRouterOptions): Router {
   const router = new Router();
-  const runManager = options.runManager ?? new InMemoryAgentRunManager();
+  const runManager = options.adapter.runManager;
+  if (options.runManager !== undefined && options.runManager !== runManager) {
+    throw new Error('router runManager 必须与 adapter 的 runManager 所有者一致');
+  }
   const catalogContracts = new Map<string, CatalogContractPayload>();
   for (const catalog of options.catalogContracts ?? []) {
-    if (catalogContracts.has(catalog.catalogId)) {
-      throw new Error(`Catalog contract 重复公开: ${catalog.catalogId}`);
+    const payload = buildPublishedCatalogContract(catalog, options.adapter);
+    if (catalogContracts.has(payload.catalog.catalogId)) {
+      throw new Error(`Catalog contract 重复公开: ${payload.catalog.catalogId}`);
     }
-    catalogContracts.set(catalog.catalogId, {
-      serverApiVersion: SERVER_API_VERSION,
-      kind: 'catalog-contract',
-      contractVersion: CATALOG_CONTRACT_VERSION,
-      contractHash: createCatalogContractHash(catalog),
-      catalog,
-      promptContract: createCatalogPromptContract(catalog),
-    });
+    catalogContracts.set(payload.catalog.catalogId, payload);
   }
 
   const onboardingContracts = new Map<string, AgentOnboardingContractPayload>();

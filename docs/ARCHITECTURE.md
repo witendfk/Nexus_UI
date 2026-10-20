@@ -160,7 +160,7 @@ EOF 不是 done。失败后可以保留上次已提交视图展示，但提交�
 
 会话层与 React 同时执行交互门控：标准/自定义动作组件反映禁用态，动作出口也核对当前 revision 可提交。一个组件忽略 disabled 不能绕过 session 门控。
 
-S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，再按 surfaceId/runId 查询该次运行固定的 `NexusSurfaceCommit`。结果由 server 在提交边界保存，不能由最新快照事后拼装；浏览器只有在同一运行成功、本地消息校验通过且关联字段吻合时才把视图和基准成对启用。S3 的成功 done 直接携带同一类型；仅查询元数据不构成视图恢复。
+S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，与已在 S2.4 接通的成功 done 固定结果核对；按 surfaceId/runId 查询仅用于核对该次运行结果。结果由 server 在提交边界保存，不能由最新快照事后拼装；浏览器只有在同一运行成功、本地消息校验通过且关联字段吻合时才把视图和基准成对启用。S3 继续复用同一结果类型并补齐完整 Session 生命周期；仅查询元数据不构成视图恢复。
 
 ## 6. server：准入、运行与 HTTP 分离（目标）
 
@@ -175,6 +175,10 @@ S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id
   → HTTP 适配：SSE 序列化、背压、断开与收尾
 ```
 
+**当前实施（S2.5.1/.2/.5，2026-10-20 评审修正）**：adapter 的传输无关 managed run 统一 ID、提交身份校验与结果留存；每个 adapter 持有隔离或注入的 runManager，HTTP/直接消费共用。Koa sender 仅负责响应占用、guard/pump 与传输收尾，预留容量后才占用响应；生成源工厂/handler 在 source 消费时调用，失败经统一终态清理。直接消费的正常 EOF 仍需显式 commit/onError/dispose。模块级 surface 队列尚存，统一调度和完整 Session 归 S3。
+
+发布路由强制读取实际 adapter 的 Catalog 并核对声明 hash；adapter 每个 Catalog 首次发布/执行时固定副本，外部修改不能造成发布/执行分裂。onboarding 同时校验完整声明、版本、hash 与 prompt，无独立 executionRegistry 权威。查询、响应头与 verifier/RPC 贯通仍待 S2.5.3/.4/.6/.7。
+
 运行模块不接受 Koa Context，不通过 HTTP 层回写 `streamClaimed` 来转移锁所有权。Koa 适配器保留已有调用时响应占用语义；相同运行在非 Koa 消费中无需伪造 Context。Host 可保留自己的路由与认证栈，不必启用参考 router 的全部端点。
 
 ### 6.2 生成与 action 顺序
@@ -187,7 +191,7 @@ handler 在排队准入完成后调用。输入只形成临时模型；未经接
 
 ### 6.3 调度、存储与所有权
 
-当前 S2.4 复审实现（2026-10-19）：action 在准备到 commit/onError/dispose 期间持锁，非 HTTP 正常 EOF 不释放；store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增。准入与 patch guard 使用固定 Catalog，guard 从已提交组件与临时输入模型起步；输入基础模型先于 handler patch 应用并随消息源发送，存储入界/出界均深拷贝。HTTP 不补当前基准、不换 actionId；成功 done 发布提交时捕获的固定结果，两个参考消费方用其为实际视图提供后续请求基准。按运行结果留存/查询及完整 Session 生命周期仍待 S2.5/S3/S4。
+当前 S2.4 复审实现（2026-10-19）：action 在准备到 commit/onError/dispose 期间持锁，非 HTTP 正常 EOF 不释放；store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增。准入与 patch guard 使用固定 Catalog，guard 从已提交组件与临时输入模型起步；输入基础模型先于 handler patch 应用并随消息源发送，存储入界/出界均深拷贝。HTTP 不补当前基准、不换 actionId；成功 done 发布提交时捕获的固定结果，两个参考消费方用其为实际视图提供后续请求基准。运行结果留存已在 S2.5.2 实施；按运行查询及完整 Session 生命周期仍待 S2.5 后续切片/S3/S4。
 
 同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。所有监听器、源迭代器和锁都在终态或 dispose 路径释放。
 

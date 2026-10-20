@@ -89,7 +89,8 @@ async function createHarness(
         version: 'v0.9',
         updateDataModel: {
           surfaceId: action.surfaceId,
-          value: { counter: action.context.counter },
+          path: '/counter',
+          value: action.context.counter,
         },
       },
     ];
@@ -207,6 +208,8 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
       }),
     );
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
+    assert.equal(handlerCalls.length, 0, '消息源消费前不执行 handler');
+    for await (const message of plan.run.source) void message;
     assert.equal(handlerCalls.length, 1);
     // 参数来自临时输入模型（0.5），不是已提交模型（0.2）
     assert.deepEqual(handlerCalls[0]?.context, { counter: 0.2, note: '浏览器编辑' });
@@ -270,7 +273,9 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
       { counter: 0.2, note: '浏览器编辑' },
       'resolver 收到共享准入重算的参数',
     );
+    for await (const message of ok.run.source) void message;
     assert.deepEqual(handlerCalls[0], { counter: 0.2, note: '浏览器编辑' });
+    ok.run.dispose?.();
 
     // resolver 输出未声明键：即使输入已准入，也必须拒绝且 handler 未调用
     const store2 = new InMemorySurfaceActionStateStore();
@@ -317,10 +322,10 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
       }),
     );
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
-    // handler patch 只写 counter，不回显 note
-    await plan.run.commit([
-      { version: 'v0.9', updateDataModel: { surfaceId: SURFACE, path: '/counter', value: 0.2 } },
-    ]);
+    // 消费真实 handler partial patch；不另造不同作用域的待提交消息。
+    const messages: unknown[] = [];
+    for await (const message of plan.run.source) messages.push(message);
+    await plan.run.commit(messages);
     const after = await snapshotOf(store);
     assert.deepEqual(after.dataModel, { counter: 0.2, note: '浏览器编辑' });
     assert.ok(handlerCalls.length === 1);
@@ -424,7 +429,8 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     const plan = await adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash }));
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
 
-    // 旧 action handler 执行期间，新 generation 提交（替换快照、推进代与版本）
+    for await (const message of plan.run.source) void message;
+    // 旧 action handler 已执行，新 generation 提交（替换快照、推进代与版本）
     await store.commitGeneration(SURFACE, ADMISSION_CATALOG_ID, GENERATION_STREAM, {
       catalogHash,
       contractVersion: 2,

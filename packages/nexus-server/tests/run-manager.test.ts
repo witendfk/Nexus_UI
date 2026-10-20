@@ -4,7 +4,8 @@ import { describe, it } from 'node:test';
 import type Koa from 'koa';
 import { AgentAdapter } from '../src/agent/adapter';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
-import { sendAgentRun } from '../src/api/send-messages';
+import { createCatalogContractHash } from '../src/agent/catalog-contract';
+import { sendAgentRun, type SendAgentRunOptions } from '../src/api/send-messages';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
 
 const registry = createTestRegistry();
@@ -34,6 +35,7 @@ describe('agent run manager', () => {
     const manager = new InMemoryAgentRunManager();
     const adapter = new AgentAdapter({
       registry,
+      runManager: manager,
       createSurfaceId: () => 'surface-run-success',
       createGenerationSource: () => [
         {
@@ -77,6 +79,7 @@ describe('agent run manager', () => {
     const surfaceId = 'surface-run-serial';
     const adapter = new AgentAdapter({
       registry,
+      runManager: manager,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () =>
         (async function* () {
@@ -131,6 +134,7 @@ describe('agent run manager', () => {
   it('缺 manager 时 sendAgentRun 显式报错，不再回退全局单例', async () => {
     const ctx = createSseContext();
     const run = {
+      runId: 'no-manager-run',
       source: [
         { version: 'v0.9', updateDataModel: { surfaceId: 'surface-no-manager', value: {} } },
       ],
@@ -141,12 +145,17 @@ describe('agent run manager', () => {
         registry,
         supportedActions: ['submit'],
       },
-      commit: () => undefined,
+      commit: () => ({
+        sessionVersion: 1 as const,
+        runId: 'no-manager-run',
+        surfaceId: 'surface-no-manager',
+        catalogId: TEST_CATALOG_ID,
+        contractVersion: 2,
+        catalogHash: createCatalogContractHash(registry.get(TEST_CATALOG_ID)!),
+        surfaceRevision: 1,
+      }),
     };
-    assert.throws(
-      () => sendAgentRun(ctx, run, 'no-manager', {} as Parameters<typeof sendAgentRun>[3]),
-      /manager/,
-    );
+    assert.throws(() => sendAgentRun(ctx, run, {} as SendAgentRunOptions), /manager/);
   });
 
   it('marks an interrupted run canceled', async () => {
@@ -155,6 +164,7 @@ describe('agent run manager', () => {
     const surfaceId = 'surface-run-cancel';
     const adapter = new AgentAdapter({
       registry,
+      runManager: manager,
       createSurfaceId: () => surfaceId,
       createGenerationSource: () =>
         (async function* () {
@@ -182,6 +192,7 @@ describe('agent run manager', () => {
       },
     );
     assert.ok(plan.ok);
+    const runId = plan.run.runId;
 
     const run = sendAgentRun(createSseContext(), plan.run, 'run-cancel', {
       manager,
@@ -192,6 +203,8 @@ describe('agent run manager', () => {
     const result = await run;
 
     assert.equal(result.ok, false);
-    assert.equal(manager.get('run-cancel')?.state, 'canceled');
+    // S2.5.1：运行记录以运行创建方分配的 runId 为键，而非发送层 idPrefix。
+    assert.equal(manager.get(runId)?.state, 'canceled');
+    assert.equal(manager.get('run-cancel'), undefined);
   });
 });

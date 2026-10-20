@@ -45,11 +45,11 @@ CatalogDefinition 已切换为 v2 形状（S2.2，2026-10-16）：`catalogId`、
 
 `createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v2 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路待 S4；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；`X-Nexus-Run-Id`、按运行结果留存/查询与 verifier/RPC 的完整发布接线仍属 S2.5。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
+**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路待 S4；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；按运行结果留存与发布一致性已在 S2.5.1/.2/.5 实施；`X-Nexus-Run-Id`、按运行查询与 verifier/RPC 的完整接线仍待 S2.5 后续切片。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口只有 `@nexus-ui/core`、`@nexus-ui/react`、`@nexus-ui/server`，包版本为 0.1.x、根 API 版本均为 1。React 0.1.x 的现有兼容声明为 core 0.1.x / core API 1 / v0.9。深路径和源码路径不承诺兼容。
 
-server 根入口提供 AgentAdapter、router、guard 校验函数、Policy 注入、Catalog contract/discovery、RPC、verifier、history/run 实现与 `sendAgentRun` 等装配能力。装配依赖全部显式：`registry` 必填；`historyStore` 缺省为每 adapter 实例隔离新建；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，不回落默认 Catalog；`sendAgentRun` 必须显式传入 `manager`。SDK 根入口无 listener、不读取项目环境、不依赖模型 SDK。参考工厂自行装配演示 Policy，局部覆盖仅替换对应 hook；SDK 不继承这些默认值。三包构建先清理旧 dist，产物清单必须与当前 src 对应，已迁出模块和测试不得残留。
+server 根入口提供 AgentAdapter、router、guard 校验函数、Policy 注入、Catalog contract/discovery、RPC、verifier、history/run 实现与 `sendAgentRun` 等装配能力。装配依赖全部显式：`registry` 必填；`historyStore` 缺省为每 adapter 实例隔离新建；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，不回落默认 Catalog；`AgentAdapter` 持有默认隔离或显式注入的 `runManager`，`sendAgentRun` 自动复用；自定义原始 `AgentRun` 必须显式传入 manager，SDK run 不接受另一个记录所有者。SDK 根入口无 listener、不读取项目环境、不依赖模型 SDK。参考工厂自行装配演示 Policy，局部覆盖仅替换对应 hook；SDK 不继承这些默认值。三包构建先清理旧 dist，产物清单必须与当前 src 对应，已迁出模块和测试不得残留。
 
 ## 3. 当前 HTTP、RPC 与提交语义
 
@@ -68,7 +68,7 @@ server 根入口提供 AgentAdapter、router、guard 校验函数、Policy 注�
 
 参数从临时输入模型重算，resolver 只能在共享准入之后扩展，最终参数仍受未声明键与 paramSchema 校验；字段/路径/类型拒绝不委托宿主兜底。ledger 只在进程内去重，failed 记录可能再次进入，不能作为业务重试依据。
 
-SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成功后发送，`error` 表示运行失败。两个参考浏览器已落实最小成功 done 基准门控，完整隔离预览/取消恢复仍由 S3/S4 实施。当前 `sendAgentRun` 接受 Koa Context 与必填的宿主（或 router 实例）`manager`，调用时同步占用响应并自行 pipe，宿主 await/void 均逐条下发；此保证属于 Koa 适配行为。
+SSE `message` 是已逐条校验的预览；`done` 在 UI 快照/相关提交成功后发送，`error` 表示运行失败。两个参考浏览器已落实最小成功 done 基准门控，完整隔离预览/取消恢复仍由 S3/S4 实施。当前 `sendAgentRun` 接受 Koa Context 并复用 adapter 的 `runManager`（原始自定义 run 显式注入），调用时同步占用响应并自行 pipe，宿主 await/void 均逐条下发；此保证属于 Koa 适配行为。
 
 | 资源                        | 当前默认值 / 已知限制                                                  |
 | --------------------------- | ---------------------------------------------------------------------- |
@@ -130,11 +130,19 @@ Catalog schema、绑定与 action 规则由 core 的共享纯模块实现，serv
 
 当前 action HTTP 请求为外层 `{ message, nexus }`：message 承载 v0.9 action 信封（形状不变）；nexus 承载 SDK 元数据。签名已在 core 公开入口定型：`NexusActionMetadata` 含 `sessionVersion`（字面量 1，常量 `NEXUS_SESSION_VERSION`）、`actionId`（非空字符串，标识一次用户提交，不代表领域幂等键）、`surfaceRevision`（正安全整数）、`catalogHash`（`sha256:` 加 64 位十六进制）与 `inputs`（`NexusActionInput[]`，元素为 `{ componentId, property, value }`）。解析规则：缺失 `nexus` 或 `sessionVersion` 非 1 显式拒绝；`message.action.actionId` 若存在必须与 `nexus.actionId` 一致；输入项出现 `componentId`/`property`/`value` 之外的键拒绝。这些语义不再由示例各自定义；S3 的 start/done/error 复用同一 session 版本基线，不向 A2UI payload 追加字段。
 
-浏览器的 action 基准必须对应其实际渲染的那次 UI 提交，不自行递增、猜测或从最新快照借用 revision/hash。共享类型 `NexusSurfaceCommit` 定于 core `session`，server 的 `SurfaceStateBaseline` 是其类型别名，字段为 `{ sessionVersion: 1, runId, surfaceId, catalogId, contractVersion, catalogHash, surfaceRevision }`。`runId` 是服务端分配的非空运行标识，在同一 runtime 中不复用；其余版本/hash/revision 与该次实际提交固定值一致。
+浏览器的 action 基准必须对应其实际渲染的那次 UI 提交，不自行递增、猜测或从最新快照借用 revision/hash。共享类型 `NexusSurfaceCommit` 定于 core `session`，server 的 `SurfaceStateBaseline` 是其类型别名，字段为 `{ sessionVersion: 1, runId, surfaceId, catalogId, contractVersion, catalogHash, surfaceRevision }`。`runId` 由运行创建方分配，是本次运行的非空不可变标识，在同一 runtime 中不复用；它与 `actionId`（客户端一次用户提交的标识、ledger 重放键）语义不同，不得混用或互相替代；其余版本/hash/revision 与该次实际提交固定值一致。
 
 revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不能因重建而与仍可能提交的旧基准重号。重新生成/删除重建后的旧视图同样必须被拒；超出正安全整数或无法维持旧基准失效时显式失败，不重置为可碰撞的基准。
 
 当前最小接线（S2.4 复审修复，2026-10-19）：Adapter 的 commit 返回提交边界捕获的 `NexusSurfaceCommit`；`sendAgentRun` 成功 `done` 携带同一固定结果，其 runId 与本次 SSE event id 前缀一致，不在终态查询最新快照。core 公开 `parseSurfaceCommit` 校验版本、标识、hash 和正安全整数 revision，Catalog Contract 版本常量由 core 定义并由 server 复用。两个参考浏览器从同次流的成功 `done` 保留该基准，在 EOF、错误、版本/标识不符或本地消息拒绝时关闭后续 action；请求携带原 actionId 与 `getLatestInputs`。这只是现有消费方的最小门控，完整隔离预览/恢复会话仍由 S3/S4 实施。
+
+运行标识统一（S2.5.1，2026-10-19）：一次 run 只分配一个不可变 ID，由运行创建方生成并经 `AgentRun.runId` 暴露；非 HTTP commit、SSE event id 前缀、成功 done 与 run-manager 运行记录使用同值。发送层 `sendAgentRun` 不再以另一个 idPrefix 改写 `commit.runId`，也不为同一运行生成第二个标识；旧签名 `sendAgentRun(ctx, run, idPrefix, options)` 中的字符串实参是被忽略的兼容槽位，调用方应迁移到 `sendAgentRun(ctx, run, options)`，不留第二套身份解释。`AgentRun.commit` 必须返回结构合法且 runId、surfaceId、catalogId、catalogHash 与准备阶段捕获身份完全一致的 `NexusSurfaceCommit`；空对象、缺字段或错配都按运行失败处理，不留存结果、不发布成功 done。校验返回值只保留规范字段，不能依赖 TypeScript 签名或非空判断；原始 `sendMessages` 是非运行工具路径，不产生运行记录，其终态不承载 `NexusSurfaceCommit`。自定义 `AgentRun` 实现必须迁移到返回固定 commit 的签名；自定义 `AgentRunManager` 实现必须实现结果接口 `recordCommit(id, commit)`（记录先经 `create` 建立，提交边界写入、成功 done 之前可读），无记录时显式报错。HTTP 响应头接线归 S2.5.4，按 run 查询路由归 S2.5.3，有界留存与重复标识拒绝的完整语义归 S2.5.2。
+
+提交结果留存（S2.5.2，2026-10-20 评审修正）：传输无关的 managed run 是运行生命周期入口，adapter 持有每实例隔离的 `runManager`（可在 adapter 构造时注入），HTTP、非 HTTP generation/action 共用同一记录所有者。非 HTTP 首次消费 source 或调用 commit 时建立 queued/running 记录；HTTP 在同步占用 SSE 响应前先预留 queued 记录，排队完成后转 running。生成源工厂与 action handler 均延迟到消息源消费、记录容量准入成功之后才调用；工厂/handler 抛错属于运行失败，HTTP 已占用响应时用 SSE error 收场。prepare 阶段的协议/权限/参数/resolver 拒绝仍在流前完成。正常 source EOF 或迭代器 return 不等于提交，直接消费者必须 commit/onError/dispose 显式结束；source 异常会结束运行并释放资源。
+
+managed run 在底层 commit 成功后验证完整提交结构与本次固定身份，调用 `recordCommit(runId, commit)` 并迁移 succeeded 后才返回结果，因此先于成功 done 可读；返回值与留存值隔离。记录建立失败不占用 SSE 响应、不调用生成源工厂/handler，并释放 action 锁。响应占用失败将已创建记录迁移 failed，撤销已分配的流并释放运行和宿主 dispose 资源，清理至多一次。留存失败（无记录、重复写入、终态补记）按失败处理，不发布成功 done，已提交快照不因此回滚。自定义原始 AgentRun 由发送层包装以复用同一生命周期；router 可省略 runManager，若显式提供必须与 adapter.runManager 是同一实例。
+
+`InMemoryAgentRunManager` 写入与读取均深拷贝，后续状态迁移不能覆盖已留存结果；recordCommit 同时校验结构与记录 ID/surface，重复 ID 与重复结果显式拒绝。容量按插入序优先淘汰终态记录，queued/running 受保护，全部活动时显式拒绝新建。HTTP 与非 HTTP 均留存 adapter 提交边界的同一固定结果，不从最新快照拼装；结果淘汰后明确不可用。已确认提交后的观察/传输失败保留结果和成功事实，不另造 revision；完整 commitState/history 与统一调度归 S3。
 
 后续 S2.5 提供按运行结果对账与发布接线：
 
@@ -144,7 +152,7 @@ revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不
 - 只有本地该次流成功、消息全部校验通过，且运行结果（当前为同次流 done，后续也可按 run 查询）的 session version/runId/surfaceId/catalogId 与本地运行一致、contractVersion/hash 与所用 Catalog 一致时，才能把该次视图与基准成对启用。查询失败、收到晚到的旧运行结果或本地校验失败时不开放 action；保留查询所归属的本地运行，不能把结果贴到另一份视图。
 - 另一提交无论发生在流完成后查询前，还是查询后 action 前，都不能替旧视图刷新基准：例如本地渲染 run A/revision 1，run B 已提交 revision 2，查询 A 仍返回 1，下一枚 action 因旧 revision 被拒。此时禁用该 surface 的 action，通过重新生成或受控完整快照恢复视图与基准；仅重新查询元数据或让用户再次点击不能恢复一致性。
 
-成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 将报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。查询、结果留存、响应头与 verifier/RPC 接线仍属于 S2.5，完整 Session 生命周期由 S3/S4 实施。
+成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 将报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。结果留存已实施；查询、响应头与 verifier/RPC 接线仍待 S2.5 后续切片，完整 Session 生命周期由 S3/S4 实施。
 
 首发流适配为 POST fetch/SSE：
 
@@ -194,6 +202,12 @@ React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 
 当前三包 API 1 保持“现状”标识，目标改造涉及 Provider 行为、默认依赖、Catalog 与 HTTP envelope 的破坏性变化。各切片同步公开根导出快照、消费方、迁移说明；交付新的破坏性契约时提升相应 API 版本。包版本与 workspace 安装规则遵循 AGENTS.md，文档定稿不提前改包版本。
 
 Catalog Contract 版本在 S2 升至 2：hash 算法不变（对 `{ contractVersion, catalog }` 稳定序列化取 SHA-256），版本常量提升后全部 hash 随之变化；输入能力、action 参数 schema 与组件声明都进入发布内容，能力变化必须影响 hash。surface 快照在创建时固定 `contractVersion` 与 `catalogHash`，请求携带值与固定值不一致显式拒绝，registry 原地变更不回写已创建 surface。v1 的拒绝点是明确的：v1 形状 Catalog 在注册闸门报错，缺 `nexus` 的 action 请求在解析入口拒绝，不维护 v1/v2 两套通用解释器。迁移样例以 `fixtures/catalog-v2/` 的正常夹具与 S2.6 的最小接入样例为准；各包 API 版本随其破坏性行为落地的切片提升并同步消费方。
+
+运行标识切片（S2.5.1）的版本决定：Catalog Contract 保持 2、Nexus Session 保持 1——本切片只收口 server 装配层契约（`AgentRun.runId`、`commit` 必须返回固定结果、`AgentRunManager.recordCommit` 结果接口），不改变任何线上结构，`NexusSurfaceCommit` 与 `{ message, nexus }` envelope 字段不变，因此不提升协议版本。agent onboarding contract 保持 1：本切片未新增必需字段或验收项，未改变外部 Agent 的消费者要求；后续新增必需字段/验收项时必须显式提升 `AGENT_ONBOARDING_CONTRACT_VERSION` 并同步类型、解析与示例。外部 Agent RPC version 保持 1：请求结构未变，action 载荷已内嵌完整 nexus 元数据；后续只增补已存在 action 的元数据透传不机械升版，改变必需结构则先更新 SPEC 再成组迁移，不保留两套准入解释器。装配层 TypeScript 契约的破坏性迁移（`commit(): void`、自定义 `AgentRun`/`AgentRunManager` 旧签名）在本切片内显式完成，不留两套签名解释；包 API 版本仍按本章首段口径随发行节奏处理，不提前改包版本。
+
+发布一致性切片（S2.5.5，2026-10-20 评审修正）：路由装配期对每个待发布 Catalog 先复制后经 core 注册闸门校验，contractHash、promptContract 与发布声明来自同一独立副本；必须通过实际 `adapter.describeCatalog(catalogId)` 读取执行声明并核对 hash，未注册或错配即装配失败，不提供独立的 executionRegistry 作为替代权威。adapter 在每个 Catalog 首次发布/执行时校验并固定声明副本，随后外部 registry 或调用方对象变更不影响该 adapter 的发布或执行；更新已固定 Catalog 需重建 adapter 并重新装配发布。允许只发布执行 Catalog 的子集，未发布项 404，不公开私有声明。
+
+发现客户端逐项校验 serverApiVersion、契约版本、完整 `sha256:<64 hex>` hash、组件/action 非空字符串及无重复、非空发现 URL，任一非法整体拒绝。对象键顺序不影响 hash，能力/schema 变化必须影响 hash；摘要和完整发布内容由同一副本推导。`createAgentOnboardingContract` 复制输入后检查 serverApiVersion、kind、contractVersion、hash 格式、完整 Catalog 注册合法性、hash 与内容一致、prompt 与 `createCatalogPromptContract(catalog)` 完全一致，并内嵌独立副本。本切片不新增线上字段或必需验收项，Catalog Contract 2、server API 1、onboarding 1、RPC 1 均保持，包版本遵循 workspace 发行规则；严格装配验证不引入第二套契约解释器。模块内部 `isCatalogContractHash`/`CATALOG_CONTRACT_HASH_PATTERN` 未进入公开根入口。
 
 新增 client 后，只通过四包公开入口消费；不强制所有应用安装四包。协议/Profile 与组件能力校验使用共享正常/非法 fixture 在 core、server 和 client/React 接入验证，不等待业务应用重建。conformance 变更须显式更新分类理由和基线。
 

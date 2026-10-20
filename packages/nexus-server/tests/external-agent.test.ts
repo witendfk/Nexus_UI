@@ -17,7 +17,6 @@ import {
 import { createCatalogContractReference } from '../src/agent/catalog-contract';
 import { CATALOG_CONTRACT_VERSION } from '../src/agent/catalog-contract';
 import { sendAgentRun } from '../src/api/send-messages';
-import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 
 interface CapturedRequest {
   method?: string;
@@ -197,9 +196,12 @@ describe('external agent RPC', () => {
     });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(generationTransport, generation.run, 'external', {
-      manager: new InMemoryAgentRunManager(),
-    });
+    const generationResult = await sendAgentRun(
+      generationTransport,
+      generation.run,
+      'external',
+      {},
+    );
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
     assert.deepEqual(
       generationResult.messages.map((message) => message),
@@ -251,9 +253,7 @@ describe('external agent RPC', () => {
       context: {},
     });
     assert.ok(action.ok);
-    const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action', {
-      manager: new InMemoryAgentRunManager(),
-    });
+    const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action', {});
     assert.equal(actionResult.ok, true);
     assert.match(JSON.stringify(actionResult.messages), /External action done/);
 

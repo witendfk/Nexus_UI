@@ -8,12 +8,15 @@ import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import Koa from 'koa';
 import type KoaType from 'koa';
+import type { NexusSurfaceCommit } from '@nexus-ui/core';
 import { sendAgentRun } from '../src/api/send-messages';
 import type { AgentRun } from '../src/agent/adapter';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
 
 const registry = createTestRegistry();
+const TEST_CATALOG_HASH = createCatalogContractHash(registry.get(TEST_CATALOG_ID)!);
 
 /**
  * sendAgentRun 的两条对外契约，都关于"响应什么时候属于这次 run"：
@@ -25,10 +28,31 @@ const registry = createTestRegistry();
  * 2. 生命周期归属：SDK 必须自己把流接到 socket 上（ctx.respond = false + pipe），
  *    不能依赖 respond()。否则宿主一旦 await sendAgentRun(...)，链结束被推迟到流
  *    末尾，整条流会被缓冲成一次下发，逐条可见预览退化为一次性到达。
+ *
+ * S2.5.1 迁移：自定义 AgentRun 必须携带运行创建方分配的 runId，且 commit 返回
+ * 固定 NexusSurfaceCommit；发送层以 run.runId 作为唯一运行标识，不再改写。
  */
 
-function createActionRun(surfaceId: string, hold: Promise<void>, onCommit: () => void): AgentRun {
+function commitFixture(runId: string, surfaceId: string): NexusSurfaceCommit {
   return {
+    sessionVersion: 1,
+    runId,
+    surfaceId,
+    catalogId: TEST_CATALOG_ID,
+    contractVersion: CATALOG_CONTRACT_VERSION,
+    catalogHash: TEST_CATALOG_HASH,
+    surfaceRevision: 1,
+  };
+}
+
+function createActionRun(
+  surfaceId: string,
+  runId: string,
+  hold: Promise<void>,
+  onCommit: () => void,
+): AgentRun {
+  return {
+    runId,
     source: (async function* () {
       yield { version: 'v0.9', updateDataModel: { surfaceId, value: { step: 1 } } };
       await hold;
@@ -41,12 +65,16 @@ function createActionRun(surfaceId: string, hold: Promise<void>, onCommit: () =>
       registry,
       supportedActions: [],
     },
-    commit: onCommit,
+    commit: () => {
+      onCommit();
+      return commitFixture(runId, surfaceId);
+    },
   };
 }
 
-function createPacedRun(surfaceId: string): AgentRun {
+function createPacedRun(surfaceId: string, runId: string): AgentRun {
   return {
+    runId,
     source: (async function* () {
       for (let step = 1; step <= 3; step += 1) {
         yield { version: 'v0.9', updateDataModel: { surfaceId, value: { step } } };
@@ -59,7 +87,7 @@ function createPacedRun(surfaceId: string): AgentRun {
       registry,
       supportedActions: [],
     },
-    commit: () => undefined,
+    commit: () => commitFixture(runId, surfaceId),
   };
 }
 
@@ -86,8 +114,7 @@ describe('SSE 响应占用时机', () => {
 
     void sendAgentRun(
       ctx,
-      createActionRun('surface-claim-unit', never, () => undefined),
-      'claim-unit',
+      createActionRun('surface-claim-unit', 'claim-unit-run', never, () => undefined),
       {
         streamDelayMs: 0,
         manager: new InMemoryAgentRunManager(),
@@ -122,7 +149,7 @@ describe('SSE 响应占用时机', () => {
         release = resolve;
       });
       releases.push(release);
-      const run = createActionRun(surfaceId, hold, () => {
+      const run = createActionRun(surfaceId, `claim-run-${index}`, hold, () => {
         commits += 1;
       });
       const source = run.source;
@@ -132,7 +159,7 @@ describe('SSE 响应占用时机', () => {
           yield message;
         }
       })();
-      void sendAgentRun(ctx, run, `claim-${index}`, {
+      void sendAgentRun(ctx, run, {
         streamDelayMs: 0,
         manager: new InMemoryAgentRunManager(),
       });
@@ -183,7 +210,7 @@ describe('SSE 响应占用时机', () => {
       }
       // 反例形态：处理器 await 到流结束。若 SDK 依赖 Koa 的 respond() 才 pipe，
       // 链结束被推迟到流末尾，整条流会缓冲成一次读取。
-      await sendAgentRun(ctx, createPacedRun(surfaceId), 'claim-await', {
+      await sendAgentRun(ctx, createPacedRun(surfaceId, 'claim-await-run'), {
         streamDelayMs: 60,
         manager: new InMemoryAgentRunManager(),
       });

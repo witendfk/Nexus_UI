@@ -1,5 +1,5 @@
 import type { PublishedCatalogsPayload } from './routes';
-import { CATALOG_CONTRACT_VERSION } from '../agent/catalog-contract';
+import { CATALOG_CONTRACT_VERSION, isCatalogContractHash } from '../agent/catalog-contract';
 import { SERVER_API_VERSION } from '../version';
 
 export interface PublishedCatalogsClientOptions {
@@ -46,6 +46,16 @@ async function readErrorResponse(response: Response): Promise<string> {
   }
 }
 
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string' && item !== '');
+}
+
+function assertNoDuplicates(value: string[], label: string, url: string): void {
+  if (new Set(value).size !== value.length) {
+    throw new Error(`Published catalog discovery ${label} 包含重复项: ${url}`);
+  }
+}
+
 function validatePublishedCatalogs(value: unknown, url: string): PublishedCatalogsPayload {
   if (!isRecord(value) || value.serverApiVersion !== SERVER_API_VERSION) {
     throw new Error(`Published catalog discovery serverApiVersion 无效: ${url}`);
@@ -58,15 +68,17 @@ function validatePublishedCatalogs(value: unknown, url: string): PublishedCatalo
     throw new Error(`Published catalog discovery catalogs 必须是数组: ${url}`);
   }
 
+  // S2.5.5：发现摘要逐项严格校验（契约版本、完整 hash 格式、组件/action 列表
+  // 形状与重复项）；任一项非法即整体拒绝，不部分采信错配的发现响应。
   for (const catalog of catalogs) {
     if (
       !isRecord(catalog) ||
       typeof catalog.catalogId !== 'string' ||
       catalog.catalogId === '' ||
       catalog.contractVersion !== CATALOG_CONTRACT_VERSION ||
-      typeof catalog.contractHash !== 'string' ||
-      !catalog.contractHash.startsWith('sha256:') ||
-      !Array.isArray(catalog.components) ||
+      !isCatalogContractHash(catalog.contractHash) ||
+      !isNonEmptyStringArray(catalog.components) ||
+      !isNonEmptyStringArray(catalog.actions) ||
       typeof catalog.catalogContractUrl !== 'string' ||
       catalog.catalogContractUrl === '' ||
       typeof catalog.agentOnboardingUrl !== 'string' ||
@@ -74,9 +86,8 @@ function validatePublishedCatalogs(value: unknown, url: string): PublishedCatalo
     ) {
       throw new Error(`Published catalog discovery 包含无效 catalog: ${url}`);
     }
-    if (catalog.actions !== undefined && !Array.isArray(catalog.actions)) {
-      throw new Error(`Published catalog discovery 包含无效 actions: ${url}`);
-    }
+    assertNoDuplicates(catalog.components, 'components', url);
+    assertNoDuplicates(catalog.actions, 'actions', url);
   }
 
   return value as unknown as PublishedCatalogsPayload;

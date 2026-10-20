@@ -96,4 +96,4 @@ export {
 } from './api/agent-onboarding';
 export type { AgentOnboardingBoundaryCode, AgentOnboardingCheckId } from './api/agent-onboarding';
 export { sendAgentRun } from './api/send-messages';
-export type { SendMessagesResult } from './api/send-messages';
+export type { SendMessagesResult, SendAgentRunOptions } from './api/send-messages';

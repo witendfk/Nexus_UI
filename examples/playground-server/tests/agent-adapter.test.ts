@@ -144,7 +144,7 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       surfaceRevision: 1,
       catalogHash: WORKBENCH_CATALOG_HASH,
       // S2.4：参数形状由 paramSchema 先行校验（客户端须发送完整表单批次），
-      // 业务文案（空标题）仍由演示 Policy 在形状合法后给出。
+      // 业务文案（空标题）由消息源消费时调用的演示 handler 给出。
       context: {
         taskTitle: '',
         priority: [],
@@ -153,8 +153,8 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         customerName: '华云科技',
       },
     });
-    assert.ok(!empty.ok);
-    assert.equal(empty.message, '请输入跟进任务标题');
+    assert.ok(empty.ok);
+    await assert.rejects(collect(empty.run.source), /请输入跟进任务标题/);
 
     for (const priority of [[], ['urgent'], ['high', 'low']]) {
       const invalid = await adapter.prepareAction({
@@ -174,8 +174,8 @@ describe('playground reference adapter（参考装配，注册表与生成源显
           customerName: '华云科技',
         },
       });
-      assert.ok(!invalid.ok);
-      assert.equal(invalid.message, '请选择有效的任务优先级');
+      assert.ok(invalid.ok);
+      await assert.rejects(collect(invalid.run.source), /请选择有效的任务优先级/);
     }
 
     for (const [reminderAt, message] of [
@@ -199,8 +199,8 @@ describe('playground reference adapter（参考装配，注册表与生成源显
           customerName: '华云科技',
         },
       });
-      assert.ok(!invalid.ok);
-      assert.equal(invalid.message, message);
+      assert.ok(invalid.ok);
+      await assert.rejects(collect(invalid.run.source), { message });
     }
 
     const plan = await adapter.prepareAction({
@@ -250,8 +250,8 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         customerName: '华云科技',
       },
     });
-    assert.ok(!duplicate.ok);
-    assert.equal(duplicate.message, '该客户的跟进任务已创建，不能重复提交');
+    assert.ok(duplicate.ok);
+    await assert.rejects(collect(duplicate.run.source), /该客户的跟进任务已创建，不能重复提交/);
   });
 
   it('Basic search action 返回包含用户输入值的原地更新', async () => {
@@ -454,13 +454,15 @@ describe('playground reference adapter（参考装配，注册表与生成源显
   });
 
   it('参考装配走显式注入的生成源与 manager 契约', async () => {
+    const manager = new InMemoryAgentRunManager();
     const adapter = createReferenceAgentAdapter({
       createSurfaceId: () => 'surface-reference-run',
+      runManager: manager,
     });
     const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
     assert.ok(plan.ok);
     const result = await sendAgentRun(createSseContext(), plan.run, 'reference-run', {
-      manager: new InMemoryAgentRunManager(),
+      manager,
       streamDelayMs: 0,
     });
     assert.equal(result.ok, true);

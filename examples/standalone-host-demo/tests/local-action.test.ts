@@ -8,7 +8,7 @@ import type Koa from 'koa';
 import { A2UIRuntime } from '@nexus-ui/core';
 import type { ActionEvent, VNode } from '@nexus-ui/core';
 import { ReactRenderer } from '@nexus-ui/react';
-import { InMemoryAgentRunManager, sendAgentRun } from '@nexus-ui/server';
+import { sendAgentRun } from '@nexus-ui/server';
 import { DEMO_AGENT_ACTION, DEMO_AGENT_CATALOG_ID } from '../src/contract';
 import { createStandaloneHostAdapter } from '../src/host/adapter';
 import { createLocalApprovalActionHandler } from '../src/host/local-action';
@@ -159,7 +159,7 @@ describe('standalone host local action assembly', () => {
       generationTransport.ctx,
       generation.run,
       'local-action-generation',
-      { manager: new InMemoryAgentRunManager() },
+      {},
     );
 
     assert.equal(generationResult.ok, true);
@@ -198,7 +198,7 @@ describe('standalone host local action assembly', () => {
       actionTransport.ctx,
       actionPlan.run,
       'local-action-response',
-      { manager: new InMemoryAgentRunManager() },
+      {},
     );
 
     assert.equal(actionResult.ok, true);

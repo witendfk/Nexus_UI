@@ -11,6 +11,7 @@ import type { AgentSequenceOptions } from '../agent/agent-guard';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
 import type { AgentRunManager } from '../agent/run-manager';
+import { manageAgentRun, type ManagedAgentRun } from '../agent/run-lifecycle';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
 
 export interface SendMessagesResult {
@@ -62,10 +63,19 @@ function createAgentStreamError(
 function claimSseResponse(ctx: Koa.Context): PassThrough {
   prepareSseResponse(ctx);
   const stream = new PassThrough();
-  ctx.body = stream;
-  ctx.respond = false;
-  ctx.res.flushHeaders?.();
-  stream.pipe(ctx.res);
+  const previousRespond = ctx.respond;
+  try {
+    ctx.body = stream;
+    ctx.respond = false;
+    ctx.res.flushHeaders?.();
+    stream.pipe(ctx.res);
+  } catch (error) {
+    stream.unpipe(ctx.res);
+    stream.destroy();
+    ctx.body = null;
+    ctx.respond = previousRespond;
+    throw error;
+  }
   // respond() is no longer what connects the body, so Koa's stream error
   // forwarding is gone too. Report instead of letting an 'error' event go
   // unhandled; pumpMessages always ends the stream, so the response still closes.
@@ -167,6 +177,11 @@ async function pumpMessages(
   return { messages: sent, ok: true };
 }
 
+/**
+ * Raw guarded-stream utility: the caller owns framing and naming (`idPrefix`).
+ * Unlike `sendAgentRun` this is not an SDK run — no run record, no `runId`, and
+ * its terminal `done` does not carry a `NexusSurfaceCommit`.
+ */
 export function sendMessages(
   ctx: Koa.Context,
   messages: Iterable<unknown> | AsyncIterable<unknown>,
@@ -197,96 +212,130 @@ export function sendMessages(
  * `await sendAgentRun(...)` when the handler also needs the run's result. The
  * returned promise settles after the stream ends and commit has been attempted;
  * awaiting it never delays delivery.
+ *
+ * Run identity (S2.5.1): the single immutable id is `run.runId`, allocated by
+ * the run creator (the adapter for SDK runs). The manager record id, the SSE
+ * event id prefix and the success `done` payload all use that same value; the
+ * sender never generates a second id and never rewrites `commit.runId`. A run
+ * whose `commit` produces no `NexusSurfaceCommit` cannot claim success — the
+ * stream ends with an `error` event and the record is marked failed.
+ *
+ * Commit retention belongs to the transport-neutral managed run. HTTP and direct
+ * source/commit consumption share the adapter's record owner. Custom AgentRun
+ * implementations are wrapped with an explicitly supplied manager. Reservation
+ * precedes response claiming; every initialization failure disposes both owners.
+ */
+export interface SendAgentRunOptions {
+  signal?: AbortSignal;
+  streamDelayMs?: number;
+  /** Defaults to the SDK run owner; custom runs require one. A different owner is rejected. */
+  manager?: AgentRunManager;
+  dispose?: () => void;
+}
+
+export function sendAgentRun(
+  ctx: Koa.Context,
+  run: AgentRun,
+  options: SendAgentRunOptions,
+): Promise<SendMessagesResult>;
+/**
+ * @deprecated 兼容槽位：既有发送方（createAgentRouter、verification 等）仍按
+ * `sendAgentRun(ctx, run, idPrefix, options)` 传参。该字符串实参被忽略，运行
+ * 标识只来自 `run.runId`；调用方应停止传参，不留第二套身份解释。
  */
 export function sendAgentRun(
   ctx: Koa.Context,
   run: AgentRun,
-  idPrefix: string,
-  options: Omit<SendMessagesOptions, 'signal'> & {
-    signal?: AbortSignal;
-    /** Required run-records owner; hosts (or createAgentRouter) pass their instance explicitly. */
-    manager: AgentRunManager;
-    dispose?: () => void;
-  },
+  legacyIdPrefix: string,
+  options: SendAgentRunOptions,
+): Promise<SendMessagesResult>;
+export function sendAgentRun(
+  ctx: Koa.Context,
+  run: AgentRun,
+  ...args: [options: SendAgentRunOptions] | [legacyIdPrefix: string, options: SendAgentRunOptions]
 ): Promise<SendMessagesResult> {
-  if (!options?.manager) {
-    throw new Error('sendAgentRun 需要显式传入 manager（AgentRunManager）；SDK 不再内置全局单例');
+  const options: SendAgentRunOptions = args.length === 2 ? args[1] : args[0];
+  let managed: ManagedAgentRun | undefined;
+  let stream: PassThrough;
+  let hostDisposed = false;
+  const disposeHost = (): void => {
+    if (hostDisposed) return;
+    hostDisposed = true;
+    options?.dispose?.();
+  };
+  try {
+    managed = manageAgentRun(run, options?.manager, options?.signal);
+    managed.reserve();
+    // Synchronously claim even queued responses, but only after capacity was reserved.
+    stream = claimSseResponse(ctx);
+  } catch (error) {
+    try {
+      if (managed) managed.fail(error);
+      else run.dispose?.();
+    } finally {
+      disposeHost();
+    }
+    throw error;
   }
-  const manager = options.manager;
-  // Claim the run before anything consumes it: the per-surface lock from
-  // prepareAction must only release after this queue settles commit/onError.
-  // Claim the response before enqueueing: a run waiting behind a same-surface
-  // predecessor must already own its response, or Koa answers 404 while the
-  // queued run still streams and commits.
-  const stream = claimSseResponse(ctx);
-  manager.create({
-    id: idPrefix,
-    surfaceId: run.sequence.surfaceId,
-    kind: run.sequence.kind,
-  });
-
+  const ownedRun = managed;
   const controller = new AbortController();
   const abort = (): void => {
     if (ctx.res?.writableEnded === false) controller.abort();
   };
   if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', abort);
   if (typeof ctx.res?.once === 'function') ctx.res.once('close', abort);
-  if (options.signal) {
+  if (options?.signal) {
     if (options.signal.aborted) controller.abort();
     else options.signal.addEventListener('abort', abort, { once: true });
   }
 
-  const previous = surfaceRunQueues.get(run.sequence.surfaceId) ?? Promise.resolve();
+  const previous = surfaceRunQueues.get(ownedRun.sequence.surfaceId) ?? Promise.resolve();
   const queued = previous
     .catch(() => undefined)
     .then(async () => {
-      manager.transition(idPrefix, 'running');
+      if (!controller.signal.aborted) ownedRun.start();
       const result = await pumpMessages(
         stream,
-        run.source,
-        idPrefix,
-        run.sequence,
-        async (messages) => {
-          const result = await run.commit(messages);
-          return result ? { ...result, runId: idPrefix } : undefined;
-        },
+        ownedRun.source,
+        ownedRun.runId,
+        ownedRun.sequence,
+        (messages) => ownedRun.commit(messages),
         {
           signal: controller.signal,
-          ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
+          ...(options?.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
         },
       );
-      if (!result.ok) {
-        run.onError?.(controller.signal.aborted ? new Error('客户端断开') : undefined);
-      }
-      manager.transition(
-        idPrefix,
-        controller.signal.aborted ? 'canceled' : result.ok ? 'succeeded' : 'failed',
-      );
+      if (controller.signal.aborted) ownedRun.cancel();
+      else if (!result.ok) ownedRun.fail();
       return result;
     })
     .catch((error: unknown) => {
-      manager.transition(
-        idPrefix,
-        controller.signal.aborted ? 'canceled' : 'failed',
-        error instanceof Error ? error.message : undefined,
-      );
+      try {
+        if (controller.signal.aborted) ownedRun.cancel();
+        else ownedRun.fail(error);
+      } finally {
+        stream.end();
+      }
       return { messages: [], ok: false };
+    })
+    .finally(() => {
+      try {
+        ownedRun.dispose();
+      } finally {
+        if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
+        if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
+        options?.signal?.removeEventListener('abort', abort);
+        if (surfaceRunQueues.get(ownedRun.sequence.surfaceId) === queued) {
+          surfaceRunQueues.delete(ownedRun.sequence.surfaceId);
+        }
+        disposeHost();
+      }
     });
-
-  surfaceRunQueues.set(run.sequence.surfaceId, queued);
-  void queued.finally(() => {
-    run.dispose?.();
-    if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
-    if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
-    if (surfaceRunQueues.get(run.sequence.surfaceId) === queued) {
-      surfaceRunQueues.delete(run.sequence.surfaceId);
-    }
-    options.dispose?.();
-  });
+  surfaceRunQueues.set(ownedRun.sequence.surfaceId, queued);
   return queued;
 }
 
 // Per-surface run queues are module-level until S3 moves dispatch ownership into
 // a per-runtime scheduler (SPEC §6); the run-record manager itself is now
-// explicitly owned by the host or the router instance.
+// owned by the adapter (or the host for a custom run).
 const surfaceRunQueues = new Map<string, Promise<SendMessagesResult>>();

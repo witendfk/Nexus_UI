@@ -45,11 +45,13 @@
 
 **选择**：生成源、Catalog、Host Policy 和 handler 显式注入。缺少必需依赖显式报错；未声明 action 不继承示例白名单；未声明业务 Policy 不继承搜索、表单或客户跟进规则。模型 key 不改变通用 runtime 的生成源选择。runs 查询访问控制默认拒绝：宿主未配置 `runsAccess` 时 `GET /api/a2ui/runs` 一律 403，`surfaceId` 不作为凭据。
 
-**实施状态（2026-10-16，server 侧）**：`AgentAdapterOptions.registry` 必填；`historyStore` 缺省为每实例隔离新建，模块级全局单例已删除；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，legacy URL 不再静默归一；guard 序列选项 `catalogId`/`registry`/`supportedActions` 必填，Button/TaskButton 挂载特判删除（归 Catalog v2 声明能力）；`sendAgentRun` 必须显式传 `manager`；参考 Catalog/LLM/prompt/演示 handler/环境读取/listener 迁至 `examples/playground-server/`。上述行为均有先失败后通过的证伪测试。
+**实施状态（2026-10-16，server 侧）**：`AgentAdapterOptions.registry` 必填；`historyStore` 缺省为每实例隔离新建，模块级全局单例已删除；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，legacy URL 不再静默归一；guard 序列选项 `catalogId`/`registry`/`supportedActions` 必填，Button/TaskButton 挂载特判删除（归 Catalog v2 声明能力）；当时 `sendAgentRun` 必须显式传 `manager`（由下述 S2.5 决策取代）；参考 Catalog/LLM/prompt/演示 handler/环境读取/listener 迁至 `examples/playground-server/`。上述行为均有先失败后通过的证伪测试。
 
 **保留与迁出**：标准组件契约、安全 URL 使用约束、原型防护、正则与资源限制保留。联系人/任务/Workbench Catalog、流程 Policy、prompt、模型调用、模拟 handler、环境读取和 listener 迁至参考应用。外部 RPC helper 作为可选适配保留，不引入 Agent 编排或业务模型。
 
 **代价**：默认行为变更属于破坏性迁移，须同步示例、API 契约和迁移说明；不以删除 demo 能力替代依赖隔离。
+
+**S2.5 所有权修正（2026-10-20）**：runManager 在 adapter 注入或默认隔离新建，HTTP 与非 HTTP 共用 managed run 的生命周期；router/sender 不另建记录所有者，显式 manager 不一致即拒绝。容量准入先于生成源工厂/handler 调用及 SSE 占用，工厂/handler 异常属于运行失败。发布绑定实际 adapter 的首次固定 Catalog，拒绝独立的第二份执行 registry；这样直接消费与 HTTP 具有同一结果事实，不将 Koa 当运行事实所有者。完整 scheduler 抽取仍归 S3。
 
 ## D5. 三种状态与预览隔离
 
@@ -92,10 +94,10 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 - `inputs` 声明可写绑定属性 → 值 schema，键必须是 `dynamic` 非 `forbidden` 的已声明字段；值 schema 只描述浏览器提交的字面值，不含 `dynamic`。字段绑定能力唯一权威是 schema 节点的 `dynamic`（缺省即 `forbidden`），`fields` 收窄为 origin/componentRef 元数据、不再声明 `binding`，v1 风格双源声明按未知键注册拒绝。浏览器只提交 `{ componentId, property, value }`，目标路径由服务端从已提交声明解析，客户端永不提交写路径。
 - 可编辑白名单为宿主按 surface 提供的精确 JSON Pointer 集合：绝对指针、规范化后判重、默认拒绝、无通配与前缀继承；白名单自身允许嵌套重叠。同批 inputs 写入与数组顺序无关：重复、同目标路径、解析路径互为祖先/后代（按段比较）均判冲突拒绝；未变化输入合法，按普通输入幂等写回。
 - resolver 扩展点后置：共享准入（revision/hash 核对、声明、白名单、值 schema、重复冲突）先执行，resolver 输出仍须通过未声明字段拒绝与 `paramSchema`；`paramSchema` 缺省即参数必须为空对象。
-- nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `runsAccess`，未配置 403），S3 成功 done 直接复用。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；SSE data 与原始 A2UI 形状不加字段。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
+- nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `runsAccess`，未配置 403），成功 done 已随 S2.4 复审提前携带该结果，S3 接续完整 Session 生命周期。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；原始 A2UI message 形状不变，SDK 提交结果放在 done data。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
 - 共享正常/非法 fixture 定稿于 `fixtures/catalog-v2/`，core 注册与 server 准入对同一数据必须给出一致结论。
 
-**实施状态（S2.2 已完成，2026-10-17 收尾）**：`CatalogDefinition` 已切换为 v2 形状（V2 后缀移除）；注册闸门实施 §4.2 全部拒绝规则（含 enabled/componentRef 布尔、安全整数预算等类型校验）；`standardCatalogComponentDeclarations()` 提供 17 个标准组件声明且每次调用返回深拷贝；checks 能力、函数子集与预算统一由当前 Catalog 决定（Profile 只校验结构与安全基线，不读取 SDK 固定标准声明；DateTimeInput/媒体组件的 checks 名字禁令删除）；FunctionCall 仅在已校验的组件 checks.condition 位置豁免，参数内部仍递归检查；字段结构契约与 URL/正则/原型/预算基线保留；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告；成员判断只读自有属性。conformance 基线经分类决策更新为 36/13/23/5/3（ChoicePicker/CheckBox 共 3 条 checks 用例转为 pass，DateTimeInput 仍由字段约束拒绝；详见 SPEC §1）。待实施：浏览器/server 输入准入接线（S2.3/S2.4）。
+**实施状态（S2.2 已完成，2026-10-17 收尾）**：`CatalogDefinition` 已切换为 v2 形状（V2 后缀移除）；注册闸门实施 §4.2 全部拒绝规则（含 enabled/componentRef 布尔、安全整数预算等类型校验）；`standardCatalogComponentDeclarations()` 提供 17 个标准组件声明且每次调用返回深拷贝；checks 能力、函数子集与预算统一由当前 Catalog 决定（Profile 只校验结构与安全基线，不读取 SDK 固定标准声明；DateTimeInput/媒体组件的 checks 名字禁令删除）；FunctionCall 仅在已校验的组件 checks.condition 位置豁免，参数内部仍递归检查；字段结构契约与 URL/正则/原型/预算基线保留；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告；成员判断只读自有属性。conformance 基线经分类决策更新为 36/13/23/5/3（ChoicePicker/CheckBox 共 3 条 checks 用例转为 pass，DateTimeInput 仍由字段约束拒绝；详见 SPEC §1）。该时点待接线的浏览器/server 输入准入，现已由下述 S2.3/S2.4 完成。
 
 **实施状态（S2.3 已完成，2026-10-18）**：浏览器本地写回与输入收集落地。`setInputValue(componentId, surfaceId, property, value)` 删除五组件名字分支：可写属性必须是当前宿主 Catalog `inputs` 声明键（自有属性查表），值经声明值 schema 字面校验（`{ path }` 形状的值按绑定拒绝），写回目标取组件 `{ path }` 绑定并拒绝保留段；未注入 registry 即无任何写回能力（标准名不隐含能力），写路径异常（中间节点非容器）收敛为拒绝而非向宿主抛错。成功写回按 surface 记录「组件 + 绑定属性 → 最新值」草稿（structuredClone 值快照隔离），`getLatestInputs(surfaceId)` 返回与内部模型、草稿隔离的深拷贝 `NexusActionInput[]`。草稿保存来源（Catalog、组件类型、绑定路径、组件声明指纹），在接受组件更新后立即清除失效条目并于提取时复核，防止改绑或替换再恢复时复活旧值；同类型同绑定的普通属性更新保留草稿，`deleteSurface` 清理；这是 S4 client 读取输入草稿的公开原语。React `RenderContext.setInputValue` 同形增加 `property` 参数，五个标准控件固定上报 `value`，不解释可信写路径。本地拒绝类别与草稿语义见 SPEC §4.3。Playground 从现有同源 `/api/a2ui/catalog-contract` 接口加载三个已发布声明，全部通过 SDK 注册闸门后再挂载 Provider；加载失败显式报错，不复制另一套浏览器声明表。
 
@@ -103,9 +105,9 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 提交采用「输入基础模型 → handler patch」顺序，归一化结果及根替换以 handler 为准；消息源先发输入模型再发 patch，保证浏览器与存储组合一致。实例级单调计数器不因删除/淘汰重号，action 提交同时核对 revision/epoch；非 HTTP 正常 EOF 仍持锁，直到 commit/onError/dispose。移除按 HTTP 回写 `streamClaimed` 转移锁所有权的机制。
 
-复审同时提前接通最小 HTTP 契约：只接收 `{ message, nexus }`，保留客户端 actionId，不读取最新快照为旧视图填充基准。commit 捕获并返回固定 `NexusSurfaceCommit`，成功 done 直接发布；两个参考浏览器仅为成功消费的本次视图保存该结果，缺终态/失败/本地拒绝后不开放 action。**剩余 S2.5**：有界结果留存、按 run 查询、`X-Nexus-Run-Id`、verifier/RPC 与发布内容核对；完整会话和预览隔离仍属 S3/S4。此处替代首轮七项整改中的 patch 后写输入、仅 epoch 核对与可信 HTTP 补基准方案。
+复审同时提前接通最小 HTTP 契约：只接收 `{ message, nexus }`，保留客户端 actionId，不读取最新快照为旧视图填充基准。commit 捕获并返回固定 `NexusSurfaceCommit`，成功 done 直接发布；两个参考浏览器仅为成功消费的本次视图保存该结果，缺终态/失败/本地拒绝后不开放 action。**S2.5.1/.2/.5 已交付并完成评审修复（2026-10-20）**：运行 ID 与提交身份统一校验，adapter 持有传输无关的结果留存所有者；发布强制绑定实际执行声明，首次使用固定副本；onboarding 完整校验。**剩余 S2.5**：按 run 查询、`X-Nexus-Run-Id`、verifier/RPC 贯通与并发关联复核；完整会话和预览隔离仍属 S3/S4。此处替代首轮七项整改中的 patch 后写输入、仅 epoch 核对与可信 HTTP 补基准方案。
 
-**依据与代价**：当前写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 已随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
+**依据与代价（改造前基线）**：原写回只支持五个内置输入且不读 Catalog，默认 resolver 看不到浏览器编辑，自定义 resolver 可整体跳过未声明字段检查；每个宿主自写 resolver 容易复制安全逻辑。未知键从静默忽略收紧为注册报错属破坏性收敛，playground-server 等既有 Catalog 已随注册闸门切片迁移，依赖透传客户端 context 的测试写法将失效并改为显式声明。增加通用输入准入有维护成本，但不扩展为业务规则 DSL 或任意 dataModel 写接口。
 
 ## D9. 单实例调度与资源边界
 

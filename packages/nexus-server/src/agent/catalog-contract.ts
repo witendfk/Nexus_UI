@@ -10,6 +10,13 @@ export interface CatalogContractReference {
   readonly url?: string;
 }
 
+/** 发布契约 hash 的完整格式：`sha256:` + 64 位小写十六进制。 */
+export const CATALOG_CONTRACT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+export function isCatalogContractHash(value: unknown): value is string {
+  return typeof value === 'string' && CATALOG_CONTRACT_HASH_PATTERN.test(value);
+}
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (typeof value !== 'object' || value === null) return JSON.stringify(value) ?? 'null';

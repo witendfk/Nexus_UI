@@ -13,7 +13,7 @@ import type {
   AgentRun,
 } from '../src/agent/adapter';
 import { OFFICIAL_BASIC_CATALOG } from '../src/agent/catalog-identity';
-import { createCatalogContractHash } from '../src/agent/catalog-contract';
+import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
 import { InMemorySurfaceHistoryStore } from '../src/agent/history';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { InMemorySurfaceActionStateStore } from '../src/agent/surface-action-state';
@@ -90,8 +90,9 @@ function createObservedSseContext(onData: (chunk: string) => void): Koa.Context 
   return ctx;
 }
 
-function createActionRun(commit: AgentRun['commit']): AgentRun {
+function createActionRun(runId: string, commit: AgentRun['commit']): AgentRun {
   return {
+    runId,
     source: [
       {
         version: 'v0.9',
@@ -106,6 +107,19 @@ function createActionRun(commit: AgentRun['commit']): AgentRun {
       supportedActions: ['submit'],
     },
     commit,
+  };
+}
+
+/** S2.5.1：自定义 run 的 commit 必须返回固定提交结果，不能返回 void。 */
+function commitFixture(runId: string) {
+  return {
+    sessionVersion: 1 as const,
+    runId,
+    surfaceId: 'surface-commit',
+    catalogId: TEST_CATALOG_ID,
+    contractVersion: CATALOG_CONTRACT_VERSION,
+    catalogHash: TEST_CATALOG_HASH,
+    surfaceRevision: 1,
   };
 }
 
@@ -188,6 +202,7 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(secondPlan.ok);
+    await secondPlan.run.commit(await collect(secondPlan.run.source));
 
     assert.deepEqual(seenHistories[1], [], '两个 adapter 实例不得共享 history（模块级单例已删除）');
   });
@@ -314,7 +329,7 @@ describe('AgentAdapter 显式装配', () => {
       generationTransport.ctx,
       generation.run,
       'host-source',
-      { manager: new InMemoryAgentRunManager() },
+      {},
     );
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
 
@@ -357,12 +372,11 @@ describe('AgentAdapter 显式装配', () => {
     assert.ok(plan.ok);
     plan.run.commit = () => {
       committed = true;
+      return commitFixture(plan.run.runId);
     };
 
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'host-invalid', {
-      manager: new InMemoryAgentRunManager(),
-    });
+    const result = await sendAgentRun(transport.ctx, plan.run, 'host-invalid', {});
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -413,9 +427,7 @@ describe('AgentAdapter 显式装配', () => {
     const plan = await adapter.prepareGeneration({ catalogId: customCatalogId });
     assert.ok(plan.ok);
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'diagnostics', {
-      manager: new InMemoryAgentRunManager(),
-    });
+    const result = await sendAgentRun(transport.ctx, plan.run, 'diagnostics', {});
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -437,9 +449,10 @@ describe('AgentAdapter 显式装配', () => {
 
     const success = await sendAgentRun(
       successTransport,
-      createActionRun(async () => {
+      createActionRun('commit-success-run', async () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         commitFinished = true;
+        return commitFixture('commit-success-run');
       }),
       'commit-success',
       { manager: new InMemoryAgentRunManager() },
@@ -455,7 +468,7 @@ describe('AgentAdapter 显式装配', () => {
     });
     const failure = await sendAgentRun(
       failureTransport,
-      createActionRun(async () => {
+      createActionRun('commit-failure-run', async () => {
         throw new Error('history store unavailable');
       }),
       'commit-failure',
@@ -1014,7 +1027,6 @@ describe('AgentAdapter 显式装配', () => {
     // The handler body is lazy: it runs at the first pull inside the queue.
     const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, 'commit-visibility-a', {
       streamDelayMs: 0,
-      manager: new InMemoryAgentRunManager(),
     });
     await firstDelay(20);
     assert.ok(commitEntered, 'first commit is now gated inside sendAgentRun');

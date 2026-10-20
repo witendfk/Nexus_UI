@@ -34,14 +34,18 @@ SSE 事件：
 - 业务 action handler 按 `catalogId + action.name` 注册，并接收同 surface 的 catalog 与成功生成 history；SDK 不提供任何演示 handler。
 - `AgentAdapterOptions.policy` 支持注入部分或完整 host policy；未注入时 SDK 施加零条业务规则（无媒体关键词、无搜索/表单/Workbench 流程校验）。注入策略仍然运行在协议、Profile、Catalog 和生命周期 guard 之后。
 - Agent guard 的序列选项 `catalogId`/`registry`/`supportedActions` 必填；action 挂载组件不再按 Button/TaskButton 名称特判（声明式能力归属 Catalog v2，见 SPEC §4）。
-- `sendAgentRun` 必须显式传入 `manager`（`AgentRunManager`）；`createAgentRouter` 缺省时为每个 router 实例新建，宿主也可注入。
+- `AgentAdapter` 持有每实例隔离的 `runManager`，宿主可在构造时注入；router 与 `sendAgentRun(ctx, run, options)` 自动复用。显式 manager 必须是同一实例；原始自定义 `AgentRun` 必须向 sender 显式提供 manager。
 - `external-agent.ts` 提供最小 HTTP JSONL RPC helper，可把初始生成与业务 action 转发给宿主自有 Agent；输出仍必须通过同一 Agent guard。
 
 未注册 action 在进入 SSE 前返回 400，避免半流失败。每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard；生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`；action 响应只能 `updateComponents` / `updateDataModel`。失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
 
 HTTP action 仅接收 `{ message, nexus }`：message 是 v0.9 action，nexus 必含 sessionVersion/actionId/surfaceRevision/catalogHash/inputs。旧格式显式拒绝；服务端不查询最新快照补基准，也不重建 actionId。成功 `done` data 为该次提交固定的 `NexusSurfaceCommit`，其 runId 与本次 SSE ID 前缀一致，供消费方关联其实际视图。失败或缺 done 的视图不能继续 action。
 
-非 HTTP 的 `AgentRun` 消费者也必须在读取消息源后显式调用 commit（返回固定提交结果），或 onError/dispose；正常 EOF 不释放 action 锁。输入模型先于 handler patch 发布并提交，handler 的同路径归一化值/根替换优先。自定义 `SurfaceActionStateStore` 需实现 revision + epoch 原子比较，commitGeneration/commitAction 返回本次提交的独立快照。
+HTTP 与非 HTTP 使用同一传输无关的运行生命周期，非 HTTP 首次消费 source 或 commit 时预留记录容量，commit 验证结果结构及本次 run/surface/catalog/hash 后留存，返回独立的固定结果；成功 done 之前结果已可读。直接消费者必须在读取消息源后显式调用 commit，或 onError/dispose；正常 EOF 不释放 action 锁。输入模型先于 handler patch 发布并提交，handler 的同路径归一化值/根替换优先。自定义 `SurfaceActionStateStore` 需实现 revision + epoch 原子比较，commitGeneration/commitAction 返回本次提交的独立快照。
+
+生成源工厂与 action handler 仅在消息源消费且容量准入成功后调用；它们抛错会使运行失败，HTTP 中通过 SSE error 返回。prepare 的准入错误仍发生在流前。容量拒绝/响应占用异常会释放运行、action 锁与宿主 dispose 资源，不遗留活动记录。
+
+发布 Catalog 时自动与实际 adapter 的执行声明核对；首次发布/执行会固定该 Catalog 副本，之后修改外部 registry 不影响当前 adapter。更新固定声明需重建 adapter 与发布路由。onboarding 校验完整 Catalog、版本、hash 与 prompt 一致性。
 
 外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
 
@@ -55,7 +59,7 @@ SDK 根入口不读取项目环境。请求边界由 router options 显式配置
 | `requestBodyTimeoutMs` | `10000`   | JSON 请求体读取超时                                                   |
 | `streamDelayMs`        | `200`     | 演示 pacing；生产装配应省略                                           |
 
-`runManager` 可注入宿主自己的运行记录存储（实现 `InMemoryAgentRunManager` 同款接口）；runs 查询的访问控制由 `runsAccess` 决定，`surfaceId` 不是凭据，认证主体必须来自宿主可信请求上下文。
+通过 `new AgentAdapter({ registry, runManager, ... })` 注入自定义运行记录存储（实现 `AgentRunManager`，含 `recordCommit`）；router 可省略 runManager，显式提供时必须与 adapter 的同一实例一致；runs 查询的访问控制由 `runsAccess` 决定，`surfaceId` 不是凭据，认证主体必须来自宿主可信请求上下文。
 
 ## 命令
 

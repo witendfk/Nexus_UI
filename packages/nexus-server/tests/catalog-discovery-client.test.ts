@@ -11,7 +11,7 @@ const payload = {
     {
       catalogId: 'https://example.com/catalogs/client-test/v1',
       contractVersion: CATALOG_CONTRACT_VERSION,
-      contractHash: 'sha256:catalog-contract-hash',
+      contractHash: 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       components: ['Summary', 'Button'],
       actions: ['submit'],
       catalogContractUrl: 'https://example.com/api/a2ui/catalog-contract?catalogId=test',

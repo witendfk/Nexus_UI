@@ -9,9 +9,10 @@ import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
 
 const registry = createTestRegistry();
 
-function createAdapter(): AgentAdapter {
+function createAdapter(runManager?: InMemoryAgentRunManager): AgentAdapter {
   return new AgentAdapter({
     registry,
+    runManager,
     useLlm: () => false,
     createGenerationSource: (request) => [
       {
@@ -41,7 +42,7 @@ const gatedRunManager = new InMemoryAgentRunManager();
 const gatedApp = new Koa();
 gatedApp.use(
   createAgentRouter({
-    adapter: createAdapter(),
+    adapter: createAdapter(gatedRunManager),
     runManager: gatedRunManager,
     streamDelayMs: 0,
     runsAccess: (surfaceId) =>

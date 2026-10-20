@@ -207,8 +207,11 @@ describe('Agent line routes', () => {
       ),
     });
 
-    assert.equal(duplicateResponse.status, 400);
-    assert.match(await duplicateResponse.text(), /任务不能从 completed 状态完成/);
+    assert.equal(duplicateResponse.status, 200);
+    const duplicateText = await duplicateResponse.text();
+    assert.match(duplicateText, /event: error/);
+    assert.doesNotMatch(duplicateText, /event: done/);
+    assert.match(duplicateText, /任务不能从 completed 状态完成/);
   });
 
   it('拒绝未知或过期的 action surface', async () => {

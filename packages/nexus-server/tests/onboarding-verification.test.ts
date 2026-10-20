@@ -245,19 +245,19 @@ describe('verifyExternalAgentOnboarding', () => {
   });
 
   it('rejects an onboarding contract whose catalog hash is stale', async () => {
+    // createAgentOnboardingContract 在装配期已拒绝 hash 过期的入参（S2.5.5）；
+    // 这里模拟一个直接下发过期契约的宿主，验证 verifier 侧仍独立拒绝。
+    const staleContract: Record<string, unknown> = {
+      ...createAgentOnboardingContract({ catalogContract: catalogContractPayload }),
+      rpcEndpoint: { method: 'POST', disclosed: true, url: 'https://agent.invalid/a2ui' },
+    };
+    staleContract.catalogContract = {
+      ...catalogContractPayload,
+      contractHash: 'sha256:stale',
+    };
     const server = createServer((_request, response) => {
       response.setHeader('Content-Type', 'application/json');
-      response.end(
-        JSON.stringify(
-          createAgentOnboardingContract({
-            catalogContract: {
-              ...catalogContractPayload,
-              contractHash: 'sha256:stale',
-            },
-            rpcEndpoint: 'https://agent.invalid/a2ui',
-          }),
-        ),
-      );
+      response.end(JSON.stringify(staleContract));
     });
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
