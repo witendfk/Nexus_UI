@@ -250,24 +250,7 @@ export function sendAgentRun(
   ctx: Koa.Context,
   run: AgentRun,
   options: SendAgentRunOptions,
-): Promise<SendMessagesResult>;
-/**
- * @deprecated 兼容槽位：既有发送方（createAgentRouter、verification 等）仍按
- * `sendAgentRun(ctx, run, idPrefix, options)` 传参。该字符串实参被忽略，运行
- * 标识只来自 `run.runId`；调用方应停止传参，不留第二套身份解释。
- */
-export function sendAgentRun(
-  ctx: Koa.Context,
-  run: AgentRun,
-  legacyIdPrefix: string,
-  options: SendAgentRunOptions,
-): Promise<SendMessagesResult>;
-export function sendAgentRun(
-  ctx: Koa.Context,
-  run: AgentRun,
-  ...args: [options: SendAgentRunOptions] | [legacyIdPrefix: string, options: SendAgentRunOptions]
 ): Promise<SendMessagesResult> {
-  const options: SendAgentRunOptions = args.length === 2 ? args[1] : args[0];
   let managed: ManagedAgentRun | undefined;
   let stream: PassThrough;
   let hostDisposed = false;

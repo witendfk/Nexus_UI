@@ -6,6 +6,7 @@ describe('core public API surface', () => {
   it('exports only the documented root-entry contract', () => {
     assert.deepEqual(Object.keys(publicApi).sort(), [
       'A2UIRuntime',
+      'CATALOG_CONTRACT_HASH_PATTERN',
       'CATALOG_CONTRACT_VERSION',
       'CORE_API_VERSION',
       'CatalogRegistry',
@@ -20,8 +21,10 @@ describe('core public API surface', () => {
       'createCatalogPromptContract',
       'createCoreStore',
       'getByPath',
+      'getCatalogContractHashInput',
       'getStrictPath',
       'isA2UIMessage',
+      'isCatalogContractHash',
       'isDataBinding',
       'isSafeMediaUrl',
       'isUnsafeDataPath',

@@ -129,15 +129,14 @@ function doneCommit(text: string): NexusSurfaceCommit {
 }
 
 describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
-  it('生成流的事件前缀、done 与 manager 记录都使用 run.runId；旧 idPrefix 实参不再产生第二个标识', async () => {
+  it('生成流的事件前缀、done 与 manager 记录都使用 run.runId', async () => {
     const manager = new InMemoryAgentRunManager();
     const adapter = createAdapter(manager);
     const plan = await adapter.prepareGeneration({ catalogId: IDENTITY_CATALOG_ID });
     assert.ok(plan.ok);
-    const legacyIdPrefix = `${SURFACE}:generate-00000000-0000-0000-0000-000000000000`;
 
     const { ctx, output, ended } = createSseCapture();
-    const result = await sendAgentRun(ctx, plan.run, legacyIdPrefix, {
+    const result = await sendAgentRun(ctx, plan.run, {
       manager,
       streamDelayMs: 0,
     });
@@ -154,7 +153,6 @@ describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
     assert.equal(record?.state, 'succeeded');
     assert.equal(record?.surfaceId, SURFACE);
     assert.equal(record?.kind, 'generate');
-    assert.equal(manager.get(legacyIdPrefix), undefined, '旧 idPrefix 不能成为运行记录');
   });
 
   it('action 流同样以 run.runId 贯穿事件与 done', async () => {
@@ -178,7 +176,7 @@ describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
     assert.ok(plan.ok);
 
     const { ctx, output, ended } = createSseCapture();
-    const result = await sendAgentRun(ctx, plan.run, `${SURFACE}:action-legacy`, {
+    const result = await sendAgentRun(ctx, plan.run, {
       manager,
       streamDelayMs: 0,
     });

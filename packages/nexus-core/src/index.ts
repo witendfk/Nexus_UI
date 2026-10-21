@@ -70,7 +70,7 @@ export {
 export { buildTree } from './render/index';
 export { buildActionEvent } from './action/index';
 export { A2UIRuntime } from './runtime/index';
-export type { RuntimeOptions } from './runtime/index';
+export type { InputDraftSnapshot, InputDraftSnapshotEntry, RuntimeOptions } from './runtime/index';
 export { compileSafeRegExp } from './checks/index';
 export type { SafeRegExp } from './checks/index';
 export { CatalogRegistry } from './catalog/index';
@@ -108,3 +108,8 @@ export { normalizeJsonPointer, getStrictPath, setStrictPath } from './dataModel/
 export { parseSurfaceCommit } from './session';
 
 export { CATALOG_CONTRACT_VERSION } from './catalog';
+export {
+  CATALOG_CONTRACT_HASH_PATTERN,
+  getCatalogContractHashInput,
+  isCatalogContractHash,
+} from './catalog/contract-hash';

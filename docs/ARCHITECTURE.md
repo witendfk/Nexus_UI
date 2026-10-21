@@ -177,7 +177,7 @@ S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id
 
 **当前实施（S2.5 全部七项，2026-10-20 评审修正）**：adapter 的传输无关 managed run 统一 ID、提交身份校验与结果留存；每个 adapter 持有隔离或注入的 runManager，HTTP/直接消费共用。Koa sender 仅负责响应占用、guard/pump 与传输收尾，预留容量后才占用响应；生成源工厂/handler 在 source 消费时调用，失败经统一终态清理。直接消费的正常 EOF 仍需显式 commit/onError/dispose。模块级 surface 队列尚存，统一调度和完整 Session 归 S3。
 
-发布路由强制读取实际 adapter 的 Catalog 并核对声明 hash；adapter 每个 Catalog 首次发布/执行时固定副本，外部修改不能造成发布/执行分裂。onboarding 发布与消费共用内部完整校验（注册闸门、版本、hash、标准 prompt），无独立 executionRegistry 权威。按 surfaceId/runId 查询只读同一 runManager 中的固定结果；响应头在占用响应时写入。verifier 消费实际响应目的流并等待收完，使用成功 done 固定基准；报告 actionContext 是 handler 实际收到的权威参数隔离副本。RPC 完整序列化与并发关联复核已完成；消费方完整关联门控仍归 S2.6.3，完整调度/背压/commitState 归 S3，Session 归 S3/S4。
+发布路由强制读取实际 adapter 的 Catalog 并核对声明 hash；adapter 每个 Catalog 首次发布/执行时固定副本，外部修改不能造成发布/执行分裂。onboarding 发布与消费共用内部完整校验（注册闸门、版本、hash、标准 prompt），无独立 executionRegistry 权威。按 surfaceId/runId 查询只读同一 runManager 中的固定结果；响应头在占用响应时写入。verifier 消费实际响应目的流并等待收完，使用成功 done 固定基准；报告 actionContext 是 handler 实际收到的权威参数隔离副本。RPC 完整序列化与并发关联复核已完成。**消费方迁移（S2.6，2026-10-20）**：两个参考服务经实际入口发布执行 Catalog（发布列表取自 adapter 固定声明）、宿主侧 surface→Catalog 映射提供精确可编辑白名单；两个参考浏览器在挂载前校验契约（版本/身份/Web Crypto 复算 hash/标准 prompt/注册闸门）、以 `X-Nexus-Run-Id` 响应头关联成功 done 并核对 catalog/hash、请求代次在逐帧写入前核对，取消/切换 Catalog/卸载立即失效、在途重复 action 忽略、生成只接受本次创建且含 root 的请求 Catalog 视图（拒绝 done-only 贴旧视图）、按发送快照确认草稿并恢复请求期间的新编辑为可见本地草稿（core `extractLatestInputDrafts`/`confirmInputDrafts`）；两组无关 Catalog（Basic 表单、中立 scorecard）完成连续两次 action 与双 surface 隔离 headless 对测。hash 以 JSON 传输形状规范化后计算，省略字段与显式 undefined 等价。上述消费方边界于 2026-10-21 复审修正；完整调度/背压/commitState 归 S3，Session 与 client 包归 S3/S4。
 
 运行模块不接受 Koa Context，不通过 HTTP 层回写 `streamClaimed` 来转移锁所有权。Koa 适配器保留已有调用时响应占用语义；相同运行在非 Koa 消费中无需伪造 Context。Host 可保留自己的路由与认证栈，不必启用参考 router 的全部端点。
 
@@ -191,7 +191,7 @@ handler 在排队准入完成后调用。输入只形成临时模型；未经接
 
 ### 6.3 调度、存储与所有权
 
-当前 S2.4 复审实现（2026-10-19）：action 在准备到 commit/onError/dispose 期间持锁，非 HTTP 正常 EOF 不释放；store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增。准入与 patch guard 使用固定 Catalog，guard 从已提交组件与临时输入模型起步；输入基础模型先于 handler patch 应用并随消息源发送，存储入界/出界均深拷贝。HTTP 不补当前基准、不换 actionId；成功 done 发布提交时捕获的固定结果，两个参考消费方用其为实际视图提供后续请求基准。运行结果留存与按运行查询已在 S2.5.2/.3 实施（2026-10-20）；消费方完整关联门控仍待 S2.6.3，完整 Session 生命周期仍待 S3/S4。
+当前 S2.4 复审实现（2026-10-19）：action 在准备到 commit/onError/dispose 期间持锁，非 HTTP 正常 EOF 不释放；store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增。准入与 patch guard 使用固定 Catalog，guard 从已提交组件与临时输入模型起步；输入基础模型先于 handler patch 应用并随消息源发送，存储入界/出界均深拷贝。HTTP 不补当前基准、不换 actionId；成功 done 发布提交时捕获的固定结果，两个参考消费方用其为实际视图提供后续请求基准。运行结果留存与按运行查询已在 S2.5.2/.3 实施（2026-10-20）；消费方完整关联门控已在 S2.6.3 于两个参考浏览器落地（2026-10-20），完整 Session 生命周期仍待 S3/S4。
 
 同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。所有监听器、源迭代器和锁都在终态或 dispose 路径释放。
 

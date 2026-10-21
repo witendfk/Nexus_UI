@@ -229,12 +229,7 @@ describe('standalone host example', () => {
     });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(
-      generationTransport.ctx,
-      generation.run,
-      'standalone-generation',
-      {},
-    );
+    const generationResult = await sendAgentRun(generationTransport.ctx, generation.run, {});
 
     assert.equal(generationResult.ok, true);
     assert.match(generationTransport.getOutput(), /event: done/);
@@ -271,12 +266,7 @@ describe('standalone host example', () => {
     });
     assert.ok(action.ok);
     const actionTransport = createSseContext();
-    const actionResult = await sendAgentRun(
-      actionTransport.ctx,
-      action.run,
-      'standalone-action',
-      {},
-    );
+    const actionResult = await sendAgentRun(actionTransport.ctx, action.run, {});
 
     assert.equal(actionResult.ok, true);
     assert.match(actionTransport.getOutput(), /event: done/);
@@ -313,7 +303,7 @@ describe('standalone host example', () => {
     assert.equal(generation.run.sequence.policy?.name, 'standalone-host-policy');
 
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, generation.run, 'standalone-policy', {});
+    const result = await sendAgentRun(transport.ctx, generation.run, {});
     assert.equal(result.ok, false);
     assert.match(transport.getOutput(), /host policy rejected Text/);
     assert.match(transport.getOutput(), /"boundaryCode":"POLICY_REJECTED"/);
@@ -354,7 +344,7 @@ describe('standalone host example', () => {
       },
     ];
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, generation.run, 'invalid-action', {});
+    const result = await sendAgentRun(transport.ctx, generation.run, {});
 
     assert.equal(result.ok, false);
     // 未注册 action 名由共享 Catalog 诊断统一报告（S2.2 收尾）。

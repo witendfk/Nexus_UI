@@ -155,12 +155,7 @@ describe('standalone host local action assembly', () => {
     });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(
-      generationTransport.ctx,
-      generation.run,
-      'local-action-generation',
-      {},
-    );
+    const generationResult = await sendAgentRun(generationTransport.ctx, generation.run, {});
 
     assert.equal(generationResult.ok, true);
     assert.match(generationTransport.getOutput(), /event: done/);
@@ -194,12 +189,7 @@ describe('standalone host local action assembly', () => {
     });
     assert.ok(actionPlan.ok);
     const actionTransport = createSseContext();
-    const actionResult = await sendAgentRun(
-      actionTransport.ctx,
-      actionPlan.run,
-      'local-action-response',
-      {},
-    );
+    const actionResult = await sendAgentRun(actionTransport.ctx, actionPlan.run, {});
 
     assert.equal(actionResult.ok, true);
     assert.match(actionTransport.getOutput(), /event: done/);

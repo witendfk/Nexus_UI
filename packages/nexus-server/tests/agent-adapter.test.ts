@@ -325,12 +325,7 @@ describe('AgentAdapter 显式装配', () => {
     });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(
-      generationTransport.ctx,
-      generation.run,
-      'host-source',
-      {},
-    );
+    const generationResult = await sendAgentRun(generationTransport.ctx, generation.run, {});
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
 
     const action = await adapter.prepareAction({
@@ -376,7 +371,7 @@ describe('AgentAdapter 显式装配', () => {
     };
 
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'host-invalid', {});
+    const result = await sendAgentRun(transport.ctx, plan.run, {});
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -427,7 +422,7 @@ describe('AgentAdapter 显式装配', () => {
     const plan = await adapter.prepareGeneration({ catalogId: customCatalogId });
     assert.ok(plan.ok);
     const transport = createSseContext();
-    const result = await sendAgentRun(transport.ctx, plan.run, 'diagnostics', {});
+    const result = await sendAgentRun(transport.ctx, plan.run, {});
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
@@ -454,7 +449,6 @@ describe('AgentAdapter 显式装配', () => {
         commitFinished = true;
         return commitFixture('commit-success-run');
       }),
-      'commit-success',
       { manager: new InMemoryAgentRunManager() },
     );
 
@@ -471,7 +465,6 @@ describe('AgentAdapter 显式装配', () => {
       createActionRun('commit-failure-run', async () => {
         throw new Error('history store unavailable');
       }),
-      'commit-failure',
       { manager: new InMemoryAgentRunManager() },
     );
 
@@ -1025,7 +1018,7 @@ describe('AgentAdapter 显式装配', () => {
     assert.ok(firstPlan.ok, firstPlan.ok ? '' : firstPlan.message);
 
     // The handler body is lazy: it runs at the first pull inside the queue.
-    const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, 'commit-visibility-a', {
+    const firstSent = sendAgentRun(createSseContext().ctx, firstPlan.run, {
       streamDelayMs: 0,
     });
     await firstDelay(20);

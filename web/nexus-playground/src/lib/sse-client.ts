@@ -8,6 +8,8 @@ export interface SseStreamOptions {
   url: string;
   body?: unknown;
   signal?: AbortSignal;
+  /** S2.6.3.2：把实际响应交给消费方——运行标识从响应头读取，不解析事件 id。 */
+  onResponse?: (response: Response) => void;
   onEvent: (event: SseEvent) => void;
 }
 
@@ -45,7 +47,17 @@ export function parseSseFrame(frame: string): SseEvent | null {
  * EventSource 只支持 GET 且不能携带 JSON body，因此 Agent 生成接口使用 fetch streaming；
  * core 仍只接收 JSONL 字符串，不感知 SSE。
  */
-export async function streamSse({ url, body, signal, onEvent }: SseStreamOptions): Promise<void> {
+export async function streamSse({
+  url,
+  body,
+  signal,
+  onResponse,
+  onEvent,
+}: SseStreamOptions): Promise<void> {
+  const assertActive = (): void => {
+    if (signal?.aborted) throw new DOMException('运行已取消', 'AbortError');
+  };
+  assertActive();
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -55,6 +67,10 @@ export async function streamSse({ url, body, signal, onEvent }: SseStreamOptions
     body: JSON.stringify(body ?? {}),
     signal,
   });
+  if (signal?.aborted) {
+    await response.body?.cancel().catch(() => undefined);
+    assertActive();
+  }
 
   const contentType = response.headers.get('content-type')?.split(';')[0]?.trim();
   if (!response.ok || !response.body || contentType !== 'text/event-stream') {
@@ -71,6 +87,7 @@ export async function streamSse({ url, body, signal, onEvent }: SseStreamOptions
   const decoder = new TextDecoder();
   let buffer = '';
   const deliver = (frame: string): void => {
+    assertActive();
     const event = parseSseFrame(frame);
     if (event) onEvent(event);
   };
@@ -86,20 +103,31 @@ export async function streamSse({ url, body, signal, onEvent }: SseStreamOptions
     }
   };
 
+  const cancelReader = (): void => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal?.addEventListener('abort', cancelReader, { once: true });
   try {
+    assertActive();
+    onResponse?.(response);
     let done = false;
     while (!done) {
       const { done: streamDone, value } = await reader.read();
+      assertActive();
       if (streamDone) {
         done = true;
         continue;
       }
       consume(decoder.decode(value, { stream: true }));
     }
+    assertActive();
+    consume(decoder.decode());
+    if (buffer.trim()) deliver(buffer);
   } catch (error) {
     await reader.cancel().catch(() => undefined);
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', cancelReader);
+    reader.releaseLock();
   }
-  consume(decoder.decode());
-  if (buffer.trim()) deliver(buffer);
 }

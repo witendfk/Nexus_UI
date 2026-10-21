@@ -1,6 +1,5 @@
 import type Koa from 'koa';
 import Router from '@koa/router';
-import { randomUUID } from 'node:crypto';
 import { CatalogRegistry, createCatalogPromptContract } from '@nexus-ui/core';
 import type { CatalogDefinition } from '@nexus-ui/core';
 
@@ -228,8 +227,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       return;
     }
 
-    const surfaceId = plan.run.sequence.surfaceId;
-    void sendAgentRun(ctx, plan.run, `${surfaceId}:generate-${randomUUID()}`, {
+    void sendAgentRun(ctx, plan.run, {
       ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
       manager: runManager,
       signal: requestAbort.signal,
@@ -379,8 +377,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
       return;
     }
 
-    const surfaceId = clientMessage.action.surfaceId;
-    void sendAgentRun(ctx, plan.run, `${surfaceId}:action-${randomUUID()}`, {
+    void sendAgentRun(ctx, plan.run, {
       ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
       manager: runManager,
       signal: requestAbort.signal,

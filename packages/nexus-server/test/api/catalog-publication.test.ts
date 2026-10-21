@@ -269,3 +269,28 @@ describe('发布契约绑定真实 adapter', () => {
     assert.ok(router);
   });
 });
+
+it('可选 undefined 的执行声明经真实 HTTP 发布后 hash/prompt 仍与内容一致', async () => {
+  const catalog: CatalogDefinition = {
+    catalogId: 'https://example.com/catalogs/undefined-wire/v1',
+    components: { Label: { schema: { type: 'object' }, origin: undefined, inputs: undefined } },
+    actions: [],
+  };
+  const owner = new AgentAdapter({ registry: new CatalogRegistry([catalog]) });
+  const base = await listen(createAgentRouter({ adapter: owner, catalogContracts: [catalog] }));
+  const { status, body } = await getJson(
+    `${base}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(catalog.catalogId)}`,
+  );
+  assert.equal(status, 200);
+  const wire = body as ContractResponse;
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(wire.catalog.components.Label, 'origin'),
+    false,
+  );
+  assert.equal(wire.contractHash, createCatalogContractHash(wire.catalog));
+  assert.equal(
+    wire.contractHash,
+    createCatalogContractHash(owner.describeCatalog(catalog.catalogId)!),
+  );
+  assert.equal(wire.promptContract, createCatalogPromptContract(wire.catalog));
+});

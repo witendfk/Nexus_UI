@@ -40,6 +40,26 @@ interface InputDraft {
   readonly componentType: string;
   readonly bindingPath: string;
   readonly declarationKey: string;
+  /** 草稿代次：同 key 每次成功写回都取新的单调值；确认按它逐条比对。 */
+  readonly serial: number;
+}
+
+/** 发送侧草稿快照中的单个条目：wire 输入 + 提取时的草稿代次。 */
+export interface InputDraftSnapshotEntry {
+  readonly input: NexusActionInput;
+  readonly serial: number;
+}
+
+/**
+ * S2.6.4.1 发送快照：一次成功提交只能确认「发送时」的草稿。确认按 surfaceId +
+ * 逐条 `(componentId, property)` 的 serial 相等判定，不按值相等——请求期间的
+ * 再次编辑（含改回同值）、改绑/替换组件与其他 surface 的草稿都不会被误删。
+ * 快照只与创建它的同一 runtime 实例配合使用（token 含实例标识）。
+ */
+export interface InputDraftSnapshot {
+  readonly surfaceId: string;
+  readonly runtimeId: number;
+  readonly entries: readonly InputDraftSnapshotEntry[];
 }
 
 export interface RuntimeOptions {
@@ -85,6 +105,11 @@ export class A2UIRuntime {
    * S4 client 经 getLatestInputs 读取后组装 action 请求。
    */
   private readonly latestInputs = new Map<string, Map<string, InputDraft>>();
+  /** 草稿代次计数器（runtime 实例内单调递增）。 */
+  private nextInputDraftSerial = 0;
+  /** runtime 实例标识：草稿快照只与创建它的实例配合确认。 */
+  private static nextRuntimeId = 0;
+  private readonly runtimeId = ++A2UIRuntime.nextRuntimeId;
 
   constructor(options: RuntimeOptions = {}) {
     validateRenderLimits(options);
@@ -248,6 +273,61 @@ export class A2UIRuntime {
     );
   }
 
+  /**
+   * S2.6.4.1 发送快照：与 getLatestInputs 同一套失效清理，另携带逐条草稿代次。
+   * 消费方在组装 action 请求时提取一次；请求成功且通过本地完整性校验后，把同一
+   * 快照交给 confirmInputDrafts。wire 形状（`nexus.inputs`）只取 entries 的 input。
+   */
+  extractLatestInputDrafts(surfaceId: string): InputDraftSnapshot {
+    this.pruneLatestInputs(surfaceId);
+    return {
+      surfaceId,
+      runtimeId: this.runtimeId,
+      entries: Array.from(
+        this.latestInputs.get(surfaceId)?.values() ?? [],
+        ({ input, serial }) => ({
+          input: structuredClone(input),
+          serial,
+        }),
+      ),
+    };
+  }
+
+  /**
+   * 确认本次已提交的草稿：仅删除「代次仍与快照一致」的条目。发送期间的新编辑
+   * （serial 已变化，含改回同值）、改绑/替换组件（已被失效清理删除）、其他
+   * surface 与其他 runtime 的草稿一律保留。剩余草稿恢复到本地编辑模型，serial
+   * 不变；已发送且未再编辑的字段保留服务端归一化结果。恢复写路径失败返回 false，
+   * 不确认任何条目、不部分写回；调用方不得开放 action。幂等。
+   */
+  confirmInputDrafts(snapshot: InputDraftSnapshot): boolean {
+    if (snapshot.runtimeId !== this.runtimeId) return false;
+    this.pruneLatestInputs(snapshot.surfaceId);
+    const byKey = this.latestInputs.get(snapshot.surfaceId);
+    if (!byKey) return true;
+    const confirmed = new Set<string>();
+    for (const entry of snapshot.entries) {
+      const key = JSON.stringify([entry.input.componentId, entry.input.property]);
+      const draft = byKey.get(key);
+      if (draft !== undefined && draft.serial === entry.serial) confirmed.add(key);
+    }
+    const remaining = [...byKey].filter(([key]) => !confirmed.has(key));
+    const st = this.store.getState();
+    let model = st.dataModelBySurface[snapshot.surfaceId];
+    try {
+      for (const [, draft] of remaining) {
+        model = setStrictPath(model, draft.bindingPath, structuredClone(draft.input.value));
+      }
+    } catch {
+      return false;
+    }
+    if (remaining.length > 0) st.setDataModelValueAtPath(snapshot.surfaceId, '', model);
+    for (const key of confirmed) byKey.delete(key);
+    if (byKey.size === 0) this.latestInputs.delete(snapshot.surfaceId);
+    if (remaining.length > 0) this.rerender(snapshot.surfaceId);
+    return true;
+  }
+
   private pruneLatestInputs(surfaceId: string): void {
     const byKey = this.latestInputs.get(surfaceId);
     if (!byKey) return;
@@ -283,14 +363,17 @@ export class A2UIRuntime {
     if (byKey.size === 0) this.latestInputs.delete(surfaceId);
   }
 
-  private recordLatestInput(surfaceId: string, draft: InputDraft): void {
+  private recordLatestInput(surfaceId: string, draft: Omit<InputDraft, 'serial'>): void {
     let byKey = this.latestInputs.get(surfaceId);
     if (!byKey) {
       byKey = new Map();
       this.latestInputs.set(surfaceId, byKey);
     }
     const { componentId, property } = draft.input;
-    byKey.set(JSON.stringify([componentId, property]), draft);
+    byKey.set(JSON.stringify([componentId, property]), {
+      ...draft,
+      serial: ++this.nextInputDraftSerial,
+    });
   }
 
   private handleLine(line: string): void {

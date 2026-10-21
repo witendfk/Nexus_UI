@@ -461,7 +461,7 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     });
     const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
     assert.ok(plan.ok);
-    const result = await sendAgentRun(createSseContext(), plan.run, 'reference-run', {
+    const result = await sendAgentRun(createSseContext(), plan.run, {
       manager,
       streamDelayMs: 0,
     });

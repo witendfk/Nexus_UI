@@ -196,12 +196,7 @@ describe('external agent RPC', () => {
     });
     assert.ok(generation.ok);
     const generationTransport = createSseContext();
-    const generationResult = await sendAgentRun(
-      generationTransport,
-      generation.run,
-      'external',
-      {},
-    );
+    const generationResult = await sendAgentRun(generationTransport, generation.run, {});
     assert.equal(generationResult.ok, true, generationTransport.getOutput());
     assert.deepEqual(
       generationResult.messages.map((message) => message),
@@ -253,7 +248,7 @@ describe('external agent RPC', () => {
       context: {},
     });
     assert.ok(action.ok);
-    const actionResult = await sendAgentRun(createSseContext(), action.run, 'external-action', {});
+    const actionResult = await sendAgentRun(createSseContext(), action.run, {});
     assert.equal(actionResult.ok, true);
     assert.match(JSON.stringify(actionResult.messages), /External action done/);
 

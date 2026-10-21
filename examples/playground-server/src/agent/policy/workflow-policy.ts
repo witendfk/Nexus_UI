@@ -6,7 +6,8 @@ function isSearchRequest(message?: string): boolean {
   return typeof message === 'string' && /搜索|search/i.test(message);
 }
 
-function isFormRequest(message?: string): boolean {
+/** 表单意图判定同时被 fallback 生成源复用，保证触发器与 Policy 契约同源。 */
+export function isFormRequest(message?: string): boolean {
   return typeof message === 'string' && /表单|form|订阅|subscribe/i.test(message);
 }
 

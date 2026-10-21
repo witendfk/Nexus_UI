@@ -455,7 +455,7 @@ describe('X-Nexus-Run-Id 响应头与传输关联（S2.5.4）', () => {
     const started: string[] = [];
     const run = createInstantActionRun('s-header-legacy', 'header-legacy-run', started);
     const manager = new InMemoryAgentRunManager();
-    const queued = sendAgentRun(ctx, run, 'legacy-prefix-not-an-id', {
+    const queued = sendAgentRun(ctx, run, {
       manager,
       streamDelayMs: 0,
     });

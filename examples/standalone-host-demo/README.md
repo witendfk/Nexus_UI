@@ -42,7 +42,7 @@ NEXUS_VERIFY_ONBOARDING_URL='http://127.0.0.1:3101/api/a2ui/agent-onboarding?cat
 
 该命令复用 `@nexus-ui/server` 的公共 verifier，验证生成流、catalog 稳定、host policy 拒绝、action 回流、同一 `surfaceId` patch 和稳定组件 ID；输出中的 `checks` 会逐项对应 Agent Onboarding Contract 的六个稳定验收 id。
 
-宿主把这份 CatalogDefinition 显式传入 `catalogContracts`，因此外部 Agent 可以先读取 `GET /api/a2ui/published-catalogs` 发现 catalog 摘要和 contract URL；浏览器也可以通过只读接口 `GET /api/a2ui/catalog-contract?catalogId=...` 读取与 guard 完全同源的契约。页面上的 `查看 Catalog Contract` 按钮就是该路径的验收入口。
+宿主把审批 Catalog 与中立反馈 Catalog（`shared/scorecard-contract.ts`：`FeedbackSummary` 展示、`ScoreDial` 整数输入（非 `value` 属性 `score`）、`PinnedToggle` 布尔输入、`SubmitCard` 非 Button 触发器、`record` action）都显式传入 `catalogContracts`，外部 Agent 可先读取 `GET /api/a2ui/published-catalogs` 发现摘要与 contract URL。浏览器在挂载前经 `browser/catalog-loader.ts` 校验每个契约（版本、身份、Web Crypto 复算 hash、标准 prompt、注册闸门），只用实际下载的声明建注册表；页面上的 `查看 Catalog Contract` 按钮读取同一只读接口。反馈 Catalog 走确定性本地生成源与本地 handler（支持连续提交），审批 Catalog 保持 external/local 两种 action 模式；可编辑白名单在 `host/adapter.ts`：审批无输入，反馈只开放 `/score`、`/pinned`。
 
 外部宿主最小复制路径是本 Demo 的 CatalogDefinition、renderMap、action handler 与 Agent endpoint；Nexus 支持子集和公开 API 边界见 [SPEC](../../docs/SPEC.md)。
 
@@ -90,7 +90,7 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 ### External action
 
 1. Open http://127.0.0.1:3100/.
-2. Keep the default request and click `生成任务面`.
+2. Keep the default request and click `生成审批面`.
 3. Confirm the LLM-generated surface shows an approval title, `USD 12,000`, and an approval button.
 4. Click the approval button.
 5. Confirm the same surface changes to `Approved: approval-demo-001`, the button becomes disabled, and the page reports `action: approve`.
@@ -104,34 +104,41 @@ LLM 配置读取仓库根目录 `.env` 中的 `OPENAI_API_KEY`、`OPENAI_BASE_UR
 4. Confirm the same surface changes to `Approved locally: approval-demo-001`, the button reads `Approved locally`, and it is disabled.
 5. Confirm host health reports `agentMode: "external-rpc"` and `actionMode: "local"`.
 
+### Scorecard (neutral interactive catalog)
+
+1. Open the web host page and click `生成反馈卡`.
+2. Set the score to `42`, tick `置顶本次反馈`, then click `记录反馈`.
+3. Confirm the summary note changes to `已记录：score=42，pinned=true` in the same section (no remount), and the action request carried `inputs` for `scoreDial.score` and `pinnedToggle.pinned`.
+4. Click `记录反馈` again without editing: the second request carries `inputs: []` (confirmed drafts are not resent) and the note is recomputed from the server model.
+
 ### Catalog Contract
 
 1. Open the web host page.
-2. Wait for `catalog discovery: done`.
+2. Wait for the controls to appear (contracts are verified before mount).
 3. Click `查看 Catalog Contract`.
 4. Confirm the status becomes `done` and the panel shows the A2UI NDJSON lifecycle, allowed components and actions, props schema, dynamic binding rules, and the final guard boundary. The browser uses the absolute URL returned by discovery.
 
 ### Agent Onboarding Contract
 
 1. Open the web host page.
-2. Wait for `catalog discovery: done`.
+2. Wait for the controls to appear.
 3. Click `查看 Agent Onboarding`.
 4. Confirm the status becomes `done` and the panel shows A2UI v0.9 / JSONL, the demo catalog boundary, disclosed RPC endpoint, SSE boundary codes, six acceptance checks, and the host verification command. The browser uses the absolute URL returned by discovery; an undisclosed endpoint still shows `not disclosed`.
 
 ### Published Catalog Discovery
 
 1. Fetch `GET /api/a2ui/published-catalogs`.
-2. Confirm the response has kind `published-catalog-list` and contains exactly the demo approval catalog.
+2. Confirm the response has kind `published-catalog-list` and contains the demo approval catalog and the scorecard catalog.
 3. The browser already uses the returned absolute `catalogContractUrl` and `agentOnboardingUrl`; external Agent code should do the same instead of hand-copying the catalog ID.
 
 The verify command also supports discovery through `NEXUS_DISCOVERY_URL` / `--discovery-url`; it records the selected catalog in `report.discovery` and runs the same six-check acceptance.
 
-The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. A React DOM regression test also mocks health and both SSE streams, then mounts the actual browser app: it checks the local-action badge, verifies the runtime remains stable after the action, requires the action request to carry the original `surfaceId`, and confirms the same `section` patches in place with the approval button disabled. The same DOM test first requires discovery to finish, then uses the exact returned contract URLs to load Catalog Contract and Agent Onboarding panels and checks their protocol, catalog, endpoint, boundary-code, check, and command rendering.
+The browser run should finish with no page errors or console errors. The automated HTTP tests use deterministic mode so they never read the developer key or consume an LLM request; they verify that generation and action responses keep the original `surfaceId`, disable the button, and end with an SSE `done` event. One test keeps initial generation on the external Agent while handling `approve` through a local host action handler, proving that action forwarding policy is host-owned. Another HTTP test replaces the external endpoint with a malformed JSONL Agent and requires SSE `error` without `done`. Scorecard HTTP tests drive the neutral catalog end to end (integer/boolean inputs admitted, forged client context overwritten by server recomputation, out-of-range or wrong-type inputs rejected with 400, consecutive actions, two-surface isolation). The React DOM regression mounts the actual browser app against mocked contracts with real hashes: it requires contract verification before the controls appear, checks the local-action badge, verifies the runtime stays stable across actions, confirms the scorecard controls report non-`value` properties and the non-Button trigger, and shows that a missing `X-Nexus-Run-Id` header, a `done.runId` that disagrees with the header, or a `catalogHash` that disagrees with the loaded contract never produces an action baseline.
 
 ## Boundary
 
 - The host owns the catalog, render map, HTTP entrypoints, and action forwarding policy; an action can be sent back to the external Agent or handled by a local business handler.
 - The demo Agent can only return candidate A2UI JSONL; LLM output still passes the unified guard.
-- The catalog allows only `ApprovalSummary`, `Text`, and `Button`, and only the `approve` action.
+- The approval catalog allows only `ApprovalSummary`, `Text`, and `Button`, and only the `approve` action; the neutral scorecard catalog allows `FeedbackSummary`, `ScoreDial`, `PinnedToggle`, `SubmitCard`, `Text`, `Column` and only the `record` action. The two catalogs share nothing but the SDK.
 - No Playground catalog, built-in fallback, or browser-generated code is used.
 - Authentication, tenant isolation, audit logging, retries, and durable state are intentionally outside this demo.

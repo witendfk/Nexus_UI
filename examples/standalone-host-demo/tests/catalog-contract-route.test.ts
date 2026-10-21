@@ -6,6 +6,7 @@ import { createCatalogPromptContract } from '@nexus-ui/core';
 import { createStandaloneHostApp } from '../src/host/app';
 import { DEMO_AGENT_CATALOG_ID } from '../src/contract';
 import { standaloneHostCatalog } from '../src/shared/catalog-contract';
+import { SCORECARD_CATALOG_ID, scorecardHostCatalog } from '../src/shared/scorecard-contract';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '@nexus-ui/server';
 
 const servers: Server[] = [];
@@ -121,6 +122,26 @@ describe('standalone host catalog contract route', () => {
         )}`,
         agentOnboardingUrl: `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(
           DEMO_AGENT_CATALOG_ID,
+        )}`,
+      },
+      {
+        catalogId: SCORECARD_CATALOG_ID,
+        contractVersion: CATALOG_CONTRACT_VERSION,
+        contractHash: createCatalogContractHash(scorecardHostCatalog),
+        components: [
+          'FeedbackSummary',
+          'ScoreDial',
+          'PinnedToggle',
+          'SubmitCard',
+          'Text',
+          'Column',
+        ],
+        actions: ['record'],
+        catalogContractUrl: `${baseUrl}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(
+          SCORECARD_CATALOG_ID,
+        )}`,
+        agentOnboardingUrl: `${baseUrl}/api/a2ui/agent-onboarding?catalogId=${encodeURIComponent(
+          SCORECARD_CATALOG_ID,
         )}`,
       },
     ]);

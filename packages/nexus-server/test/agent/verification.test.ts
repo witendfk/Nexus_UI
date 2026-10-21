@@ -53,6 +53,17 @@ const formCatalog: CatalogDefinition = {
       inputs: { score: { type: 'integer', minimum: 1, maximum: 5 } },
       origin: 'host-extension',
     },
+    // S2.6.3.4：第二类值类型（布尔、非 value 属性），verifier 两类输入一并验收。
+    PinnedToggle: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['pinned'],
+        properties: { pinned: { type: 'boolean', dynamic: 'required' } },
+      },
+      inputs: { pinned: { type: 'boolean' } },
+      origin: 'host-extension',
+    },
     ConfirmTrigger: {
       schema: {
         type: 'object',
@@ -71,8 +82,11 @@ const formCatalog: CatalogDefinition = {
       paramSchema: {
         type: 'object',
         additionalProperties: false,
-        required: ['score'],
-        properties: { score: { type: 'integer', minimum: 1, maximum: 5 } },
+        required: ['score', 'pinned'],
+        properties: {
+          score: { type: 'integer', minimum: 1, maximum: 5 },
+          pinned: { type: 'boolean' },
+        },
       },
     },
     { name: 'submit', sources: ['ConfirmTrigger'] },
@@ -214,22 +228,26 @@ describe('verification RPC 贯通（S2.5.6）', () => {
             updateComponents: {
               surfaceId,
               components: [
-                { id: 'root', component: 'Column', children: ['rating'] },
+                { id: 'root', component: 'Column', children: ['rating', 'pin'] },
                 {
                   id: 'rating',
                   component: 'RatingInput',
                   score: { path: '/score' },
                   label: 'Rate this task',
                   action: {
-                    event: { name: 'rate', context: { score: { path: '/score' } } },
+                    event: {
+                      name: 'rate',
+                      context: { score: { path: '/score' }, pinned: { path: '/pinned' } },
+                    },
                   },
                 },
+                { id: 'pin', component: 'PinnedToggle', pinned: { path: '/pinned' } },
               ],
             },
           },
           {
             version: 'v0.9',
-            updateDataModel: { surfaceId, value: { score: 3 } },
+            updateDataModel: { surfaceId, value: { score: 3, pinned: false } },
           },
         ]);
         return;
@@ -241,7 +259,7 @@ describe('verification RPC 贯通（S2.5.6）', () => {
           updateComponents: {
             surfaceId,
             components: [
-              { id: 'root', component: 'Column', children: ['rating'] },
+              { id: 'root', component: 'Column', children: ['rating', 'pin'] },
               {
                 id: 'rating',
                 component: 'RatingInput',
@@ -259,10 +277,13 @@ describe('verification RPC 贯通（S2.5.6）', () => {
       endpoint,
       catalog: formCatalog,
       timeoutMs: 2000,
-      editablePaths: () => ['/score'],
+      editablePaths: () => ['/score', '/pinned'],
       actionInputs: (component) =>
         component.action?.event?.name === 'rate'
-          ? [{ componentId: component.id, property: 'score', value: 4 }]
+          ? [
+              { componentId: component.id, property: 'score', value: 4 },
+              { componentId: 'pin', property: 'pinned', value: true },
+            ]
           : [],
     };
     const report = await verifyExternalAgentIntegration(options);
@@ -299,10 +320,13 @@ describe('verification RPC 贯通（S2.5.6）', () => {
     assert.equal(actionRequest.kind, 'action');
     const action = actionRequest.action as Record<string, unknown>;
     // 最新输入按夹具值实际序列化。
-    assert.deepEqual(action.inputs, [{ componentId: 'rating', property: 'score', value: 4 }]);
-    assert.deepEqual(report.actionContext, { score: 4 });
-    // 服务端重算参数覆盖客户端 context 值（客户端解析为 3，临时模型输入为 4）。
-    assert.deepEqual(action.context, { score: 4 });
+    assert.deepEqual(action.inputs, [
+      { componentId: 'rating', property: 'score', value: 4 },
+      { componentId: 'pin', property: 'pinned', value: true },
+    ]);
+    assert.deepEqual(report.actionContext, { score: 4, pinned: true });
+    // 服务端重算参数覆盖客户端 context 值（客户端解析为 3/false，临时模型输入为 4/true）。
+    assert.deepEqual(action.context, { score: 4, pinned: true });
     // nexus 元数据与 done 固定结果一致地出现在 RPC 载荷中。
     assert.equal(action.sessionVersion, 1);
     assert.equal(action.surfaceRevision, 1);

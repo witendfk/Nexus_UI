@@ -1,14 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { A2UIProvider, useA2UI } from '@nexus-ui/react';
-import { parseSurfaceCommit } from '@nexus-ui/core';
-import type { NexusSurfaceCommit } from '@nexus-ui/core';
+import { CatalogRegistry, parseSurfaceCommit } from '@nexus-ui/core';
+import type { InputDraftSnapshot, NexusSurfaceCommit } from '@nexus-ui/core';
 import type { ActionEvent, A2UIRuntime } from '@nexus-ui/core';
-import type { AgentOnboardingContractPayload, PublishedCatalogsPayload } from '@nexus-ui/server';
+import type { AgentOnboardingContractPayload } from '@nexus-ui/server';
 import { streamSse } from './sse';
 import type { SseEvent } from './sse';
-import { createStandaloneHostRegistry, standaloneHostRenderMap } from '../shared/catalog';
-import { DEMO_AGENT_CATALOG_ID } from '../contract';
+import { loadHostCatalogs } from './catalog-loader';
+import type { LoadedHostCatalog } from './catalog-loader';
+import {
+  SCORECARD_CATALOG_ID,
+  scorecardHostRenderMap,
+  standaloneHostCatalog,
+  standaloneHostRenderMap,
+} from '../shared/catalog';
 
 function agentError(data: string): string {
   try {
@@ -19,25 +25,68 @@ function agentError(data: string): string {
   }
 }
 
+/**
+ * S2.6.3.2：运行标识以 `X-Nexus-Run-Id` 响应头为权威关联来源（event id 只作帧
+ * 信息，不解析其格式）；成功 done 必须与响应头同 runId，且 session/run/surface/
+ * catalog/hash 与本次加载的契约一致，否则不开放后续 action。
+ */
 async function consumeRun(
   runtime: A2UIRuntime,
   options: {
     url: string;
     body: unknown;
-    signal?: AbortSignal;
+    signal: AbortSignal;
+    isCurrent: () => boolean;
+    target:
+      | { kind: 'generate'; catalogId: string }
+      | { kind: 'action'; baseline: NexusSurfaceCommit };
+    expectedCatalogHashes: ReadonlyMap<string, string>;
   },
   rejected: { current: boolean },
 ): Promise<NexusSurfaceCommit> {
+  const assertCurrent = (): void => {
+    if (options.signal.aborted || !options.isCurrent()) {
+      throw new DOMException('运行已失效', 'AbortError');
+    }
+  };
+  assertCurrent();
   let commit: NexusSurfaceCommit | null = null;
+  let headerRunId: string | null = null;
+  let createdSurfaceId: string | null = null;
+  const target = options.target;
+  const expectedCatalogId =
+    target.kind === 'generate' ? target.catalogId : target.baseline.catalogId;
   const touched = new Set<string>();
   rejected.current = false;
   await streamSse({
-    ...options,
+    url: options.url,
+    body: options.body,
+    signal: options.signal,
+    onResponse: (response) => {
+      assertCurrent();
+      headerRunId = response.headers.get('X-Nexus-Run-Id');
+    },
     onEvent: (event: SseEvent) => {
+      assertCurrent();
       if (commit) throw new Error('成功终态之后收到额外事件');
       if (event.event === 'error') throw new Error(agentError(event.data));
       if (event.event === 'message') {
         const message = JSON.parse(event.data) as Record<string, unknown>;
+        const created = message.createSurface as
+          | { surfaceId?: string; catalogId?: string }
+          | undefined;
+        if (created) {
+          if (
+            target.kind !== 'generate' ||
+            createdSurfaceId !== null ||
+            typeof created.surfaceId !== 'string' ||
+            created.catalogId !== expectedCatalogId ||
+            runtime.store.getState().surfaces[created.surfaceId]
+          ) {
+            throw new Error('生成视图与本次请求不匹配');
+          }
+          createdSurfaceId = created.surfaceId;
+        }
         for (const key of [
           'createSurface',
           'updateComponents',
@@ -45,22 +94,53 @@ async function consumeRun(
           'deleteSurface',
         ]) {
           const payload = message[key] as { surfaceId?: string } | undefined;
-          if (payload?.surfaceId) touched.add(payload.surfaceId);
+          if (payload?.surfaceId) {
+            const expectedSurfaceId =
+              target.kind === 'generate' ? createdSurfaceId : target.baseline.surfaceId;
+            if (payload.surfaceId !== expectedSurfaceId)
+              throw new Error('消息 surface 与本次请求不匹配');
+            touched.add(payload.surfaceId);
+          }
         }
         runtime.push(`${event.data}\n`);
       }
       if (event.event === 'done') {
-        commit = parseSurfaceCommit(JSON.parse(event.data));
-        if (!commit || (event.id && event.id !== `${commit.runId}:done`))
-          throw new Error('提交基准无效');
+        if (!headerRunId) throw new Error('响应缺少运行标识头，不开放后续 action');
+        const parsed = parseSurfaceCommit(JSON.parse(event.data));
+        if (!parsed) throw new Error('提交基准无效');
+        if (parsed.runId !== headerRunId) throw new Error('done 运行标识与响应头不一致');
+        const expectedHash = options.expectedCatalogHashes.get(expectedCatalogId);
+        if (
+          parsed.catalogId !== expectedCatalogId ||
+          expectedHash === undefined ||
+          parsed.catalogHash !== expectedHash
+        ) {
+          throw new Error('done 的 Catalog/hash 与已加载契约不一致（含本次请求 Catalog）');
+        }
+        if (
+          target.kind === 'action' &&
+          (parsed.surfaceId !== target.baseline.surfaceId ||
+            parsed.sessionVersion !== target.baseline.sessionVersion ||
+            parsed.contractVersion !== target.baseline.contractVersion ||
+            parsed.catalogHash !== target.baseline.catalogHash ||
+            parsed.surfaceRevision <= target.baseline.surfaceRevision)
+        ) {
+          throw new Error('提交身份或 revision 与本次 action 不匹配');
+        }
+        commit = parsed;
       }
     },
   });
+  assertCurrent();
   runtime.end();
   const fixed = commit as NexusSurfaceCommit | null;
   if (
     !fixed ||
     rejected.current ||
+    (target.kind === 'generate' &&
+      (createdSurfaceId !== fixed.surfaceId ||
+        !touched.has(fixed.surfaceId) ||
+        !runtime.store.getState().componentsBySurface[fixed.surfaceId]?.root)) ||
     [...touched].some((id) => id !== fixed.surfaceId) ||
     runtime.store.getState().surfaces[fixed.surfaceId]?.catalogId !== fixed.catalogId
   ) {
@@ -68,11 +148,6 @@ async function consumeRun(
   }
   return fixed;
 }
-
-type PublishedCatalogUrls = Pick<
-  PublishedCatalogsPayload['catalogs'][number],
-  'agentOnboardingUrl' | 'catalogContractUrl'
->;
 
 function CatalogContractPanel({ url }: { url: string | null }): ReactElement {
   const [contract, setContract] = useState<string | null>(null);
@@ -194,9 +269,11 @@ function AgentOnboardingPanel({ url }: { url: string | null }): ReactElement {
 function DemoControls({
   pendingAction,
   rejected,
+  expectedCatalogHashes,
 }: {
   pendingAction: ActionEvent | null;
   rejected: { current: boolean };
+  expectedCatalogHashes: ReadonlyMap<string, string>;
 }) {
   const runtime = useA2UI();
   const [message, setMessage] = useState('创建营销活动审批任务');
@@ -206,10 +283,32 @@ function DemoControls({
   const commits = useRef(new Map<string, NexusSurfaceCommit>());
   const running = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
+  // S2.6.3.3 请求代次：重新生成、取消、卸载都使旧运行失效；晚到结果不写回。
+  const epochRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      epochRef.current += 1;
+      controllerRef.current?.abort();
+    },
+    [],
+  );
+
+  const cancelCurrent = () => {
+    epochRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    running.current = false;
+    commits.current.clear();
+    setBusy(false);
+    setStatus('canceled');
+  };
 
   const run = async (url: string, body: unknown): Promise<void> => {
     if (running.current) return;
     let request = body;
+    let draftSnapshot: InputDraftSnapshot | null = null;
+    let target: Parameters<typeof consumeRun>[1]['target'];
     if (url.endsWith('/event') && pendingAction) {
       const baseline = commits.current.get(pendingAction.surfaceId);
       if (!baseline) {
@@ -217,6 +316,9 @@ function DemoControls({
         return;
       }
       commits.current.delete(pendingAction.surfaceId);
+      target = { kind: 'action', baseline };
+      // S2.6.4.1：发送快照——提取即定代次；成功提交且本地校验通过后才确认。
+      draftSnapshot = runtime.extractLatestInputDrafts(pendingAction.surfaceId);
       request = {
         message: body,
         nexus: {
@@ -224,12 +326,15 @@ function DemoControls({
           actionId: pendingAction.actionId,
           surfaceRevision: baseline.surfaceRevision,
           catalogHash: baseline.catalogHash,
-          inputs: runtime.getLatestInputs(pendingAction.surfaceId),
+          inputs: draftSnapshot.entries.map((entry) => entry.input),
         },
       };
     } else {
       commits.current.clear();
+      target = { kind: 'generate', catalogId: (body as { catalogId: string }).catalogId };
     }
+    const epoch = ++epochRef.current;
+    controllerRef.current?.abort();
     running.current = true;
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -241,20 +346,30 @@ function DemoControls({
         {
           url,
           body: request,
-          signal: controllerRef.current?.signal,
+          signal: controller.signal,
+          isCurrent: () => epochRef.current === epoch,
+          target,
+          expectedCatalogHashes,
         },
         rejected,
       );
       if (url.endsWith('/event') && commit.surfaceId !== pendingAction?.surfaceId)
         throw new Error('提交 surface 不匹配');
+      if (epochRef.current !== epoch) return;
+      if (draftSnapshot && (!runtime.confirmInputDrafts(draftSnapshot) || rejected.current)) {
+        throw new Error('新草稿无法恢复到当前视图，请重新生成');
+      }
       commits.current.set(commit.surfaceId, commit);
       setStatus('done');
     } catch (error) {
+      if (epochRef.current !== epoch) return;
       setStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      running.current = false;
-      setBusy(false);
-      controllerRef.current = null;
+      if (epochRef.current === epoch) {
+        running.current = false;
+        setBusy(false);
+        controllerRef.current = null;
+      }
     }
   };
 
@@ -284,6 +399,7 @@ function DemoControls({
         context: pendingAction.context,
       },
     });
+    // 重复 action 在 run 入口忽略，不打断当前运行；卸载使用独立的统一清理。
   }, [pendingAction]);
 
   return (
@@ -307,7 +423,19 @@ function DemoControls({
             });
           }}
         >
-          生成任务面
+          生成审批面
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            void run('/api/a2ui/generate', { catalogId: SCORECARD_CATALOG_ID });
+          }}
+        >
+          生成反馈卡
+        </button>
+        <button type="button" disabled={!busy} onClick={cancelCurrent}>
+          取消
         </button>
         <span className="status">{status}</span>
         <span className="action-mode">
@@ -318,53 +446,59 @@ function DemoControls({
   );
 }
 
-const DEMO_CATALOG_ID = DEMO_AGENT_CATALOG_ID;
-const demoCatalogRenderMaps = { [DEMO_CATALOG_ID]: standaloneHostRenderMap };
-const standaloneHostRegistry = createStandaloneHostRegistry();
+const DEMO_CATALOG_ID = standaloneHostCatalog.catalogId;
+const demoCatalogRenderMaps = {
+  [DEMO_CATALOG_ID]: standaloneHostRenderMap,
+  [SCORECARD_CATALOG_ID]: scorecardHostRenderMap,
+};
 
 export function DemoApp(): ReactElement {
   const rejected = useRef(false);
   const [lastAction, setLastAction] = useState<ActionEvent | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionEvent | null>(null);
-  const [contractUrls, setContractUrls] = useState<PublishedCatalogUrls | null>(null);
-  const [discoveryStatus, setDiscoveryStatus] = useState('loading');
+  const [loaded, setLoaded] = useState<ReadonlyMap<string, LoadedHostCatalog> | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   useEffect(() => {
-    let active = true;
-    const discoverCatalogs = async (): Promise<void> => {
-      try {
-        const response = await fetch('/api/a2ui/published-catalogs');
-        const payload = (await response.json()) as PublishedCatalogsPayload;
-        if (!response.ok || payload.kind !== 'published-catalog-list') {
-          throw new Error('Published catalog discovery 获取失败');
+    const controller = new AbortController();
+    void loadHostCatalogs('', [DEMO_CATALOG_ID, SCORECARD_CATALOG_ID], controller.signal)
+      .then((result) => {
+        // 取消/晚到加载不替换当前契约。
+        if (!controller.signal.aborted) setLoaded(result);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setCatalogError(error instanceof Error ? error.message : String(error));
         }
-        const catalog = payload.catalogs.find((item) => item.catalogId === DEMO_CATALOG_ID);
-        if (!catalog) throw new Error('Published catalogs 不包含 demo catalog');
-        if (!active) return;
-        setContractUrls({
-          agentOnboardingUrl: catalog.agentOnboardingUrl,
-          catalogContractUrl: catalog.catalogContractUrl,
-        });
-        setDiscoveryStatus('done');
-      } catch (error) {
-        if (active) {
-          setDiscoveryStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    };
-
-    void discoverCatalogs();
-    return () => {
-      active = false;
-    };
+      });
+    return () => controller.abort();
   }, []);
+
+  // registry 只由实际下载并通过校验的声明组成；非法配置在 loader 处已显式失败。
+  const registry = useMemo(
+    () =>
+      loaded === null
+        ? null
+        : new CatalogRegistry([...loaded.values()].map((entry) => structuredClone(entry.catalog))),
+    [loaded],
+  );
+  const expectedCatalogHashes = useMemo(
+    () => new Map([...(loaded?.entries() ?? [])].map(([id, entry]) => [id, entry.contractHash])),
+    [loaded],
+  );
+  const approval = loaded?.get(DEMO_CATALOG_ID);
+
+  if (catalogError) return <p role="alert">界面配置加载失败：{catalogError}</p>;
+  if (!registry || !approval) {
+    return <p role="status">正在加载界面配置…</p>;
+  }
 
   return (
     <A2UIProvider
       onError={() => {
         rejected.current = true;
       }}
-      catalogRegistry={standaloneHostRegistry}
+      catalogRegistry={registry}
       catalogRenderMaps={demoCatalogRenderMaps}
       onAction={(event) => {
         const action = { ...event, actionId: crypto.randomUUID() };
@@ -372,12 +506,13 @@ export function DemoApp(): ReactElement {
         setPendingAction(action);
       }}
     >
-      <DemoControls pendingAction={pendingAction} rejected={rejected} />
-      <p className="discovery-status" aria-label="Published catalog discovery status">
-        catalog discovery: {discoveryStatus}
-      </p>
-      <CatalogContractPanel url={contractUrls?.catalogContractUrl ?? null} />
-      <AgentOnboardingPanel url={contractUrls?.agentOnboardingUrl ?? null} />
+      <DemoControls
+        pendingAction={pendingAction}
+        rejected={rejected}
+        expectedCatalogHashes={expectedCatalogHashes}
+      />
+      <CatalogContractPanel url={approval.catalogContractUrl} />
+      <AgentOnboardingPanel url={approval.agentOnboardingUrl} />
       {lastAction ? (
         <p className="status">
           action: {lastAction.name} · surface: {lastAction.surfaceId}

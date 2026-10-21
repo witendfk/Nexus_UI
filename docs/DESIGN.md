@@ -13,7 +13,7 @@
 | D5   | 区分消息状态、运行提交与业务结果                | 已决策，待改造                          |
 | D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
-| D8   | 声明式输入与 action 能力                        | 已决策，待改造                          |
+| D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
 | D9   | 单一运行调度与有界资源                          | 已决策，待改造                          |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
 | D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
@@ -104,6 +104,10 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 **实施状态（S2.4，2026-10-19 复审修复）**：server 的 `agent/action-admission.ts` 在 surface 锁内完成必填 nexus 基准、来源能力、整批输入、精确白名单与声明参数重算；resolver 后置且最终输出仍受未声明键/paramSchema 校验。core 共享严格输入寻址按实际对象/数组容器解释，拒绝根替换别名与所有非规范数组索引。存储入界/出界、临时模型、待提交输入与扩展上下文均隔离引用；准入、流 guard 和提交复核使用固定 Catalog 副本，guard 以已提交组件表和临时输入模型为起点。
 
 提交采用「输入基础模型 → handler patch」顺序，归一化结果及根替换以 handler 为准；消息源先发输入模型再发 patch，保证浏览器与存储组合一致。实例级单调计数器不因删除/淘汰重号，action 提交同时核对 revision/epoch；非 HTTP 正常 EOF 仍持锁，直到 commit/onError/dispose。移除按 HTTP 回写 `streamClaimed` 转移锁所有权的机制。
+
+**实施状态（S2.6.4.1，2026-10-20）**：草稿确认语义定型并落地 core 公开原语。备选方案对比：按「发送前值快照相等」删除会把发送期间改回同值的新编辑误删；按「整 surface 计数器」删除会让同 surface 的部分编辑拖住全部草稿不确认，旧值在下次提交重发并覆盖服务端归一化结果。选择逐条草稿代次：每条草稿在成功写回时取得 runtime 内单调 serial；`extractLatestInputDrafts(surfaceId)` 返回 entries（wire 输入 + serial，与 `getLatestInputs` 同一套失效清理），`confirmInputDrafts(snapshot)` 仅删除 surfaceId 匹配且 serial 仍相等的条目。快照携带 runtime 实例标识，跨实例确认不改状态；确认幂等；失败/取消/本地拒绝不调用即不确认。2026-10-21 复审修正：action 流按输入基础模型 → handler patch 应用；成功接受后 `confirmInputDrafts(snapshot): boolean` 确认未再编辑项，并原子恢复剩余有效草稿到本地编辑模型，serial 不变。已确认字段显示服务端归一化结果，新编辑保持可见，避免隐藏草稿被下次提交。恢复不是服务端提交或 revision 更新；写路径失败返回 false、模型与有效草稿均不部分修改，消费方不开放新基准；跨 runtime 返回 false。
+
+**实施状态（S2.6 消费方迁移，2026-10-20）**：两个参考服务与两个参考浏览器已按上述语义迁移——发布列表取自 adapter 固定执行声明；可编辑白名单由宿主侧 surface→Catalog 映射（生成提交边界记录、有界、未记录即拒绝）按 Catalog 精确给出；浏览器契约加载经版本/身份/hash（Web Crypto 复算 core 公开的规范化载荷）/标准 prompt/注册闸门后才挂载；运行标识以响应头为权威，event id 只作帧信息；请求代次在逐帧写入前核对，取消/切换 Catalog/卸载立即失效并清理 reader，晚到结果不写视图或基准；在途重复 action 忽略而不打断原运行。生成必须消费本次新建 surface 与 root，核对请求 Catalog，拒绝 done-only 响应借用旧视图；action 核对固定身份与递增 revision。hash 规范化先使用 JSON 传输形状，显式 undefined 可选字段不产生传输前后摘要差异。中立 scorecard 夹具（整数非 value 属性、布尔、非 Button 触发器）与 Basic 表单作为两组无关 Catalog 完成连续交互与隔离对测。`sendAgentRun` 的 idPrefix 兼容槽位随 S2.6.5 删除。
 
 复审同时提前接通最小 HTTP 契约：只接收 `{ message, nexus }`，保留客户端 actionId，不读取最新快照为旧视图填充基准。commit 捕获并返回固定 `NexusSurfaceCommit`，成功 done 直接发布；两个参考浏览器仅为成功消费的本次视图保存该结果，缺终态/失败/本地拒绝后不开放 action。**S2.5.1/.2/.5 已交付并完成评审修复（2026-10-20）**：运行 ID 与提交身份统一校验，adapter 持有传输无关的结果留存所有者；发布强制绑定实际执行声明，首次使用固定副本；onboarding 完整校验。**S2.5 全部七项已完成（2026-10-20）**：按 run 查询、`X-Nexus-Run-Id`、verifier/RPC 贯通与并发关联复核已交付。整体评审修正将 onboarding 发布/消费的完整校验合并为内部单一入口；verifier 观察实际 handler 权威参数，并消费响应目的流至结束，避免缓冲阈值影响验收结论。消费方完整关联门控归 S2.6.3，完整调度/背压/commitState 归 S3，会话和预览隔离仍属 S3/S4。此处替代首轮七项整改中的 patch 后写输入、仅 epoch 核对与可信 HTTP 补基准方案。
 

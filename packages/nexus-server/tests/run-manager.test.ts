@@ -60,7 +60,7 @@ describe('agent run manager', () => {
     });
     assert.ok(plan.ok);
 
-    const result = await sendAgentRun(createSseContext(), plan.run, 'run-success', {
+    const result = await sendAgentRun(createSseContext(), plan.run, {
       manager,
       streamDelayMs: 0,
     });
@@ -110,11 +110,11 @@ describe('agent run manager', () => {
     assert.ok(first.ok);
     assert.ok(second.ok);
 
-    const firstRun = sendAgentRun(createSseContext(), first.run, 'serial-1', {
+    const firstRun = sendAgentRun(createSseContext(), first.run, {
       manager,
       streamDelayMs: 0,
     });
-    const secondRun = sendAgentRun(createSseContext(), second.run, 'serial-2', {
+    const secondRun = sendAgentRun(createSseContext(), second.run, {
       manager,
       streamDelayMs: 0,
     });
@@ -194,7 +194,7 @@ describe('agent run manager', () => {
     assert.ok(plan.ok);
     const runId = plan.run.runId;
 
-    const run = sendAgentRun(createSseContext(), plan.run, 'run-cancel', {
+    const run = sendAgentRun(createSseContext(), plan.run, {
       manager,
       signal: controller.signal,
       streamDelayMs: 50,

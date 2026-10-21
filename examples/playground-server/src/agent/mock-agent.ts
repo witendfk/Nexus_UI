@@ -130,13 +130,12 @@ export function createActionResponse(surfaceId: string): unknown[] {
   ];
 }
 
-/** 搜索 action 的确定性响应，用于验收 TextField 双向绑定回流。 */
+/** 搜索 action 的确定性响应；参数已由服务端按声明重算，直接读取声明键。 */
 export function createSearchActionResponse(
   surfaceId: string,
   context: Record<string, unknown>,
 ): unknown[] {
-  const raw = context.keyword ?? context.query ?? context.value;
-  const keyword = raw === undefined || raw === null ? '' : String(raw);
+  const keyword = typeof context.keyword === 'string' ? context.keyword : '';
   return [
     {
       version: 'v0.9',
@@ -155,13 +154,12 @@ export function createSearchActionResponse(
   ];
 }
 
-/** 提交 action 的确定性响应，用于验收 TextField + CheckBox 的表单回流。 */
+/** 提交 action 的确定性响应；name/subscribed 为服务端从临时模型重算的权威参数。 */
 export function createSubmitActionResponse(
   surfaceId: string,
   context: Record<string, unknown>,
 ): unknown[] {
-  const rawName = context.name ?? context.keyword ?? context.value;
-  const name = rawName === undefined || rawName === null ? '' : String(rawName);
+  const name = typeof context.name === 'string' ? context.name : '';
   const subscribed = context.subscribed === true;
   return [
     {
@@ -176,6 +174,86 @@ export function createSubmitActionResponse(
             variant: 'body',
           },
         ],
+      },
+    },
+  ];
+}
+
+/**
+ * Basic Catalog 的最小确定性表单（S2.6.1.3）：字符串 + 布尔输入经服务端
+ * 权威准入到达既有 submit handler。形状与参考 LLM prompt 的表单契约一致
+ * （root Column children ["name","subscribed","submitButton","submitResult"]）。
+ */
+export function createContactFormFixture(surfaceId: string): unknown[] {
+  return [
+    {
+      version: 'v0.9',
+      createSurface: {
+        surfaceId,
+        catalogId: BASIC_CATALOG,
+        theme: { primaryColor: '#4a90d9' },
+      },
+    },
+    {
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId,
+        components: [
+          {
+            id: 'root',
+            component: 'Column',
+            children: ['name', 'subscribed', 'submitButton', 'submitResult'],
+          },
+        ],
+      },
+    },
+    {
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId,
+        components: [
+          {
+            id: 'name',
+            component: 'TextField',
+            label: '姓名',
+            value: { path: '/name' },
+            variant: 'shortText',
+          },
+          {
+            id: 'subscribed',
+            component: 'CheckBox',
+            label: '订阅产品更新',
+            value: { path: '/subscribed' },
+          },
+          { id: 'submitLabel', component: 'Text', text: '提交' },
+          {
+            id: 'submitButton',
+            component: 'Button',
+            child: 'submitLabel',
+            action: {
+              event: {
+                name: 'submit',
+                context: {
+                  name: { path: '/name' },
+                  subscribed: { path: '/subscribed' },
+                },
+              },
+            },
+          },
+          {
+            id: 'submitResult',
+            component: 'Text',
+            text: { path: '/result' },
+            variant: 'body',
+          },
+        ],
+      },
+    },
+    {
+      version: 'v0.9',
+      updateDataModel: {
+        surfaceId,
+        value: { name: '', subscribed: false, result: '等待提交' },
       },
     },
   ];
