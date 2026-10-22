@@ -33,7 +33,6 @@ function loadFixtureCatalog(name: string): CatalogDefinition {
 
 const catalogA = loadFixtureCatalog('catalog-accept-interactive-form.json');
 const catalogB = loadFixtureCatalog('catalog-accept-display-only.json');
-const invalidCatalog = loadFixtureCatalog('catalog-reject-unknown-declaration-key.json');
 
 const adapter = new AgentAdapter({ registry: new CatalogRegistry([]) });
 
@@ -201,11 +200,32 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
     );
   });
 
-  it('非法发布 Catalog 在装配期被 core 注册闸门拒绝', () => {
-    assert.throws(
-      () => createAgentRouter({ adapter, catalogContracts: [invalidCatalog] }),
-      /sourcez|未知键/,
-    );
+  // 与 core test/catalog/registration.test.ts 的 REJECT_PATTERNS 同一映射（SPEC §4.2）：
+  // server 装配复用同一注册闸门，全部非法夹具在装配期拒绝，双端结论一致。
+  const rejectFixturePatterns: readonly (readonly [string, RegExp])[] = [
+    ['catalog-reject-v1-shape.json', /components 必须是组件声明表/],
+    ['catalog-reject-unknown-schema-keyword.json', /不支持的 schema 关键字: format/],
+    [
+      'catalog-reject-inputs-on-forbidden-binding.json',
+      /绑定能力为 forbidden，不支持 \{ path \} 绑定/,
+    ],
+    [
+      'catalog-reject-action-required-without-source.json',
+      /action\.required 但不在任何 action 的 sources 中/,
+    ],
+    ['catalog-reject-unsupported-pattern.json', /pattern 含不受支持的语法，无法求值/],
+    ['catalog-reject-unknown-declaration-key.json', /含未知键: sourcez/],
+    ['catalog-reject-legacy-fields-binding.json', /含未知键: binding/],
+  ];
+
+  it('全部非法 Catalog 夹具在装配期被 core 注册闸门拒绝', () => {
+    for (const [name, pattern] of rejectFixturePatterns) {
+      assert.throws(
+        () => createAgentRouter({ adapter, catalogContracts: [loadFixtureCatalog(name)] }),
+        pattern,
+        `${name} 应在装配期被拒`,
+      );
+    }
   });
 });
 

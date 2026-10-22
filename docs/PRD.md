@@ -1,6 +1,6 @@
 # PRD — Nexus UI SDK
 
-更新：2026-10-16。本文定义产品目标与验收要求；当前实现、目标契约、结构、决策和进度分别见 [SPEC](SPEC.md)、[ARCHITECTURE](ARCHITECTURE.md)、[DESIGN](DESIGN.md)、[CURRENT](tasks/CURRENT.md)。本文的要求不代表能力已经交付。
+更新：2026-10-21。本文定义产品目标与验收要求；当前实现、目标契约、结构、决策和进度分别见 [SPEC](SPEC.md)、[ARCHITECTURE](ARCHITECTURE.md)、[DESIGN](DESIGN.md)、[CURRENT](tasks/CURRENT.md)。本文的要求不代表能力已经交付。
 
 ## 1. 产品定位
 
@@ -38,7 +38,7 @@ Agent 输出与浏览器输入都不是业务事实。Catalog hash 表示契约�
 
 | 包                 | 职责                                                                        | 当前情况                          |
 | ------------------ | --------------------------------------------------------------------------- | --------------------------------- |
-| `@nexus-ui/core`   | 框架与传输无关的协议、Catalog、绑定、surface 状态和 action 事件             | 已有；自定义交互扩展待完善        |
+| `@nexus-ui/core`   | 框架与传输无关的协议、Catalog、绑定、surface 状态和 action 事件             | 已有；Catalog v2 与通用交互扩展已交付（S2） |
 | `@nexus-ui/client` | 框架无关的浏览器会话；fetch/SSE 适配、终态识别、预览/提交、取消及交互门控   | 目标新增；当前逻辑散在两个示例    |
 | `@nexus-ui/react`  | Provider、按 surface 渲染的视图、hooks、标准与自定义组件映射                | 已有；Provider/Surface 分离待实现 |
 | `@nexus-ui/server` | 框架无关的 guard、运行调度、action 准入和状态；可选 Koa/SSE 与外部 RPC 适配 | 已有；运行逻辑与 Koa 分离待实现   |

@@ -98,6 +98,34 @@ describe('S2.6.3.1 浏览器契约加载校验', () => {
     assert.ok(scorecard.registry.get(SCORECARD_CATALOG_ID));
   });
 
+  it('取消加载：signal 贯通 transport，中止后不得产出契约结果', async () => {
+    // 故意不结束响应：若 loader 丢弃 AbortSignal，加载会一直挂起，由看门狗显式判失败。
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+    }).listen(0, '127.0.0.1') as Server;
+    servers.push(server);
+    const base = await new Promise<string>((resolve) => {
+      server.once('listening', () => {
+        const { port } = server.address() as AddressInfo;
+        resolve(`http://127.0.0.1:${port}`);
+      });
+    });
+    const controller = new AbortController();
+    const loading = loadHostCatalogs(base, [DEMO_AGENT_CATALOG_ID], controller.signal);
+    const watchdog = new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('loader 未把 AbortSignal 传给 transport：中止后加载仍挂起')),
+        2_000,
+      );
+      timer.unref?.();
+    });
+    controller.abort();
+    await assert.rejects(Promise.race([loading, watchdog]), (error: unknown) => {
+      assert.equal((error as Error).name, 'AbortError');
+      return true;
+    });
+  });
+
   it('响应 Catalog 与请求错配拒绝', async () => {
     const base = await listenStub((url) => {
       if (url.startsWith('/api/a2ui/published-catalogs')) {

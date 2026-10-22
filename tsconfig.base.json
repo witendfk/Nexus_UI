@@ -1,5 +1,5 @@
 {
-  "//": "公共编译选项，被各包 tsconfig 继承；paths 解析相对于本文件所在目录（仓库根）。",
+  "//": "公共编译选项，被各包 tsconfig 继承。不提供 @nexus-ui/* 的 paths 别名：消费方（含 SDK 包间）类型解析一律走 node_modules 的当前 dist 声明，避免源码别名掩盖产物类型问题；仓外安装同口径。",
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
@@ -29,14 +29,6 @@
     "declarationMap": true,
     "sourceMap": true,
 
-    "jsx": "react-jsx",
-
-    "baseUrl": ".",
-    "paths": {
-      "@nexus-ui/core": ["packages/nexus-core/src/index.ts"],
-      "@nexus-ui/core/*": ["packages/nexus-core/src/*"],
-      "@nexus-ui/react": ["packages/nexus-react/src/index.tsx"],
-      "@nexus-ui/react/*": ["packages/nexus-react/src/*"]
-    }
+    "jsx": "react-jsx"
   }
 }

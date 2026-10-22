@@ -61,9 +61,11 @@ request 夹具：
   `SurfaceStateBaseline`）。基线查询必须指定 surfaceId/runId；缺失、淘汰或不可确认
   的结果拒绝，不得从最新快照补齐。
 - 两份 baseline 时序夹具分别覆盖「流完成后查询前」「查询后 action 前」发生其他提交。
-  当前 server `test/api/surface-state.test.ts` 用真实状态存储验证前置消息、版本和模型确实
-  改变，以及预期基准与所渲染运行一致；它不实现或验收尚未接线的查询路由。
-  S2.5 必须消费同一 oracle 验证 HTTP 响应、runId 响应头/跨源暴露、结果不可用拒绝、
-  本地关联与晚到响应、实际 action 拒绝且 handler 未调用/快照未改变。
+  双消费验收已接线（S2.5.3，2026-10-20）：内存 oracle `test/api/surface-state.test.ts`
+  验证前置消息、版本和模型确实改变，以及预期基准与所渲染运行一致；真实 HTTP
+  `test/api/surface-state-query.test.ts` 经查询路由验证固定 200 响应、旧基准 action 拒绝且
+  handler 未调用/快照未改变；`surface-state-query-interleave.test.ts` 另覆盖查询与容量
+  淘汰交错及 `X-Nexus-Run-Id` 全链关联。`expectedNextAction` 的 decision/handlerCalls/
+  snapshotUnchanged 由两个消费文件逐项断言（2026-10-21 验收）。
 - 新增夹具必须业务中立、确定性（无时间/随机依赖），并在 `expect: reject` 时给出
   可指向契约条款的 `reason`。

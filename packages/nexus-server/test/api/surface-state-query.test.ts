@@ -471,6 +471,10 @@ describe('S2.5.3 baseline 时序夹具经真实 HTTP 查询路由验证', () => 
       assert.equal(stale.status, 400, '旧 revision 的 action 必须被拒');
       assert.doesNotMatch(stale.text, /event: done/);
       assert.equal(handlerCalls.rate, handlerCallsBefore, '旧 revision 拒绝时 handler 不得调用');
+      // 夹具声明的 oracle 结论与实际行为逐项一致，不退化为文档字段。
+      assert.equal(fixture.expectedNextAction.decision, 'reject-stale-revision');
+      assert.equal(fixture.expectedNextAction.handlerCalls, 0);
+      assert.equal(fixture.expectedNextAction.snapshotUnchanged, true);
       const snapshotAfter = await adapter.describeSurfaceContract(SURFACE);
       assert.equal(snapshotAfter?.surfaceRevision, fixture.expectedNextAction.serverRevision);
     });

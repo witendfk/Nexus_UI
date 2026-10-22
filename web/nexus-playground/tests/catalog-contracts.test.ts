@@ -111,4 +111,26 @@ describe('S2.6.3.1 playground 契约加载校验', () => {
       loadPlaygroundCatalogContracts([CATALOG_ID], new AbortController().signal),
     ).rejects.toThrow(/未知|unknown|Text/);
   });
+
+  it('取消加载：signal 贯通 transport，中止后不得产出契约结果', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!(signal instanceof AbortSignal)) {
+          reject(new Error('loader 必须把 AbortSignal 传给 transport'));
+          return;
+        }
+        const abort = (): void =>
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort);
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const loading = loadPlaygroundCatalogContracts([CATALOG_ID], controller.signal);
+    expect(fetchMock).toHaveBeenCalled();
+    controller.abort();
+    await expect(loading).rejects.toMatchObject({ name: 'AbortError' });
+  });
 });

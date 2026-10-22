@@ -153,7 +153,8 @@ async function pumpMessages(
       await sleep(streamDelayMs);
       if (options.signal?.aborted) throw new Error('客户端断开，Agent 流已取消');
     }
-    if (sent.length === 0) throw new Error('Agent 没有返回 A2UI 消息');
+    if (sent.length === 0 && sequence.kind !== 'action')
+      throw new Error('Agent 没有返回 A2UI 消息');
     if (!hasRoot) throw new Error('生成流必须包含 id 为 root 的组件');
     const finalIssue = validateAgentStreamFinalDetailed(sequence, streamState);
     if (finalIssue) {

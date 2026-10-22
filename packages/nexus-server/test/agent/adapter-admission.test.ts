@@ -3,9 +3,12 @@ import { describe, it } from 'node:test';
 import { CatalogRegistry, standardCatalogComponentDeclarations } from '@nexus-ui/core';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { AgentAdapter } from '../../src/agent/adapter';
-import type { AgentAction, AgentMessageSource } from '../../src/agent/adapter';
+import type { AgentAction, AgentAdapterOptions, AgentMessageSource } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
-import { InMemorySurfaceActionStateStore } from '../../src/agent/surface-action-state';
+import {
+  InMemorySurfaceActionLedger,
+  InMemorySurfaceActionStateStore,
+} from '../../src/agent/surface-action-state';
 
 /** 自洽夹具 Catalog：标准声明组合 + 显式 paramSchema（S2.4 参数准入）。 */
 const ADMISSION_CATALOG_ID = 'https://example.com/catalogs/adapter-admission/v1';
@@ -70,6 +73,8 @@ async function createHarness(
   options: {
     editablePaths?: (surfaceId: string) => readonly string[];
     resolveActionContext?: never;
+    actionLedger?: AgentAdapterOptions['actionLedger'];
+    emptyOutput?: boolean;
   } = {},
 ): Promise<Harness> {
   const store = new InMemorySurfaceActionStateStore();
@@ -78,12 +83,14 @@ async function createHarness(
     registry,
     ...(options.editablePaths === undefined ? {} : { editablePaths: options.editablePaths }),
     actionStateStore: store,
+    ...(options.actionLedger ? { actionLedger: options.actionLedger } : {}),
     createSurfaceId: () => SURFACE,
     createGenerationSource: () =>
       GENERATION_STREAM[Symbol.iterator]() as unknown as AgentMessageSource,
   });
   adapter.registerActionHandler(ADMISSION_CATALOG_ID, 'submit', async (action) => {
     handlerCalls.push({ context: { ...action.context } });
+    if (options.emptyOutput) return [];
     return [
       {
         version: 'v0.9',
@@ -307,6 +314,123 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     assert.match(rejected.message, /injected/);
     assert.equal(handlerCalls2.length, 0, 'resolver 不得把额外字段带成可执行 action');
   });
+
+  it('paramSchema 默认路径：无 resolver 时重算参数违规同样在 handler 前拒绝', async () => {
+    // 声明与已提交模型错配：counter 重算值为 number，paramSchema 要求 string。
+    // 来源/基准/输入全部合法，拒绝只能来自最终参数校验，证明默认路径接线存在。
+    const mismatched: CatalogDefinition = {
+      catalogId: ADMISSION_CATALOG_ID,
+      components: standardCatalogComponentDeclarations(),
+      actions: [
+        {
+          name: 'submit',
+          sources: ['Button'],
+          paramSchema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { counter: { type: 'string' }, note: { type: 'string' } },
+          },
+        },
+      ],
+    };
+    const store = new InMemorySurfaceActionStateStore();
+    const handlerCalls: unknown[] = [];
+    const adapter = new AgentAdapter({
+      registry: new CatalogRegistry([mismatched]),
+      actionStateStore: store,
+      editablePaths: () => ['/note'],
+      createSurfaceId: () => SURFACE,
+      createGenerationSource: () =>
+        GENERATION_STREAM[Symbol.iterator]() as unknown as AgentMessageSource,
+    });
+    adapter.registerActionHandler(ADMISSION_CATALOG_ID, 'submit', async (action) => {
+      handlerCalls.push(action.context);
+      return [];
+    });
+    const generation = await adapter.prepareGeneration({
+      message: '建立 surface',
+      catalogId: ADMISSION_CATALOG_ID,
+    });
+    assert.ok(generation.ok, generation.ok ? '' : generation.message);
+    for await (const _ of generation.run.source) void _;
+    await generation.run.commit(GENERATION_STREAM);
+    const before = await snapshotOf(store);
+
+    const plan = await adapter.prepareAction(
+      actionWith({
+        surfaceRevision: 1,
+        catalogHash: createCatalogContractHash(mismatched),
+        inputs: [],
+      }),
+    );
+    assert.equal(plan.ok, false, '重算参数违反 paramSchema 必须拒绝');
+    assert.ok(!plan.ok && plan.code === 'param-invalid');
+    assert.match(plan.message, /counter/);
+    assert.equal(handlerCalls.length, 0, '默认路径参数违规不得进入 handler');
+
+    const after = await snapshotOf(store);
+    assert.equal(after.version, before.version, '拒绝不得递增 revision');
+    assert.deepEqual(after.dataModel, before.dataModel, '拒绝不得改变已提交模型');
+  });
+
+  it('actionStateStore 读取拒绝时不泄漏 surface 锁：后续 action 仍可准入', async () => {
+    class FlakyStore extends InMemorySurfaceActionStateStore {
+      failNextGet = false;
+      override async get(surfaceId: string) {
+        if (this.failNextGet) {
+          this.failNextGet = false;
+          throw new Error('store 暂时不可用');
+        }
+        return super.get(surfaceId);
+      }
+    }
+    const watchdog = (message: string) =>
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error(message)), 500);
+        timer.unref?.();
+      });
+
+    const store = new FlakyStore();
+    const handlerCalls: unknown[] = [];
+    const adapter = new AgentAdapter({
+      registry,
+      actionStateStore: store,
+      editablePaths: () => ['/note'],
+      createSurfaceId: () => SURFACE,
+      createGenerationSource: () =>
+        GENERATION_STREAM[Symbol.iterator]() as unknown as AgentMessageSource,
+    });
+    adapter.registerActionHandler(ADMISSION_CATALOG_ID, 'submit', async (action) => {
+      handlerCalls.push(action.context);
+      return [];
+    });
+    const generation = await adapter.prepareGeneration({
+      message: '建立 surface',
+      catalogId: ADMISSION_CATALOG_ID,
+    });
+    assert.ok(generation.ok, generation.ok ? '' : generation.message);
+    for await (const _ of generation.run.source) void _;
+    await generation.run.commit(GENERATION_STREAM);
+
+    // store 拒绝：prepareAction 必须抛出而非挂起，且已释放 surface 锁。
+    store.failNextGet = true;
+    await assert.rejects(
+      Promise.race([
+        adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash, inputs: [] })),
+        watchdog('哨兵：store 拒绝路径挂起'),
+      ]),
+      /store 暂时不可用/,
+    );
+
+    // 锁未泄漏：同 surface 下一枚 action 可正常准入；若泄漏，此调用挂起至哨兵触发。
+    const retry = await Promise.race([
+      adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash, inputs: [] })),
+      watchdog('哨兵：surface 锁泄漏，后续 action 永久排队'),
+    ]);
+    assert.ok(retry.ok, retry.ok ? '' : retry.message);
+    if (retry.ok) retry.run.dispose?.();
+    assert.equal(handlerCalls.length, 0, '两次尝试均不得进入 handler');
+  });
 });
 
 describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调版本 / 基准核对 / 无旁路）', () => {
@@ -519,4 +643,81 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     assert.ok(!plan.ok && plan.code === 'nexus-invalid');
     assert.equal(handlerCalls.length, 0);
   });
+});
+
+describe('S2.7 复核修复', () => {
+  it('非 HTTP 空输出 action 成功提交，保留模型并推进固定 revision', async () => {
+    const { adapter, store, handlerCalls } = await createHarness({ emptyOutput: true });
+    const before = await snapshotOf(store);
+    const plan = await adapter.prepareAction(actionWith({}));
+    assert.ok(plan.ok);
+    const messages = [];
+    for await (const message of plan.run.source) messages.push(message);
+    assert.equal(handlerCalls.length, 1);
+    assert.deepEqual(messages, []);
+    const commit = await plan.run.commit(messages);
+    const after = await snapshotOf(store);
+    assert.equal(commit.runId, plan.run.runId);
+    assert.equal(commit.surfaceId, SURFACE);
+    assert.equal(commit.surfaceRevision, before.version + 1);
+    assert.equal(after.version, commit.surfaceRevision);
+    assert.equal(after.epoch, before.epoch, 'action 不改变生成代');
+    assert.deepEqual(after.dataModel, before.dataModel);
+  });
+
+  for (const failure of ['begin', 'rejection', 'dispose', 'commit'] as const) {
+    it(`ledger ${failure} 抛错仍释放 surface 锁，下一 action 可完成`, async () => {
+      class FlakyLedger extends InMemorySurfaceActionLedger {
+        fail = true;
+        override begin(record: Parameters<InMemorySurfaceActionLedger['begin']>[0]) {
+          if (this.fail && failure === 'begin') throw new Error('ledger unavailable');
+          return super.begin(record);
+        }
+        override complete(...args: Parameters<InMemorySurfaceActionLedger['complete']>) {
+          if (this.fail && failure !== 'begin') throw new Error('ledger unavailable');
+          return super.complete(...args);
+        }
+      }
+      const ledger = new FlakyLedger();
+      const { adapter, store, handlerCalls } = await createHarness({ actionLedger: ledger });
+      if (failure === 'begin' || failure === 'rejection') {
+        await assert.rejects(
+          adapter.prepareAction(
+            actionWith(failure === 'rejection' ? { context: { injected: true } } : {}),
+          ),
+          /ledger unavailable/,
+        );
+      } else {
+        const plan = await adapter.prepareAction(actionWith({}));
+        assert.ok(plan.ok);
+        if (failure === 'dispose') assert.throws(() => plan.run.dispose?.(), /ledger unavailable/);
+        else {
+          const messages: unknown[] = [];
+          for await (const message of plan.run.source) messages.push(message);
+          await assert.rejects(async () => {
+            await plan.run.commit(messages);
+          }, /ledger unavailable/);
+        }
+      }
+      ledger.fail = false;
+      const before = await snapshotOf(store);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const next = await Promise.race([
+          adapter.prepareAction(actionWith({ surfaceRevision: before.version })),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('surface lock leaked')), 500);
+          }),
+        ]);
+        assert.ok(next.ok, next.ok ? '' : next.message);
+        const messages = [];
+        for await (const message of next.run.source) messages.push(message);
+        const commit = await next.run.commit(messages);
+        assert.equal(commit.surfaceRevision, before.version + 1);
+        assert.equal(handlerCalls.length, failure === 'commit' ? 2 : 1);
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+  }
 });

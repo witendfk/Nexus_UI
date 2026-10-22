@@ -70,22 +70,31 @@ function generationStream(): AgentMessageSource {
   return generationMessages()[Symbol.iterator]() as unknown as AgentMessageSource;
 }
 
-function createAdapter(runManager?: InMemoryAgentRunManager): AgentAdapter {
+function createAdapter(
+  runManager?: InMemoryAgentRunManager,
+  onEmptyAction?: () => void,
+): AgentAdapter {
   const adapter = new AgentAdapter({
     registry,
     runManager,
     createSurfaceId: () => SURFACE,
     createGenerationSource: () => generationStream(),
   });
-  adapter.registerActionHandler(IDENTITY_CATALOG_ID, 'refresh', async (action) => [
-    {
-      version: 'v0.9',
-      updateDataModel: {
-        surfaceId: action.surfaceId,
-        value: { note: action.context.note },
+  adapter.registerActionHandler(IDENTITY_CATALOG_ID, 'refresh', async (action) => {
+    if (onEmptyAction) {
+      onEmptyAction();
+      return [];
+    }
+    return [
+      {
+        version: 'v0.9',
+        updateDataModel: {
+          surfaceId: action.surfaceId,
+          value: { note: action.context.note },
+        },
       },
-    },
-  ]);
+    ];
+  });
   return adapter;
 }
 
@@ -188,6 +197,57 @@ describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
     assert.equal(commit.surfaceRevision, 2);
     assert.equal(manager.get(plan.run.runId)?.kind, 'action');
     assert.equal(manager.get(plan.run.runId)?.state, 'succeeded');
+  });
+
+  it('HTTP 空输出 action 消费完整响应后得到固定成功 done', async () => {
+    const manager = new InMemoryAgentRunManager();
+    let calls = 0;
+    const adapter = createAdapter(manager, () => {
+      calls += 1;
+    });
+    const generation = await adapter.prepareGeneration({ catalogId: IDENTITY_CATALOG_ID });
+    assert.ok(generation.ok);
+    const baseline = await generation.run.commit(generationMessages());
+    const plan = await adapter.prepareAction({
+      name: 'refresh',
+      surfaceId: SURFACE,
+      sourceComponentId: 'button',
+      timestamp: new Date().toISOString(),
+      context: { note: '' },
+      actionId: 'empty-http-action',
+      sessionVersion: 1,
+      surfaceRevision: baseline.surfaceRevision,
+      catalogHash,
+    });
+    assert.ok(plan.ok);
+    const { ctx, output, ended } = createSseCapture();
+    const result = await sendAgentRun(ctx, plan.run, { manager, streamDelayMs: 0 });
+    await ended;
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.messages, []);
+    assert.equal(calls, 1);
+    assert.doesNotMatch(output(), /event: (error|message)/);
+    const commit = doneCommit(output());
+    assert.deepEqual(commit, {
+      ...baseline,
+      runId: plan.run.runId,
+      surfaceRevision: baseline.surfaceRevision + 1,
+    });
+    assert.equal(manager.get(plan.run.runId)?.state, 'succeeded');
+    // 真实权威 revision 已前进：下一次可用新基准准入。
+    const next = await adapter.prepareAction({
+      name: 'refresh',
+      surfaceId: SURFACE,
+      sourceComponentId: 'button',
+      timestamp: new Date().toISOString(),
+      context: { note: '' },
+      actionId: 'after-empty-http-action',
+      sessionVersion: 1,
+      surfaceRevision: commit.surfaceRevision,
+      catalogHash,
+    });
+    assert.ok(next.ok);
+    next.run.dispose?.();
   });
 
   it('无可确认提交结果的自定义运行不得伪造成功 done', async () => {

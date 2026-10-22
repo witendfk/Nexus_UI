@@ -372,6 +372,45 @@ it('第二次生成只有新 run/revision 的 done，不能给旧视图换基准
   expect(eventBodies(fetchMock), 'done-only response cannot qualify an old view').toHaveLength(0);
 });
 
+it('在途重复 action 被忽略：挂起期间再次点击不新增请求，原运行正常完成并释放 busy', async () => {
+  const fetchMock = installServer();
+  const original = fetchMock.getMockImplementation()!;
+  let release!: (r: Response) => void;
+  let pendingResponse!: Response;
+  let eventCount = 0;
+  fetchMock.mockImplementation(async (input, init) => {
+    const r = await original(input, init);
+    if (String(input) === '/api/a2ui/event' && (eventCount += 1) === 1) {
+      pendingResponse = r;
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    }
+    return r;
+  });
+  await mount();
+  await act(async () => button('Nexus Basic').click());
+  await act(async () => button('生成 UI').click());
+  const field = container.querySelector('.nexus-surface input[type="text"]') as HTMLInputElement;
+  await act(async () => {
+    field.value = 'edited';
+    Simulate.change(field);
+  });
+  await act(async () => button('Submit').click());
+  await act(async () => button('Submit').click());
+  expect(
+    eventBodies(fetchMock),
+    '在途重复 action 不得发出第二个请求，也不得取消当前运行',
+  ).toHaveLength(1);
+  await act(async () => release(pendingResponse));
+  // 原运行正常完成：基准推进到 revision 2，busy 释放后可继续提交。
+  await act(async () => button('Submit').click());
+  const bodies = eventBodies(fetchMock);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]!.nexus.surfaceRevision).toBe(2);
+  expect(bodies[1]!.nexus.inputs).toEqual([]);
+});
+
 it('请求挂起期间的新编辑在响应归一化后恢复可见，下次提交与可见值相同', async () => {
   const fetchMock = installServer();
   const original = fetchMock.getMockImplementation()!;

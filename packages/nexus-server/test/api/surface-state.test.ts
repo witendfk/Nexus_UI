@@ -18,7 +18,13 @@ interface BaselineFixture {
   query: { surfaceId: string; runId: string };
   expectedLatestRevisionAtQuery: number;
   expectedResponse: { status: 200; body: SurfaceStateBaseline };
-  expectedNextAction: { surfaceRevision: number; serverRevision: number };
+  expectedNextAction: {
+    surfaceRevision: number;
+    serverRevision: number;
+    decision: string;
+    handlerCalls: number;
+    snapshotUnchanged: boolean;
+  };
 }
 
 for (const filename of [
@@ -98,6 +104,10 @@ for (const filename of [
     assert.equal(fixture.expectedNextAction.surfaceRevision, expected.surfaceRevision);
     assert.equal(fixture.expectedNextAction.serverRevision, current.version);
     assert.notEqual(fixture.expectedNextAction.surfaceRevision, current.version);
+    // 夹具声明的 oracle 结论必须与内存对拍一致，不退化为文档字段。
+    assert.equal(fixture.expectedNextAction.decision, 'reject-stale-revision');
+    assert.equal(fixture.expectedNextAction.handlerCalls, 0);
+    assert.equal(fixture.expectedNextAction.snapshotUnchanged, true);
     // S2.5 must also test HTTP responses, header association and actual admission rejection.
   });
 }

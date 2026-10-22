@@ -27,7 +27,7 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 
 当前 17 个标准组件为 Text、Image、Icon、Row、Column、List、Card、Tabs、Divider、Button、TextField、CheckBox、ChoicePicker、DateTimeInput、Slider、Video、AudioPlayer。List 仅静态 children；Button 仅 `action.event`。标准声明默认仅为 TextField/Slider/Button 启用 checks，子集为 required、regex、length、numeric、email；宿主可在自己的 Catalog 中显式启用其他组件的 checks。
 
-不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。 FunctionCall 豁免仅限通过结构与函数白名单校验的 `updateComponents.components[].checks[].condition`，仍递归检查其参数；普通 props、dataModel、theme 的同名 checks 键没有豁免。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束，当前本地输入写回仍受硬编码限制（S2.3）；checks/action 挂载能力由当前 Catalog 决定。
+不支持任意 FunctionCall、组合 checks、ChildList 模板、Modal、`sendDataModel` 端到端和 WebSocket/A2A/MCP transport。 FunctionCall 豁免仅限通过结构与函数白名单校验的 `updateComponents.components[].checks[].condition`，仍递归检查其参数；普通 props、dataModel、theme 的同名 checks 键没有豁免。Theme 被保存但标准 React 组件尚不消费。自定义组件受 Catalog 与 Profile 共同约束；本地输入写回由当前 Catalog `inputs` 声明驱动，未声明即拒绝（S2.3，§4.3）；checks/action 挂载能力由当前 Catalog 决定。
 
 安全准入基线：`__proto__`/`constructor`/`prototype` 为保留段。`action.event.context` 的键与组件 props 层（非结构键）的自有键含保留段一律拒绝；`component.id` 与四处 `surfaceId` 三段全拒。Image/Video/AudioPlayer 的字面量 `url` 必须是 http(s) URL（core 公开 `isSafeMediaUrl`，经 URL 解析判定 protocol，不做字符串前缀匹配）；`{ path }` 绑定放行准入，由 React 三个媒体组件在解析后复用同一判定守卫，非法时不输出 `src` 并渲染带说明性 alt/aria 的占位。运行层防御与准入同口径：`resolveContext` 遇保留段键显式抛错，`buildProps` 跳过保留段键不写入 props。
 
@@ -137,7 +137,7 @@ revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不
 
 当前最小接线（S2.4 复审修复，2026-10-19）：Adapter 的 commit 返回提交边界捕获的 `NexusSurfaceCommit`；`sendAgentRun` 成功 `done` 携带同一固定结果，其 runId 与本次 SSE event id 前缀一致，不在终态查询最新快照。core 公开 `parseSurfaceCommit` 校验版本、标识、hash 和正安全整数 revision，Catalog Contract 版本常量由 core 定义并由 server 复用。两个参考浏览器从同次流的成功 `done` 保留该基准，在 EOF、错误、版本/标识不符或本地消息拒绝时关闭后续 action；请求携带原 actionId 与 `getLatestInputs`。这只是现有消费方的最小门控，完整隔离预览/恢复会话仍由 S3/S4 实施。
 
-运行标识统一（S2.5.1，2026-10-19）：一次 run 只分配一个不可变 ID，由运行创建方生成并经 `AgentRun.runId` 暴露；非 HTTP commit、SSE event id 前缀、成功 done 与 run-manager 运行记录使用同值。发送层 `sendAgentRun` 不再以另一个 idPrefix 改写 `commit.runId`，也不为同一运行生成第二个标识；旧签名 `sendAgentRun(ctx, run, idPrefix, options)` 中的字符串实参是被忽略的兼容槽位，调用方应迁移到 `sendAgentRun(ctx, run, options)`，不留第二套身份解释。`AgentRun.commit` 必须返回结构合法且 runId、surfaceId、catalogId、catalogHash 与准备阶段捕获身份完全一致的 `NexusSurfaceCommit`；空对象、缺字段或错配都按运行失败处理，不留存结果、不发布成功 done。校验返回值只保留规范字段，不能依赖 TypeScript 签名或非空判断；原始 `sendMessages` 是非运行工具路径，不产生运行记录，其终态不承载 `NexusSurfaceCommit`。自定义 `AgentRun` 实现必须迁移到返回固定 commit 的签名；自定义 `AgentRunManager` 实现必须实现结果接口 `recordCommit(id, commit)`（记录先经 `create` 建立，提交边界写入、成功 done 之前可读），无记录时显式报错。HTTP 响应头已接线（S2.5.4，`X-Nexus-Run-Id`），按 run 查询路由已实施（S2.5.3），有界留存与重复标识拒绝的完整语义已实施（S2.5.2）。
+运行标识统一（S2.5.1，2026-10-19）：一次 run 只分配一个不可变 ID，由运行创建方生成并经 `AgentRun.runId` 暴露；非 HTTP commit、SSE event id 前缀、成功 done 与 run-manager 运行记录使用同值。发送层 `sendAgentRun` 不以另一个 idPrefix 改写 `commit.runId`，也不为同一运行生成第二个标识；旧四参签名 `sendAgentRun(ctx, run, idPrefix, options)` 已随 S2.6.5.2 删除（2026-10-21 验收核实公开入口仅存 `sendAgentRun(ctx, run, options)`），不留兼容槽位或第二套身份解释。`AgentRun.commit` 必须返回结构合法且 runId、surfaceId、catalogId、catalogHash 与准备阶段捕获身份完全一致的 `NexusSurfaceCommit`；空对象、缺字段或错配都按运行失败处理，不留存结果、不发布成功 done。校验返回值只保留规范字段，不能依赖 TypeScript 签名或非空判断；原始 `sendMessages` 是非运行工具路径，不产生运行记录，其终态不承载 `NexusSurfaceCommit`。自定义 `AgentRun` 实现必须迁移到返回固定 commit 的签名；自定义 `AgentRunManager` 实现必须实现结果接口 `recordCommit(id, commit)`（记录先经 `create` 建立，提交边界写入、成功 done 之前可读），无记录时显式报错。HTTP 响应头已接线（S2.5.4，`X-Nexus-Run-Id`），按 run 查询路由已实施（S2.5.3），有界留存与重复标识拒绝的完整语义已实施（S2.5.2）。
 
 提交结果留存（S2.5.2，2026-10-20 评审修正）：传输无关的 managed run 是运行生命周期入口，adapter 持有每实例隔离的 `runManager`（可在 adapter 构造时注入），HTTP、非 HTTP generation/action 共用同一记录所有者。非 HTTP 首次消费 source 或调用 commit 时建立 queued/running 记录；HTTP 在同步占用 SSE 响应前先预留 queued 记录，排队完成后转 running。生成源工厂与 action handler 均延迟到消息源消费、记录容量准入成功之后才调用；工厂/handler 抛错属于运行失败，HTTP 已占用响应时用 SSE error 收场。prepare 阶段的协议/权限/参数/resolver 拒绝仍在流前完成。正常 source EOF 或迭代器 return 不等于提交，直接消费者必须 commit/onError/dispose 显式结束；source 异常会结束运行并释放资源。
 
@@ -223,7 +223,7 @@ Catalog Contract 版本在 S2 升至 2：hash 对 `{ contractVersion, catalog }`
 
 发布一致性切片（S2.5.5，2026-10-20 评审修正）：路由装配期对每个待发布 Catalog 先复制后经 core 注册闸门校验，contractHash、promptContract 与发布声明来自同一独立副本；必须通过实际 `adapter.describeCatalog(catalogId)` 读取执行声明并核对 hash，未注册或错配即装配失败，不提供独立的 executionRegistry 作为替代权威。adapter 在每个 Catalog 首次发布/执行时校验并固定声明副本，随后外部 registry 或调用方对象变更不影响该 adapter 的发布或执行；更新已固定 Catalog 需重建 adapter 并重新装配发布。允许只发布执行 Catalog 的子集，未发布项 404，不公开私有声明。
 
-发现客户端逐项校验 serverApiVersion、契约版本、完整 `sha256:<64 hex>` hash、组件/action 非空字符串及无重复、非空发现 URL，任一非法整体拒绝。对象键顺序不影响 hash，能力/schema 变化必须影响 hash；摘要和完整发布内容由同一副本推导。`createAgentOnboardingContract` 复制输入后检查 serverApiVersion、kind、contractVersion、hash 格式、完整 Catalog 注册合法性、hash 与内容一致、prompt 与 `createCatalogPromptContract(catalog)` 完全一致，并内嵌独立副本；`verifyExternalAgentOnboarding` 在调用 Agent 前复用同一内部校验，内嵌契约不能采用较宽松规则（2026-10-20 整体评审修正）。本切片不新增线上字段或必需验收项，Catalog Contract 2、server API 1、onboarding 1、RPC 1 均保持，包版本遵循 workspace 发行规则；严格装配验证不引入第二套契约解释器。模块内部 `isCatalogContractHash`/`CATALOG_CONTRACT_HASH_PATTERN` 未进入公开根入口。
+发现客户端逐项校验 serverApiVersion、契约版本、完整 `sha256:<64 hex>` hash、组件/action 非空字符串及无重复、非空发现 URL，任一非法整体拒绝。对象键顺序不影响 hash，能力/schema 变化必须影响 hash；摘要和完整发布内容由同一副本推导。`createAgentOnboardingContract` 复制输入后检查 serverApiVersion、kind、contractVersion、hash 格式、完整 Catalog 注册合法性、hash 与内容一致、prompt 与 `createCatalogPromptContract(catalog)` 完全一致，并内嵌独立副本；`verifyExternalAgentOnboarding` 在调用 Agent 前复用同一内部校验，内嵌契约不能采用较宽松规则（2026-10-20 整体评审修正）。core 根入口公开 `getCatalogContractHashInput`/`isCatalogContractHash`/`CATALOG_CONTRACT_HASH_PATTERN`（S2.6 起公开，2026-10-21 验收核实 dist 根入口导出），浏览器 Web Crypto 复算与 server hash 共用同一规范化（§2）。本切片不新增线上字段或必需验收项，Catalog Contract 2、server API 1、onboarding 1、RPC 1 均保持，包版本遵循 workspace 发行规则；严格装配验证不引入第二套契约解释器。
 
 新增 client 后，只通过四包公开入口消费；不强制所有应用安装四包。协议/Profile 与组件能力校验使用共享正常/非法 fixture 在 core、server 和 client/React 接入验证，不等待业务应用重建。conformance 变更须显式更新分类理由和基线。
 
@@ -233,7 +233,7 @@ Catalog Contract 版本在 S2 升至 2：hash 对 `{ contractVersion, catalog }`
 
 首发每包交付可原生加载的 ESM `.js` 与 `.d.ts`；建议 `.js.map`，发布时保证源码映射可用。视图包可提供显式公开的样式入口，宿主按需引入；当前 React 仍在 import 时注入动画，独立 CSS 尚未交付。不提供 CJS、UMD 或 IIFE；包内不重复捆绑 React/Vue，框架依赖以 peer dependency 声明，内部包按依赖关系消费。
 
-当前构建仍使用 `fix-esm-imports.mjs` 补齐相对路径。目标以显式 `.js` 源码路径和 NodeNext 配置在编译时保证 Node ESM 可解析性；通过产物原生加载、类型解析和浏览器打包验证后才移除脚本。宿主通过公开包入口消费，不运行 SDK 构建脚本。
+当前构建仍使用 `fix-esm-imports.mjs` 补齐相对路径。目标以显式 `.js` 源码路径和 NodeNext 配置在编译时保证 Node ESM 可解析性；通过产物原生加载、类型解析和浏览器打包验证后才移除脚本。仓库内类型解析（含 SDK 包间与全部消费方）统一走 node_modules 的当前 dist 声明：tsconfig 不设源码 paths 别名（2026-10-21 验收移除），typecheck 依赖先构建的产物。宿主通过公开包入口消费，不运行 SDK 构建脚本。
 
 ### 8.2 公开入口与高层 API（目标）
 

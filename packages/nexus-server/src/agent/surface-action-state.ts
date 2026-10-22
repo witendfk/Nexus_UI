@@ -40,6 +40,8 @@ interface MutableSurfaceActionSnapshot {
 
 /** 一次 action 提交的基准与组合写入：准入输入随 patch 一次原子落库。 */
 export interface SurfaceActionCommit {
+  /** Action 所属 surface；空消息提交必须显式提供，省略时从非空消息推导。 */
+  readonly surfaceId?: string;
   /**
    * prepareAction 读取快照时的生成代；与 expectedRevision 一起比较，
    * 任一基准变化都拒绝，包含同代其他 action 和重新生成。
@@ -136,6 +138,8 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     if (next.components.size === 0) {
       throw new Error('生成流缺少组件，不能建立 action 权威状态');
     }
+    // 每次写入刷新顺序，重生成不能淘汰刚提交的权威快照。
+    this.snapshots.delete(surfaceId);
     this.snapshots.set(surfaceId, next);
     this.revision = version;
     while (this.snapshots.size > this.maxSurfaces) {
@@ -151,7 +155,7 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     commit: SurfaceActionCommit,
   ): Promise<SurfaceActionSnapshot> {
     const first = messages.find(isRecord);
-    const surfaceId = readSurfaceId(first);
+    const surfaceId = commit.surfaceId ?? readSurfaceId(first);
     if (!surfaceId) throw new Error('action 流缺少 surfaceId，不能更新 action 权威状态');
 
     const current = this.snapshots.get(surfaceId);
@@ -172,6 +176,8 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     const version = this.nextVersion(this.revision);
     next.version = version;
     this.revision = version;
+    // 与 commitGeneration 同口径：刷新插入位，容量淘汰不选中刚提交的快照。
+    this.snapshots.delete(surfaceId);
     this.snapshots.set(surfaceId, next);
     return cloneSnapshot(next);
   }
