@@ -137,6 +137,51 @@ async function startRemoteAgent(): Promise<{ endpoint: string; requests: RemoteR
   return { endpoint: `http://127.0.0.1:${port}/agent`, requests };
 }
 
+/** S3.2 迁移：替代旧 run.source 注入——外部 agent 下发携带未声明 action `reject` 的生成流。 */
+async function startRejectActionAgent(): Promise<{ endpoint: string }> {
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let rawBody = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => {
+      rawBody += chunk;
+    });
+    request.on('end', () => {
+      void JSON.parse(rawBody);
+      response.setHeader('Content-Type', 'application/x-ndjson');
+      writeMessage(response, {
+        version: 'v0.9',
+        createSurface: { surfaceId, catalogId: STANDALONE_HOST_CATALOG_ID },
+      });
+      writeMessage(response, {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId,
+          components: [
+            {
+              id: 'root',
+              component: 'ApprovalSummary',
+              title: { path: '/title' },
+              amount: { path: '/amount' },
+            },
+            {
+              id: 'submit',
+              component: 'Button',
+              child: 'submitLabel',
+              action: { event: { name: 'reject' } },
+            },
+            { id: 'submitLabel', component: 'Text', text: 'Reject' },
+          ],
+        },
+      });
+      response.end();
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return { endpoint: `http://127.0.0.1:${port}/agent` };
+}
+
 async function startMalformedAgent(): Promise<{ endpoint: string; requests: RemoteRequest[] }> {
   const requests: RemoteRequest[] = [];
   const server = createServer((request, response) => {
@@ -299,7 +344,11 @@ describe('standalone host example', () => {
       message: '创建审批任务面',
       catalogId: STANDALONE_HOST_CATALOG_ID,
     });
-    assert.ok(generation.ok);
+    assert.ok(generation.ok, 'S3.2：入队即接受');
+    // S3.2：sequence 在调度内准备完成后才可读，先等运行终态（宿主 Policy 在
+    // 调度内拒绝 Text → 运行失败终态），再核对注入 Policy 仍挂在运行序列上
+    const outcome = await generation.run.result;
+    assert.equal(outcome.terminal, 'failed');
     assert.equal(generation.run.sequence.policy?.name, 'standalone-host-policy');
 
     const transport = createSseContext();
@@ -311,38 +360,15 @@ describe('standalone host example', () => {
   });
 
   it('rejects an undeclared catalog action before it reaches SSE', async () => {
+    // S3.2：run.source 是只读兼容视图，不能再注入手工消息数组；改由本地 RPC
+    // agent 下发携带未声明 action 的生成流，证伪点（未注册 action 名被拒）不变
+    const { endpoint } = await startRejectActionAgent();
     const generation = await createStandaloneHostAdapter({
-      endpoint: 'https://agent.invalid/a2ui',
+      endpoint,
+      timeoutMs: 1000,
       createSurfaceId: () => surfaceId,
     }).prepareGeneration({ catalogId: STANDALONE_HOST_CATALOG_ID });
-    assert.ok(generation.ok);
-    generation.run.source = [
-      {
-        version: 'v0.9',
-        createSurface: { surfaceId, catalogId: STANDALONE_HOST_CATALOG_ID },
-      },
-      {
-        version: 'v0.9',
-        updateComponents: {
-          surfaceId,
-          components: [
-            {
-              id: 'root',
-              component: 'ApprovalSummary',
-              title: { path: '/title' },
-              amount: { path: '/amount' },
-            },
-            {
-              id: 'submit',
-              component: 'Button',
-              child: 'submitLabel',
-              action: { event: { name: 'reject' } },
-            },
-            { id: 'submitLabel', component: 'Text', text: 'Reject' },
-          ],
-        },
-      },
-    ];
+    assert.ok(generation.ok, 'S3.2：入队即接受');
     const transport = createSseContext();
     const result = await sendAgentRun(transport.ctx, generation.run, {});
 

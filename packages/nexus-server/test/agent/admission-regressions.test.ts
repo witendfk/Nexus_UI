@@ -214,7 +214,13 @@ describe('S2.4 second-review regressions', () => {
       }),
     );
     h.adapter.registerActionHandler(h.catalog.catalogId, 'save', () => []);
-    assert.equal((await h.adapter.prepareAction(action(h.hash))).ok, false);
+    // S3.2 迁移：旧 revision 请求被拒 = 运行内准入失败终态（原 plan.ok=false）
+    const stalePlan = await h.adapter.prepareAction(action(h.hash));
+    assert.ok(stalePlan.ok, 'S3.2：入队即接受');
+    const staleOutcome = await stalePlan.run.result;
+    assert.equal(staleOutcome.terminal, 'failed');
+    assert.equal(staleOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(staleOutcome.message ?? '', /revision 不一致/);
   });
   it('holds non-HTTP lock past source exhaustion and rejects queued stale revision before handler', async () => {
     const h = await harness();
@@ -225,17 +231,30 @@ describe('S2.4 second-review regressions', () => {
     });
     const first = await h.adapter.prepareAction(action(h.hash));
     assert(first.ok);
-    const messages = await collect(first.run.source);
+    // S3.2 迁移：消费与提交都在首个调度任务内；在首个任务终态前入队第二个 run，
+    // 排队语义由调度器持有（prepare 入队即返回，不再等待 surface 锁）。
+    const iterator = first.run.source[Symbol.asyncIterator]();
+    assert(!(await iterator.next()).done, '首个任务已产出消息且尚未终态');
     let secondSettled = false;
     const second = h.adapter.prepareAction(action(h.hash)).then((p) => {
       secondSettled = true;
       return p;
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(secondSettled, false);
+    // 第二个 run 已入队（prepare 同步段即返回），但其任务未获得 surface 槽位：
+    // 首个任务独占期间 handler 不得被第二个 run 调用
+    assert.equal(secondSettled, true);
     assert.equal(calls, 1);
-    await first.run.commit(messages);
-    assert.equal((await second).ok, false);
+    const firstOutcome = await first.run.result;
+    assert.equal(firstOutcome.terminal, 'succeeded');
+    await iterator.return?.();
+    // 排队的第二个 run 在调度内准入：首个已提交推进 revision → stale 拒绝（handler 前）
+    const secondPlan = await second;
+    assert.ok(secondPlan.ok, 'S3.2：入队即接受');
+    const secondOutcome = await secondPlan.run.result;
+    assert.equal(secondOutcome.terminal, 'failed');
+    assert.equal(secondOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(secondOutcome.message ?? '', /revision 不一致/);
     assert.equal(calls, 1);
     await assert.rejects(
       h.store.commitAction([patch('/note', 'stale')], { expectedEpoch: 1, expectedRevision: 1 }),
@@ -251,12 +270,18 @@ describe('S2.4 second-review regressions', () => {
     const request = action(h.hash);
     const plan = await h.adapter.prepareAction(request);
     assert(plan.ok);
-    await plan.run.commit(await collect(plan.run.source));
-    plan.run.dispose?.();
-    plan.run.onError?.();
-    plan.run.dispose?.();
+    // S3.2 迁移：任务自动提交；终态后 dispose 安全（不再有 onError 钩子）
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    plan.run.dispose();
+    plan.run.dispose();
+    // S3.2 迁移：重放 = 运行内准入失败终态（原 plan.ok=false）
     const replay = await h.adapter.prepareAction({ ...request, surfaceRevision: 2 });
-    assert.equal(replay.ok, false);
+    assert.ok(replay.ok, 'S3.2：入队即接受');
+    const replayOutcome = await replay.run.result;
+    assert.equal(replayOutcome.terminal, 'failed');
+    assert.equal(replayOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(replayOutcome.message ?? '', /重放或重复/);
     assert.equal(calls, 1);
   });
   it('rejects patch values forbidden by the pinned Catalog even if live registry permits them', async () => {
@@ -272,23 +297,28 @@ describe('S2.4 second-review regressions', () => {
       maxLength: 100,
       dynamic: 'allowed',
     };
-    h.adapter.registerActionHandler(catalog.catalogId, 'save', () => [
-      {
-        version: 'v0.9',
-        updateComponents: {
-          surfaceId: 's',
-          components: [
-            { id: 'label', component: 'Text', text: 'too long for the committed declaration' },
-          ],
-        },
+    const offendingPatch = {
+      version: 'v0.9',
+      updateComponents: {
+        surfaceId: 's',
+        components: [
+          { id: 'label', component: 'Text', text: 'too long for the committed declaration' },
+        ],
       },
-    ]);
+    };
+    h.adapter.registerActionHandler(catalog.catalogId, 'save', () => [offendingPatch]);
     const plan = await h.adapter.prepareAction(action(h.hash));
     assert(plan.ok);
-    const messages = await collect(plan.run.source);
+    // S3.2 迁移：调度任务自动消费并在候选 guard 处失败（pinned Catalog maxLength 5）
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_FAILED');
+    assert.match(outcome.message ?? '', /长度不能超过 5/);
+    // 显式核对候选 guard 结论与 pinned 声明一致（live registry 已放宽到 100）
     const state = createAgentStreamState(plan.run.sequence);
-    assert(validateAgentStreamMessageDetailed(messages[0] as never, 0, plan.run.sequence, state));
-    await assert.rejects(async () => plan.run.commit(messages));
+    assert(
+      validateAgentStreamMessageDetailed(offendingPatch as never, 0, plan.run.sequence, state),
+    );
     assert.equal((await h.store.get('s'))!.version, 1);
     assert.equal((await h.store.get('s'))!.components.get('label')!.text, 'Save');
   });

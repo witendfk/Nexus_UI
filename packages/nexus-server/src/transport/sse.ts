@@ -1,6 +1,6 @@
 import type { Context } from 'koa';
 
-export type SseEventName = 'message' | 'error' | 'done';
+export type SseEventName = 'start' | 'message' | 'error' | 'done';
 
 /**
  * SSE 运行标识响应头（S2.5.4）。值是该次运行的唯一不可变 ID（`AgentRun.runId`），

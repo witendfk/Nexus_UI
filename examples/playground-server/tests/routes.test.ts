@@ -239,8 +239,13 @@ describe('Agent line routes', () => {
       }),
     });
 
-    assert.equal(response.status, 400);
-    assert.match(await response.text(), /Action surface 不存在或已过期/);
+    // S3.2：调度内准入失败（未知/过期 surface）经 SSE error 报告，不再是 400。
+    assert.equal(response.status, 200);
+    const rejectedText = await response.text();
+    assert.match(rejectedText, /event: error/);
+    assert.match(rejectedText, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.match(rejectedText, /Action surface 不存在或已过期/);
+    assert.doesNotMatch(rejectedText, /event: done/);
   });
 
   it('generate 缺 catalogId 返回 400（参考服务不再回落默认 Catalog）', async () => {

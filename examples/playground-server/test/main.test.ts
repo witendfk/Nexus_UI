@@ -215,7 +215,10 @@ describe('S2.6.1.3 无 key 经实际服务完成表单首闭环', () => {
     });
     const text = await response.text();
 
-    assert.equal(response.status, 400);
+    // S3.2：调度内准入失败经 SSE error 报告（200 + error 帧），handler 零调用。
+    assert.equal(response.status, 200);
+    assert.match(text, /event: error/);
+    assert.match(text, /"runCode":"RUN_ADMISSION_REJECTED"/);
     assert.match(text, /值不符合声明 schema/);
     assert.doesNotMatch(text, /已提交/);
     assert.doesNotMatch(text, /event: done/);

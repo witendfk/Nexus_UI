@@ -27,6 +27,7 @@ import {
   type ExternalAgentRpcConfig,
 } from './external-agent';
 import { sendAgentRun } from '../api/send-messages';
+import type { RuntimeRunHandle } from '../runtime/run-handle';
 import type { AgentRun } from './adapter';
 import { AGENT_ONBOARDING_CHECKS, type AgentOnboardingCheckId } from '../api/agent-onboarding';
 
@@ -206,7 +207,7 @@ function parseSseRun(output: string): SseRun {
   return run;
 }
 
-async function sendAgentMessages(run: AgentRun): Promise<SseRun> {
+async function sendAgentMessages(run: AgentRun | RuntimeRunHandle): Promise<SseRun> {
   const { ctx, getOutput, waitForOutput, dispose } = createSseContext();
   try {
     // 运行标识只来自 run.runId：SSE event id、响应头与成功 done 同值（S2.5.1/.4）。

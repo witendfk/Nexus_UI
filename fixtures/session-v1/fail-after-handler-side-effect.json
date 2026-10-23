@@ -1,0 +1,89 @@
+{
+  "id": "fail-after-handler-side-effect",
+  "kind": "session-stream",
+  "scenario": "commit-facts",
+  "requirements": ["R5"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "fixedSurfaceId": true,
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-fixed-2",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-fixed-2",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["confirm-1"] },
+              {
+                "id": "confirm-1",
+                "component": "ConfirmTrigger",
+                "label": "提交",
+                "action": { "event": { "name": "submit" } }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-fixed-2", "value": {} } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "submit",
+          "surfaceId": "s-fixed-2",
+          "sourceComponentId": "confirm-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": {}
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "side-effect-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    { "enqueue": "action-A", "suspendUntil": "handler-returned" },
+    {
+      "interleave": "generation-B",
+      "note": "handler 已执行业务副作用后、patch 提交前，固定 surfaceId 重建使 epoch/revision 前进",
+      "awaitTerminal": "succeeded"
+    },
+    { "resume": "action-A" }
+  ],
+  "source": {
+    "messages": [
+      {
+        "version": "v0.9",
+        "updateDataModel": { "surfaceId": "s-fixed-2", "value": { "done": true } }
+      }
+    ]
+  },
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": 1 },
+      { "event": "error", "code": "RUN_FAILED", "commitState": "notCommitted" }
+    ],
+    "terminal": "failed",
+    "commitState": "notCommitted",
+    "sourceFactoryCalls": 0,
+    "handlerCalls": 1,
+    "sideEffectCount": 1,
+    "surfaceRevisionAfter": 2,
+    "note": "patch 在提交边界被 epoch/revision 比较拒绝：确定未写入，UI 保持 B 的 revision 2；已执行的业务副作用由宿主持有，SDK 不重放 handler 也不回滚副作用"
+  }
+}

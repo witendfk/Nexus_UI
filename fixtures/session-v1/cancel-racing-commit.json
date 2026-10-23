@@ -1,0 +1,83 @@
+{
+  "id": "cancel-racing-commit",
+  "kind": "session-stream",
+  "scenario": "cancel",
+  "requirements": ["R5"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-s3-3",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-s3-3",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["rating-1"] },
+              {
+                "id": "rating-1",
+                "component": "RatingInput",
+                "score": { "path": "/score" },
+                "label": "评分",
+                "action": {
+                  "event": { "name": "rate", "context": { "score": { "path": "/score" } } }
+                }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-3", "value": { "score": 3 } } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "rate",
+          "surfaceId": "s-s3-3",
+          "sourceComponentId": "rating-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": { "score": { "path": "/score" } }
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "cancel-race-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    { "enqueue": "action-A" },
+    { "cancel": "action-A", "at": "store-commit", "note": "取消信号在 store 写入进行中到达" }
+  ],
+  "source": {
+    "messages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-3", "value": { "score": 5 } } }
+    ]
+  },
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": 1 },
+      { "event": "message", "count": 1 },
+      { "event": "done", "surfaceRevision": 2 }
+    ],
+    "terminal": "succeeded",
+    "commitState": "committed",
+    "sourceFactoryCalls": 0,
+    "handlerCalls": 1,
+    "surfaceRevisionAfter": 2,
+    "note": "store 已确认提交后取消才生效：终态保持 succeeded/committed，不倒写为 canceled/notCommitted；取消只阻止此后的新工作"
+  }
+}

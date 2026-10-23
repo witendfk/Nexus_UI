@@ -79,12 +79,6 @@ function createAdapter(): AgentAdapter {
   return adapter;
 }
 
-async function collect(source: AgentMessageSource): Promise<unknown[]> {
-  const messages: unknown[] = [];
-  for await (const message of source) messages.push(message);
-  return messages;
-}
-
 describe('运行标识由运行创建方一次性分配（S2.5.1）', () => {
   it('生成 run 暴露非空 runId，非 HTTP commit 使用同一标识', async () => {
     const adapter = createAdapter();
@@ -93,8 +87,11 @@ describe('运行标识由运行创建方一次性分配（S2.5.1）', () => {
     assert.equal(typeof plan.run.runId, 'string', 'AgentRun 必须暴露 runId');
     assert.notEqual(plan.run.runId, '');
 
-    const commit = await plan.run.commit(generationMessages());
-    assert.equal(commit.runId, plan.run.runId, '非 HTTP commit 必须使用 run.runId');
+    // S3.2 迁移：调度任务自动提交，hand-built 数组直提已移除；用实际运行
+    // outcome.commit 核对同一标识
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    assert.equal(outcome.commit.runId, plan.run.runId, '非 HTTP commit 必须使用 run.runId');
   });
 
   it('两次准备得到不同 runId，运行标识不复用', async () => {
@@ -109,7 +106,9 @@ describe('运行标识由运行创建方一次性分配（S2.5.1）', () => {
     const adapter = createAdapter();
     const generation = await adapter.prepareGeneration({ catalogId: IDENTITY_CATALOG_ID });
     assert.ok(generation.ok);
-    await generation.run.commit(generationMessages());
+    // S3.2 迁移：生成任务自动提交，直接等终态即可
+    const genOutcome = await generation.run.result;
+    assert.equal(genOutcome.terminal, 'succeeded');
 
     const actionId = 'browser-action-1';
     const plan = await adapter.prepareAction({
@@ -127,8 +126,14 @@ describe('运行标识由运行创建方一次性分配（S2.5.1）', () => {
     assert.equal(typeof plan.run.runId, 'string');
     assert.notEqual(plan.run.runId, actionId, 'runId 不能复用客户端 actionId');
 
-    const commit = await plan.run.commit(await collect(plan.run.source));
-    assert.equal(commit.runId, plan.run.runId, 'action 的非 HTTP commit 必须使用 run.runId');
-    assert.equal(commit.surfaceRevision, 2);
+    // S3.2 迁移：action 任务自动消费并提交，commit 取自实际运行终态
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    assert.equal(
+      outcome.commit.runId,
+      plan.run.runId,
+      'action 的非 HTTP commit 必须使用 run.runId',
+    );
+    assert.equal(outcome.commit.surfaceRevision, 2);
   });
 });

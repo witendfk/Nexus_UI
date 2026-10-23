@@ -15,10 +15,15 @@ async function generateSurface(catalogId: string, message?: string) {
     ...(message === undefined ? {} : { message }),
   });
   assert.ok(plan.ok, `生成被拒: ${plan.ok ? '' : plan.message}`);
-  const messages: unknown[] = [];
-  for await (const streamMessage of plan.run.source) messages.push(streamMessage);
-  const commit = await plan.run.commit(messages);
-  return { adapter, surfaceId: plan.run.sequence.surfaceId, commit, messages };
+  // S3.2：调度自动消费生成源并提交，commit/messages 取自运行终态
+  const outcome = await plan.run.result;
+  assert.equal(outcome.terminal, 'succeeded');
+  return {
+    adapter,
+    surfaceId: plan.run.sequence.surfaceId, // S3.2：sequence 在终态后才可读
+    commit: outcome.commit,
+    messages: outcome.messages,
+  };
 }
 
 function actionFrom(
@@ -43,10 +48,13 @@ async function consumeAction(
 ) {
   const plan = await adapter.prepareAction(action);
   if (!plan.ok) return { ok: false as const, message: plan.message };
-  const messages: unknown[] = [];
-  for await (const streamMessage of plan.run.source) messages.push(streamMessage);
-  const commit = await plan.run.commit(messages);
-  return { ok: true as const, messages, commit };
+  // S3.2：调度自动消费并提交；运行内准入失败不再体现在 plan.ok，而是运行失败终态
+  const outcome = await plan.run.result;
+  if (outcome.terminal !== 'succeeded') {
+    const detail = outcome.terminal === 'failed' ? (outcome.message ?? outcome.code) : '运行被取消';
+    return { ok: false as const, message: detail };
+  }
+  return { ok: true as const, messages: outcome.messages, commit: outcome.commit };
 }
 
 describe('S2.6.1.2 参考装配的可信可编辑路径', () => {
@@ -80,10 +88,10 @@ describe('S2.6.1.2 参考装配的可信可编辑路径', () => {
       catalogId: NEXUS_BASIC_TASK_CATALOG,
       message: FORM_MESSAGE,
     });
-    assert.ok(plan.ok);
-    const messages: unknown[] = [];
-    for await (const streamMessage of plan.run.source) messages.push(streamMessage);
-    const commit = await plan.run.commit(messages);
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result; // S3.2：调度自动消费并提交
+    assert.equal(outcome.terminal, 'succeeded');
+    const commit = outcome.commit;
 
     const rejected = await adapter.prepareAction(
       actionFrom(commit, {
@@ -95,7 +103,11 @@ describe('S2.6.1.2 参考装配的可信可编辑路径', () => {
         ],
       }),
     );
-    assert.equal(rejected.ok, false, '未开放 /subscribed 时整批输入必须拒绝');
+    // S3.2：白名单准入移入调度任务，整批拒绝变为运行失败终态
+    assert.ok(rejected.ok, 'S3.2：入队即接受');
+    const rejectedOutcome = await rejected.run.result;
+    assert.equal(rejectedOutcome.terminal, 'failed', '未开放 /subscribed 时整批输入必须拒绝');
+    assert.equal(rejectedOutcome.code, 'RUN_ADMISSION_REJECTED');
   });
 
   it('默认装配开放 Basic 表单的 /name 与 /subscribed', async () => {
@@ -173,7 +185,11 @@ describe('S2.6.1.3 Basic fallback 确定性表单', () => {
         inputs: [{ componentId: 'subscribed', property: 'value', value: 'yes' }],
       }),
     );
-    assert.equal(rejected.ok, false, '布尔字段收到字符串必须拒绝');
-    assert.match(rejected.ok ? '' : rejected.message, /值不符合声明 schema/);
+    // S3.2：paramSchema 准入移入调度任务，整批拒绝变为运行失败终态
+    assert.ok(rejected.ok, 'S3.2：入队即接受');
+    const rejectedOutcome = await rejected.run.result;
+    assert.equal(rejectedOutcome.terminal, 'failed', '布尔字段收到字符串必须拒绝');
+    assert.equal(rejectedOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(rejectedOutcome.message ?? '', /值不符合声明 schema/);
   });
 });

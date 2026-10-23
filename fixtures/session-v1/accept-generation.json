@@ -1,0 +1,56 @@
+{
+  "id": "accept-generation",
+  "kind": "session-stream",
+  "scenario": "generation",
+  "requirements": ["R5", "R6"],
+  "catalog": "session-v1-form",
+  "request": {
+    "kind": "generate",
+    "generate": {
+      "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2",
+      "message": "创建评分表单"
+    }
+  },
+  "source": {
+    "messages": [
+      {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s-gen-1",
+          "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s-gen-1",
+          "components": [
+            { "id": "root", "component": "Column", "children": ["rating-1"] },
+            {
+              "id": "rating-1",
+              "component": "RatingInput",
+              "score": { "path": "/score" },
+              "label": "评分",
+              "action": {
+                "event": { "name": "rate", "context": { "score": { "path": "/score" } } }
+              }
+            }
+          ]
+        }
+      },
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-gen-1", "value": { "score": 3 } } }
+    ]
+  },
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": null },
+      { "event": "message", "count": 3 },
+      { "event": "done", "surfaceRevision": 1 }
+    ],
+    "terminal": "succeeded",
+    "commitState": "committed",
+    "sourceFactoryCalls": 1,
+    "handlerCalls": 0,
+    "surfaceRevisionAfter": 1
+  }
+}

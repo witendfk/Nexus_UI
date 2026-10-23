@@ -602,8 +602,12 @@ describe('verification RPC 贯通（S2.5.6）', () => {
       actionId: 'rpc-action-stale',
       surfaceRevision: 1,
     });
-    assert.equal(stale.ok, false);
-    assert.match(stale.message, /revision/i);
+    // S3.2 迁移：准入移入调度任务——入队即接受，拒绝改在运行终态断言。
+    assert.ok(stale.ok, 'S3.2：入队即接受，准入在调度内执行');
+    const staleOutcome = await stale.run.result;
+    assert.equal(staleOutcome.terminal, 'failed', '旧 revision 的 action 必须被拒');
+    assert.equal(staleOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(staleOutcome.message ?? '', /revision/i);
     assert.equal(requests.length, 2);
     const afterStale = await adapter.describeSurfaceContract(surfaceId);
     assert.equal(afterStale?.surfaceRevision, 2);

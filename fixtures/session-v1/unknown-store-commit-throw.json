@@ -1,0 +1,83 @@
+{
+  "id": "unknown-store-commit-throw",
+  "kind": "session-stream",
+  "scenario": "commit-facts",
+  "requirements": ["R5"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-s3-4",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-s3-4",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["confirm-1"] },
+              {
+                "id": "confirm-1",
+                "component": "ConfirmTrigger",
+                "label": "提交",
+                "action": { "event": { "name": "submit" } }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-4", "value": {} } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "submit",
+          "surfaceId": "s-s3-4",
+          "sourceComponentId": "confirm-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": {}
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "unknown-store-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    { "enqueue": "action-A" },
+    {
+      "inject": "store-throw",
+      "at": "store-commit",
+      "note": "自定义 store 写入后抛错，无法向运行时证明是否落盘"
+    }
+  ],
+  "source": {
+    "messages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-4", "value": { "done": true } } }
+    ]
+  },
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": 1 },
+      { "event": "error", "code": "RUN_COMMIT_UNKNOWN", "commitState": "unknown" }
+    ],
+    "terminal": "failed",
+    "commitState": "unknown",
+    "sourceFactoryCalls": 0,
+    "handlerCalls": 1,
+    "surfaceRevisionAfter": "unknown",
+    "note": "store 提交异常无法证明未写入：commitState 必须为 unknown，不得凭异常推断 notCommitted；SDK 不自动重试、不回滚 handler 副作用；查询该 run 无可确认结果（409）"
+  }
+}

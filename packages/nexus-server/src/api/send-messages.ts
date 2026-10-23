@@ -12,6 +12,9 @@ import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
 import type { AgentRunManager } from '../agent/run-manager';
 import { manageAgentRun, type ManagedAgentRun } from '../agent/run-lifecycle';
+import { RuntimeRunHandle } from '../runtime/run-handle';
+import { startManagedRunTask } from '../runtime/agent-runtime';
+import { schedulerForOwner } from '../runtime/scheduler-owner';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
 import type { PrepareSseResponseOptions } from '../transport/sse';
 
@@ -84,7 +87,7 @@ function claimSseResponse(ctx: Koa.Context, options?: PrepareSseResponseOptions)
   }
   // respond() is no longer what connects the body, so Koa's stream error
   // forwarding is gone too. Report instead of letting an 'error' event go
-  // unhandled; pumpMessages always ends the stream, so the response still closes.
+  // unhandled; the sender always ends the stream, so the response still closes.
   stream.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code === 'EPIPE') return;
     ctx.onerror?.(error);
@@ -205,39 +208,20 @@ export function sendMessages(
 }
 
 /**
- * Stream one agent run into `ctx`, serialized per surface.
+ * Stream one scheduled run (or a wrapped custom `AgentRun`) into `ctx`.
  *
- * Contract: the SSE response is claimed **synchronously**, before this function
- * returns, and the SDK owns the response lifecycle from that point (`respond` is
- * set to false and the stream is piped directly). Runs for the same surface are
- * serialized, so a run may wait for a predecessor — the waiting run still owns
- * its response from the moment of the call, which is what keeps the client from
- * falling through to Koa's 404 while the queue drains.
+ * S3.2: per-surface serialization belongs to the runtime scheduler, not to a
+ * module-global queue. For scheduled handles the response is claimed and the
+ * sender merely forwards the runtime's validated events — it owns no queue,
+ * no guard state and no commit. A custom `AgentRun` is wrapped with the
+ * explicitly supplied manager and consumes the same task machinery without an
+ * implicit queue.
  *
- * Because the response is already streaming, both host styles are correct:
- * `void sendAgentRun(...)` when the response is all that matters, and
- * `await sendAgentRun(...)` when the handler also needs the run's result. The
- * returned promise settles after the stream ends and commit has been attempted;
- * awaiting it never delays delivery.
- *
- * Run identity (S2.5.1): the single immutable id is `run.runId`, allocated by
- * the run creator (the adapter for SDK runs). The manager record id, the SSE
- * event id prefix and the success `done` payload all use that same value; the
- * sender never generates a second id and never rewrites `commit.runId`. A run
- * whose `commit` produces no `NexusSurfaceCommit` cannot claim success — the
- * stream ends with an `error` event and the record is marked failed.
- *
- * Transport correlation (S2.5.4): the claimed response carries the
- * `X-Nexus-Run-Id` header set from `run.runId` before `flushHeaders` — queued
- * runs included, since the claim is synchronous. Consumers correlate the
- * response with the success `done` payload through this header; the SDK offers
- * no way to derive a runId by parsing event id formats. Cross-origin reads are
- * the host's CORS assembly responsibility (expose the header explicitly).
- *
- * Commit retention belongs to the transport-neutral managed run. HTTP and direct
- * source/commit consumption share the adapter's record owner. Custom AgentRun
- * implementations are wrapped with an explicitly supplied manager. Reservation
- * precedes response claiming; every initialization failure disposes both owners.
+ * Contract kept from S2 (DESIGN D3): the SSE response is claimed synchronously
+ * before this function returns, `X-Nexus-Run-Id` is written before
+ * `flushHeaders` (queued runs included), and both `void` and `await` call
+ * styles stream per-event. The returned promise settles after the terminal
+ * event has been written; it never rejects after a successful claim.
  */
 export interface SendAgentRunOptions {
   signal?: AbortSignal;
@@ -249,93 +233,147 @@ export interface SendAgentRunOptions {
 
 export function sendAgentRun(
   ctx: Koa.Context,
-  run: AgentRun,
-  options: SendAgentRunOptions,
+  run: AgentRun | RuntimeRunHandle,
+  options: SendAgentRunOptions = {},
 ): Promise<SendMessagesResult> {
+  // Identity/owner/capacity validation stays synchronous: callers may rely on
+  // a throw before any response claim (S2 contract kept).
+  if (run instanceof RuntimeRunHandle) {
+    if (options.manager && options.manager !== run.manager) {
+      options.dispose?.();
+      throw new Error('sendAgentRun manager 必须与 adapter 的 runManager 所有者一致');
+    }
+    // S2 同步占用契约（DESIGN D3）：claim 留在本同步段，占用失败同步抛给
+    // Koa 中间件；容量预留已在入队时完成。占用失败同时收敛运行记录
+    //（排队 → canceled；已开跑 → abort 后由任务侧收敛，确认提交仍胜出）。
+    let stream: PassThrough;
+    try {
+      stream = claimSseResponse(ctx, { runId: run.runId });
+    } catch (error) {
+      run.cancel();
+      options.dispose?.();
+      throw error;
+    }
+    return sendScheduledRun(run, options, stream, ctx);
+  }
   let managed: ManagedAgentRun | undefined;
-  let stream: PassThrough;
-  let hostDisposed = false;
-  const disposeHost = (): void => {
-    if (hostDisposed) return;
-    hostDisposed = true;
-    options?.dispose?.();
-  };
+  let stream: PassThrough | undefined;
   try {
-    managed = manageAgentRun(run, options?.manager, options?.signal);
+    managed = manageAgentRun(run, options.manager, options.signal);
+    // Per-owner serialization (S3.2): custom runs queue on the scheduler bound
+    // to their record owner, so two runs of one surface stay serial without any
+    // module-global state. Rejection happens before the response is claimed.
+    const scheduler = schedulerForOwner(managed.manager);
+    if (!scheduler.hasCapacity(managed.sequence.surfaceId)) {
+      throw new Error('同 surface 排队运行已达上限，请稍后重试');
+    }
     managed.reserve();
-    // Synchronously claim even queued responses, but only after capacity was reserved.
-    // S2.5.4: the run id header is written inside prepareSseResponse, i.e. before
-    // flushHeaders — a queued run carries its identity from the moment its response
-    // is occupied, without waiting for the queue or any run record consumption.
+    // S2 同步占用契约：预留容量之后、任务启动之前同步 claim（排队 run 由此
+    // 即刻带头），占用失败同步抛出并由下方清理。
     stream = claimSseResponse(ctx, { runId: managed.runId });
+    const handle = startManagedRunTask(managed, options, scheduler);
+    return sendScheduledRun(handle, options, stream, ctx);
   } catch (error) {
     try {
       if (managed) managed.fail(error);
       else run.dispose?.();
     } finally {
-      disposeHost();
+      options.dispose?.();
     }
     throw error;
   }
-  const ownedRun = managed;
-  const controller = new AbortController();
-  const abort = (): void => {
-    if (ctx.res?.writableEnded === false) controller.abort();
-  };
-  if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', abort);
-  if (typeof ctx.res?.once === 'function') ctx.res.once('close', abort);
-  if (options?.signal) {
-    if (options.signal.aborted) controller.abort();
-    else options.signal.addEventListener('abort', abort, { once: true });
-  }
-
-  const previous = surfaceRunQueues.get(ownedRun.sequence.surfaceId) ?? Promise.resolve();
-  const queued = previous
-    .catch(() => undefined)
-    .then(async () => {
-      if (!controller.signal.aborted) ownedRun.start();
-      const result = await pumpMessages(
-        stream,
-        ownedRun.source,
-        ownedRun.runId,
-        ownedRun.sequence,
-        (messages) => ownedRun.commit(messages),
-        {
-          signal: controller.signal,
-          ...(options?.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
-        },
-      );
-      if (controller.signal.aborted) ownedRun.cancel();
-      else if (!result.ok) ownedRun.fail();
-      return result;
-    })
-    .catch((error: unknown) => {
-      try {
-        if (controller.signal.aborted) ownedRun.cancel();
-        else ownedRun.fail(error);
-      } finally {
-        stream.end();
-      }
-      return { messages: [], ok: false };
-    })
-    .finally(() => {
-      try {
-        ownedRun.dispose();
-      } finally {
-        if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
-        if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
-        options?.signal?.removeEventListener('abort', abort);
-        if (surfaceRunQueues.get(ownedRun.sequence.surfaceId) === queued) {
-          surfaceRunQueues.delete(ownedRun.sequence.surfaceId);
-        }
-        disposeHost();
-      }
-    });
-  surfaceRunQueues.set(ownedRun.sequence.surfaceId, queued);
-  return queued;
 }
 
-// Per-surface run queues are module-level until S3 moves dispatch ownership into
-// a per-runtime scheduler (SPEC §6); the run-record manager itself is now
-// owned by the adapter (or the host for a custom run).
-const surfaceRunQueues = new Map<string, Promise<SendMessagesResult>>();
+async function sendScheduledRun(
+  handle: RuntimeRunHandle,
+  options: SendAgentRunOptions,
+  stream: PassThrough,
+  ctx: Koa.Context,
+): Promise<SendMessagesResult> {
+  const messages: unknown[] = [];
+  let settle: (result: SendMessagesResult) => void = () => undefined;
+  const finished = new Promise<SendMessagesResult>((resolve) => {
+    settle = resolve;
+  });
+
+  // Transitional pacing (S2 transport behavior, DESIGN D3): per-message write
+  // delay keeps the await/void per-event delivery contract until S3.6 replaces
+  // it with real backpressure. Writes are chained so order is preserved.
+  const streamDelayMs = options.streamDelayMs ?? 200;
+  let writeChain: Promise<void> = Promise.resolve();
+  const write = (frame: string, paced: boolean): void => {
+    writeChain = writeChain.then(async () => {
+      if (paced && streamDelayMs > 0) await sleep(streamDelayMs);
+      stream.write(frame);
+    });
+  };
+  const drainThen = (fn: () => void): void => {
+    writeChain = writeChain.then(fn);
+  };
+
+  const unsubscribe = handle.subscribe((event) => {
+    switch (event.type) {
+      case 'start':
+        // Additive wire event (SPEC §5.4); S2 consumers ignore unknown names.
+        write(formatSseEvent('start', event, `${handle.runId}:start`), false);
+        break;
+      case 'message': {
+        write(formatSseEvent('message', event.message, `${handle.runId}:${messages.length}`), true);
+        messages.push(event.message);
+        break;
+      }
+      case 'done':
+        write(formatSseEvent('done', event.commit, `${handle.runId}:done`), false);
+        drainThen(() => settle({ messages, ok: true }));
+        break;
+      case 'error':
+        write(
+          formatSseEvent(
+            'error',
+            {
+              code: 'AGENT_STREAM_ERROR',
+              boundaryCode: event.boundaryCode as A2UIErrorCode | undefined,
+              message: event.message ?? 'Agent 流式输出失败',
+              ...(event.diagnostics ? { diagnostics: event.diagnostics } : {}),
+              // S3.2 additive fields; the locked session error shape lands in S3.5.
+              runCode: event.code,
+              commitState: event.commitState,
+              runId: handle.runId,
+              surfaceId: handle.surfaceId,
+              ...(event.actionId ? { actionId: event.actionId } : {}),
+            },
+            `${handle.runId}:error`,
+          ),
+          false,
+        );
+        drainThen(() => settle({ messages, ok: false }));
+        break;
+    }
+  });
+
+  const abort = (): void => {
+    if (ctx.res?.writableEnded === false) handle.cancel();
+  };
+  const abortSignal = (): void => handle.cancel();
+  if (options.signal?.aborted) abortSignal();
+  else options.signal?.addEventListener('abort', abortSignal, { once: true });
+  if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', abort);
+  if (typeof ctx.res?.once === 'function') ctx.res.once('close', abort);
+
+  void handle.result
+    .catch(() => undefined)
+    .finally(() => {
+      drainThen(() => {
+        try {
+          stream.end();
+        } finally {
+          unsubscribe();
+          options.signal?.removeEventListener('abort', abortSignal);
+          if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
+          if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
+          options.dispose?.();
+        }
+      });
+    });
+  return finished;
+}

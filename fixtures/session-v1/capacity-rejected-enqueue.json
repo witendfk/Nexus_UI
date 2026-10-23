@@ -1,0 +1,77 @@
+{
+  "id": "capacity-rejected-enqueue",
+  "kind": "session-stream",
+  "scenario": "capacity",
+  "requirements": ["R6", "R7"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "config": { "maxQueuedPerSurface": 1 },
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-s3-6",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-s3-6",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["confirm-1"] },
+              {
+                "id": "confirm-1",
+                "component": "ConfirmTrigger",
+                "label": "提交",
+                "action": { "event": { "name": "submit" } }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-6", "value": {} } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "submit",
+          "surfaceId": "s-s3-6",
+          "sourceComponentId": "confirm-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": {}
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "capacity-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    { "enqueue": "occupying-run", "suspendUntil": "released" },
+    { "enqueue": "action-A", "expectEnqueueReject": "RUN_CAPACITY_REJECTED" },
+    { "release": "occupying-run" }
+  ],
+  "source": {
+    "messages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-6", "value": { "done": true } } }
+    ]
+  },
+  "expected": {
+    "enqueueRejected": true,
+    "runRecordCreated": false,
+    "sourceFactoryCalls": 0,
+    "handlerCalls": 0,
+    "httpStatusOnEnqueueReject": 503,
+    "note": "排队超限在入队显式拒绝：不建运行记录、无 runId 响应头、不占用响应；随后入队的请求在额度释放后正常执行"
+  }
+}

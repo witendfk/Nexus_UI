@@ -353,25 +353,29 @@ describe('S2.5.7 非 HTTP 与 HTTP 固定结果同源（真实入口对照）', 
   });
 
   it('源 EOF 但未显式提交：真实查询 409（正常 EOF 不是终态），显式 commit 后同 run 200', async () => {
-    const { baseUrl, adapter } = await buildHarness({ runsAccess: () => true });
-    const plan = await adapter.prepareGeneration({
-      message: 'EOF 非终态',
-      catalogId: CATALOG.catalogId,
-    });
-    assert.ok(plan.ok);
-    const messages: unknown[] = [];
-    for await (const message of plan.run.source) messages.push(message);
+    const { baseUrl, adapter, manager } = await buildHarness({ runsAccess: () => true });
 
-    // 证伪锚点：若实现把「流结束」当提交（EOF 自动 commit/拼装结果），
-    // 这里的查询会 200 返回一个未经提交边界确认的值。
-    const mid = await queryBaseline(baseUrl, plan.run.sequence.surfaceId, plan.run.runId);
+    // S3.2 迁移：调度任务自动消费 source 并自动提交，「EOF 后未提交」改由排队中
+    // 无提交边界的记录承载同一证伪点——若无提交边界也返回 200 即为缺陷。
+    manager.create({ id: 'reserved-queued-run', surfaceId: SURFACE, kind: 'generate' });
+    const mid = await queryBaseline(baseUrl, SURFACE, 'reserved-queued-run');
     assert.equal(mid.status, 409);
     assert.deepEqual(mid.body, {
       error: 'SURFACE_STATE_COMMIT_UNAVAILABLE',
       message: '运行存在但尚无可确认的 UI 提交结果',
     });
 
-    const commit = await plan.run.commit(messages);
+    // S3.2 迁移：提交边界由调度任务在完整最终校验后自动建立（run.result 终态），
+    // 不再走手工 collect + commit。
+    const plan = await adapter.prepareGeneration({
+      message: 'EOF 非终态',
+      catalogId: CATALOG.catalogId,
+    });
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    assert.equal(outcome.commitState, 'committed');
+    const commit = outcome.commit;
     const after = await queryBaseline(baseUrl, commit.surfaceId, commit.runId);
     assert.equal(after.status, 200);
     assert.deepEqual(after.body, commit);
@@ -508,17 +512,45 @@ describe('S2.5.7 重复标识与旧 envelope 混入查询关联的反例', () =>
     const { baseUrl, handlerCalls } = await buildHarness({ runsAccess: () => true });
     const commit = await runGeneration(baseUrl);
 
+    // S3.2 迁移：envelope 准入移入调度任务，拒绝从同步 400 变为 200 SSE + error
+    // 事件（runCode RUN_ADMISSION_REJECTED / commitState notCommitted），且留下
+    // failed 运行记录；actionId 仍不是运行标识（按 actionId 查询 404）。
     const stale = await postRate(baseUrl, 'stale-envelope-1', 2);
-    assert.equal(stale.status, 400, '旧 revision envelope 被权威准入拒绝');
+    assert.equal(stale.status, 200, '旧 revision envelope 仍必须被拒（S3.2 调度内失败）');
+    assert.doesNotMatch(stale.text, /event: done/);
+    const staleError = parseSse(stale.text).find((frame) => frame.event === 'error');
+    assert.ok(staleError, '旧 revision envelope 以 error 事件终态');
+    assert.equal((staleError.data as { runCode?: string }).runCode, 'RUN_ADMISSION_REJECTED');
+    assert.equal((staleError.data as { commitState?: string }).commitState, 'notCommitted');
+
     const wrongHash = await postRate(baseUrl, 'wrong-hash-1', 1, `sha256:${'0'.repeat(64)}`);
-    assert.equal(wrongHash.status, 400, '错误 catalogHash envelope 被权威准入拒绝');
+    assert.equal(wrongHash.status, 200, '错误 catalogHash envelope 仍必须被拒（S3.2 调度内失败）');
+    assert.doesNotMatch(wrongHash.text, /event: done/);
+    const wrongHashError = parseSse(wrongHash.text).find((frame) => frame.event === 'error');
+    assert.ok(wrongHashError, '错误 catalogHash envelope 以 error 事件终态');
+    assert.equal((wrongHashError.data as { runCode?: string }).runCode, 'RUN_ADMISSION_REJECTED');
     assert.equal(handlerCalls.rate, 0, '旧 envelope 拒绝时 handler 未调用');
 
-    // 证伪锚点：若被拒 envelope 仍建立运行记录，或查询键回退接受 actionId，
-    // 这里会查到可对账结果。
+    // 证伪锚点：查询键回退接受 actionId 的话，这里会查到可对账结果。
     for (const actionId of ['stale-envelope-1', 'wrong-hash-1']) {
       const ghost = await queryBaseline(baseUrl, SURFACE, actionId);
-      assert.equal(ghost.status, 404, 'actionId 不是运行标识，被拒 envelope 无查询记录');
+      assert.equal(
+        ghost.status,
+        404,
+        'actionId 不是运行标识，被拒 envelope 的 actionId 无查询记录',
+      );
+    }
+    // S3.2 迁移：被拒 envelope 留有 failed 运行记录——按真实 runId 查询 409
+    // （有记录无结果），不是 404。
+    for (const frame of [staleError, wrongHashError]) {
+      const rejectedRunId = (frame!.data as { runId?: string }).runId;
+      assert.ok(typeof rejectedRunId === 'string' && rejectedRunId !== '', 'error 载荷携带 runId');
+      const failed = await queryBaseline(baseUrl, SURFACE, rejectedRunId);
+      assert.equal(failed.status, 409, 'failed 运行有记录无结果 → 409');
+      assert.deepEqual(failed.body, {
+        error: 'SURFACE_STATE_COMMIT_UNAVAILABLE',
+        message: '运行存在但尚无可确认的 UI 提交结果',
+      });
     }
     const intact = await queryBaseline(baseUrl, SURFACE, commit.runId);
     assert.equal(intact.status, 200);

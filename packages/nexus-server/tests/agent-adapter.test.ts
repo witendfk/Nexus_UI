@@ -254,15 +254,18 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await generation.run.commit(messages);
+    assert.equal((await generation.run.result).terminal, 'succeeded');
 
     const action = await adapter.prepareAction({
       ...createAction('call', surfaceId),
       sourceComponentId: 'callButton',
     });
-    assert.ok(!action.ok);
-    assert.match(action.message, /Action handler 未注册/);
+    // S3.2：入队即接受；handler 缺失是调度内准入失败，而非 plan 拒绝。
+    assert.ok(action.ok);
+    const outcome = await action.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /Action handler 未注册/);
   });
 
   it('宿主可注入生成源，action handler 可读取成功生成上下文', async () => {
@@ -349,7 +352,6 @@ describe('AgentAdapter 显式装配', () => {
   });
 
   it('自定义生成源的非法输出仍被 SSE guard 拒绝且不提交 history', async () => {
-    let committed = false;
     const adapter = new AgentAdapter({
       registry,
       createSurfaceId: () => 'surface-host-invalid',
@@ -365,17 +367,15 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(plan.ok);
-    plan.run.commit = () => {
-      committed = true;
-      return commitFixture(plan.run.runId);
-    };
 
     const transport = createSseContext();
     const result = await sendAgentRun(transport.ctx, plan.run, {});
     const output = transport.getOutput();
 
     assert.equal(result.ok, false);
-    assert.equal(committed, false);
+    // 非法候选在逐条 guard 处拒绝：运行记录没有留存任何提交结果，也没有成功终态。
+    assert.equal(adapter.runManager.get(plan.run.runId)?.commit, undefined);
+    assert.equal(adapter.runManager.get(plan.run.runId)?.state, 'failed');
     assert.match(output, /event: error/);
     assert.doesNotMatch(output, /event: done/);
   });
@@ -573,12 +573,25 @@ describe('AgentAdapter 显式装配', () => {
               catalogId: request.catalogId,
             },
           },
+          {
+            version: 'v0.9',
+            updateComponents: {
+              surfaceId: request.surfaceId,
+              components: [{ id: 'root', component: 'TaskSummary' }],
+            },
+          },
         ];
       },
     });
     const plan = await adapter.prepareGeneration({ catalogId: llmCatalogId });
     assert.ok(plan.ok);
-    await collect(plan.run.source);
+    // S3.2 起生成流也必须含 root：终态经统一 guard 与提交产生。
+    const outcome = await plan.run.result;
+    assert.equal(
+      outcome.terminal,
+      'succeeded',
+      outcome.terminal === 'failed' ? outcome.message : '',
+    );
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.catalogId, llmCatalogId);
@@ -631,8 +644,7 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.equal((await generation.run.result).terminal, 'succeeded');
 
     const action = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
@@ -640,18 +652,21 @@ describe('AgentAdapter 显式装配', () => {
       sourceComponentId: 'submitButton',
     });
     assert.ok(action.ok, action.ok ? undefined : action.message);
-    const response = await collect(action.run.source);
-    assert.deepEqual(response, [
+    const response = await action.run.result;
+    assert.equal(response.terminal, 'succeeded');
+    assert.deepEqual(response.messages, [
       {
         version: 'v0.9',
         updateDataModel: { surfaceId: 'surface-custom', value: { submitted: true } },
       },
     ]);
 
-    action.run.dispose?.();
+    action.run.dispose();
     const unknown = await adapter.prepareAction(createAction('missing', surfaceId));
-    assert.ok(!unknown.ok);
-    assert.match(unknown.message, /与服务端 surface 状态不匹配/);
+    assert.ok(unknown.ok);
+    const unknownOutcome = await unknown.run.result;
+    assert.equal(unknownOutcome.terminal, 'failed');
+    assert.match(unknownOutcome.message ?? '', /与服务端 surface 状态不匹配/);
   });
 
   it('keeps the official Basic Catalog identity unregistered', async () => {
@@ -711,33 +726,36 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.equal((await generation.run.result).terminal, 'succeeded');
 
-    const firstPromise = adapter.prepareAction({
+    const firstPlan = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:00.000Z',
     });
-    const firstPlan = await firstPromise;
     assert.ok(firstPlan.ok);
 
-    // Start the second while the first still holds the lock.
-    const secondPromise = adapter.prepareAction({
+    // 同 surface 第二个 action 直接入队：调度器保证它在首个运行提交后才准入。
+    const secondPlan = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:01.000Z',
     });
+    assert.ok(secondPlan.ok);
 
-    // Source exhaustion keeps the lock; only commit releases it.
-    const firstMessages = await collect(firstPlan.run.source);
-    await firstPlan.run.commit(firstMessages);
+    const firstOutcome = await firstPlan.run.result;
+    assert.equal(firstOutcome.terminal, 'succeeded');
     assert.ok(executionOrder.includes('handler-start'));
     assert.ok(executionOrder.includes('handler-end'));
 
-    // The second prepareAction should have waited for the first to complete.
-    const secondPlan = await secondPromise;
-    assert.ok(!secondPlan.ok, 'the queued request carries the stale first revision');
+    // The second run admits only after the first committed: stale revision fails in-task.
+    const secondOutcome = await secondPlan.run.result;
+    assert.equal(
+      secondOutcome.terminal,
+      'failed',
+      'the queued request carries the stale first revision',
+    );
+    assert.equal(secondOutcome.code, 'RUN_ADMISSION_REJECTED');
     assert.equal(
       executionOrder.filter((entry) => entry === 'handler-start').length,
       1,
@@ -773,18 +791,18 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await assert.rejects(
-      () => Promise.resolve().then(() => generation.run.commit(messages)),
-      /host success hook failed/,
-    );
+    const outcome = await generation.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.match(outcome.message ?? '', /host success hook failed/);
 
     const snapshot = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'root',
     });
-    assert.ok(!snapshot.ok);
-    assert.match(snapshot.message, /Action surface 不存在或已过期/);
+    assert.ok(snapshot.ok);
+    const snapshotOutcome = await snapshot.run.result;
+    assert.equal(snapshotOutcome.terminal, 'failed');
+    assert.match(snapshotOutcome.message ?? '', /Action surface 不存在或已过期/);
   });
 
   it('marks the action ledger as failed when the stream fails before commit', async () => {
@@ -818,12 +836,19 @@ describe('AgentAdapter 显式装配', () => {
       actionHandlers: new Map([
         [
           `${TEST_CATALOG_ID}:submit`,
-          async function* () {
-            yield {
-              version: 'v0.9',
-              updateDataModel: { surfaceId, value: { done: true } },
-            } as unknown;
-          },
+          (function () {
+            let firstCall = true;
+            return async function* () {
+              yield {
+                version: 'v0.9',
+                updateDataModel: { surfaceId, value: { done: true } },
+              } as unknown;
+              if (firstCall) {
+                firstCall = false;
+                throw new Error('stream failed');
+              }
+            };
+          })(),
         ],
       ]),
     });
@@ -832,8 +857,7 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.equal((await generation.run.result).terminal, 'succeeded');
 
     const action = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
@@ -843,9 +867,10 @@ describe('AgentAdapter 显式装配', () => {
     });
     assert.ok(action.ok);
 
-    await collect(action.run.source);
-    // Simulate stream failure without calling commit.
-    action.run.onError?.(new Error('stream failed'));
+    // 流在提交前失败：终态 failed，ledger 记 failed（S3.3 起failed不再是重试许可）。
+    const failed = await action.run.result;
+    assert.equal(failed.terminal, 'failed');
+    assert.match(failed.message ?? '', /stream failed/);
 
     const retry = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
@@ -853,8 +878,8 @@ describe('AgentAdapter 显式装配', () => {
       timestamp: '2026-09-28T00:00:00.000Z',
       actionId: 'test-action-id-1',
     });
-    // The ledger entry was closed as failed, so the same actionId can be retried.
     assert.ok(retry.ok);
+    assert.equal((await retry.run.result).terminal, 'succeeded');
   });
 
   it('rejects action context fields not declared on the surface', async () => {
@@ -914,8 +939,7 @@ describe('AgentAdapter 显式装配', () => {
       catalogId: TEST_CATALOG_ID,
     });
     assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.equal((await generation.run.result).terminal, 'succeeded');
 
     const injected = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
@@ -923,8 +947,15 @@ describe('AgentAdapter 显式装配', () => {
       timestamp: '2026-09-28T00:00:00.000Z',
       context: { orderId: 'SO-001', adminOverride: true },
     });
-    assert.ok(!injected.ok);
-    assert.match(injected.message, /Action context 包含未声明的客户端字段: adminOverride/);
+    // S3.2：未声明客户端字段是调度内准入失败，plan 本身入队成功。
+    assert.ok(injected.ok);
+    const injectedOutcome = await injected.run.result;
+    assert.equal(injectedOutcome.terminal, 'failed');
+    assert.equal(injectedOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(
+      injectedOutcome.message ?? '',
+      /Action context 包含未声明的客户端字段: adminOverride/,
+    );
   });
 
   it('runs the next same-surface action only after the previous action commits', async () => {
@@ -1120,18 +1151,26 @@ describe('AgentAdapter 显式装配', () => {
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:00.000Z',
     });
-    assert.ok(!failedPlan.ok);
-    assert.match(failedPlan.message, /Action 历史读取失败: history store unavailable/);
+    // S3.2：history 读取失败是调度内运行失败；入队与句柄照常成立。
+    assert.ok(failedPlan.ok);
+    const failedOutcome = await failedPlan.run.result;
+    assert.equal(failedOutcome.terminal, 'failed');
+    assert.match(failedOutcome.message ?? '', /Action 历史读取失败: history store unavailable/);
 
     historyStore.failing = false;
-    // Same timestamp + context => same ledger key: the retry only passes when
-    // the failed record was closed and the surface lock was released.
+    // Same timestamp + context => same ledger key: the retry only completes when
+    // the failed record was closed and the surface slot was released.
     const retryPlan = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'btn',
       timestamp: '2026-09-28T00:00:00.000Z',
     });
     assert.ok(retryPlan.ok, 'retry after a failed history read must be accepted');
-    await collect(retryPlan.run.source);
+    const retryOutcome = await retryPlan.run.result;
+    assert.equal(
+      retryOutcome.terminal,
+      'succeeded',
+      'retry after a failed history read must complete',
+    );
   });
 });

@@ -60,6 +60,9 @@ describe('neutral SDK policy layer', () => {
     });
 
     assert.ok(plan.ok);
+    // S3.2 迁移：run.sequence 在调度内准备完成后才可用，先等运行终态再访问；
+    // adapter 级 policy 的 validateComponent 会拒绝夹具消息，运行以 failed 终态结束。
+    await plan.run.result;
     assert.equal(plan.run.sequence.policy?.name, 'adapter-policy');
   });
 });

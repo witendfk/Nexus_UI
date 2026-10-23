@@ -281,11 +281,14 @@ describe('发布契约绑定真实 adapter', () => {
     });
     const plan = await actual.prepareGeneration({ catalogId: definition.catalogId });
     assert.ok(plan.ok);
+    // S3.2 迁移：run.sequence 在调度内准备完成后才可用，先等运行终态再访问；
+    // 桩空源在调度内校验为失败终态，不影响对执行声明（sequence.registry）的观测。
+    await plan.run.result;
     assert.equal(
       createCatalogContractHash(plan.run.sequence.registry.get(definition.catalogId)!),
       hash,
     );
-    plan.run.dispose?.();
+    plan.run.dispose();
     assert.ok(router);
   });
 });

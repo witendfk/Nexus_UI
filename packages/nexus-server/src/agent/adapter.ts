@@ -5,23 +5,13 @@ import type {
   NexusActionInput,
   NexusSurfaceCommit,
 } from '@nexus-ui/core';
-import {
-  createAgentStreamState,
-  validateAgentStreamMessageDetailed,
-  validateAgentStreamFinalDetailed,
-  type AgentSequenceOptions,
-} from './agent-guard';
-import {
-  CatalogRegistry as FixedCatalogRegistry,
-  validateProtocolMessage,
-  validateNexusProfileMessage,
-} from '@nexus-ui/core';
+import { CatalogRegistry as FixedCatalogRegistry } from '@nexus-ui/core';
+import type { AgentSequenceOptions } from './agent-guard';
 import type { AgentPolicy } from './policy';
 import type { AgentTurn } from './agent-turn';
 import { InMemorySurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
 import { isOfficialBasicCatalog } from './catalog-identity';
-import { manageAgentRun } from './run-lifecycle';
 import { InMemoryAgentRunManager, type AgentRunManager } from './run-manager';
 import { createCatalogContractReference } from './catalog-contract';
 import type { CatalogContractReference } from './catalog-contract';
@@ -43,6 +33,15 @@ import {
   validateActionParams,
   type ActionAdmissionCode,
 } from './action-admission';
+import { validateAgentCandidateSequence } from '../runtime/stream-inspect';
+import {
+  enqueueScheduledRun,
+  type EnqueueOutcome,
+  type PreparedRun,
+} from '../runtime/agent-runtime';
+import type { SurfaceScheduler } from '../runtime/surface-scheduler';
+import { schedulerForOwner } from '../runtime/scheduler-owner';
+import { RunTaskError, type RuntimeRunHandle } from '../runtime/run-handle';
 export interface AgentAction {
   name: string;
   surfaceId: string;
@@ -97,9 +96,14 @@ export interface AgentRun {
   dispose?: () => void;
 }
 
+/**
+ * S3.2 起 prepare* 返回调度句柄：入队成功即建立 queued 记录；运行内
+ * 准入/校验失败是句柄终态而非 plan 拒绝。`ok:false` 仅限入队前错误
+ * （请求级校验、装配检查、排队/记录容量），不再是运行内准入结论。
+ */
 export type AgentPlan =
-  | { ok: true; run: AgentRun }
-  | { ok: false; message: string; code?: ActionAdmissionCode };
+  | { ok: true; run: RuntimeRunHandle }
+  | { ok: false; message: string; code?: ActionAdmissionCode | 'capacity-limit' };
 
 export interface AgentGenerationSourceRequest {
   kind: 'generate';
@@ -189,6 +193,11 @@ export interface AgentAdapterOptions {
   editablePaths?: (surfaceId: string) => readonly string[];
   defaultGenerationMessage?: string;
   onGenerationCommitted?: (event: AgentGenerationCommitEvent) => void | Promise<void>;
+  /**
+   * @internal 每 runtime 一份的调度器（S3.2）。runtime 工厂注入其调度器；
+   * 默认每 adapter 隔离；显式共用 runManager 的入口复用同一调度器。
+   */
+  scheduler?: SurfaceScheduler;
 }
 
 function createActionHandlerKey(catalogId: string, actionName: string): string {
@@ -204,6 +213,11 @@ function findActionDeclaration(catalog: CatalogDefinition, actionName: string) {
  * Koa stays responsible for HTTP envelopes; this class owns agent dispatch.
  * Every dependency is explicit: no demo catalog, model SDK, business policy, or
  * shared history singleton is selected implicitly.
+ *
+ * S3.2: prepareGeneration/prepareAction are enqueue shells over the shared
+ * per-surface scheduler. Snapshot read, admission, resolver, handler
+ * invocation and commit all happen inside the scheduled task (SPEC §6.2);
+ * there is no second surface lock and no module-global run queue.
  */
 export class AgentAdapter {
   private readonly registry: CatalogRegistry;
@@ -225,7 +239,7 @@ export class AgentAdapter {
   private readonly onGenerationCommitted?: (
     event: AgentGenerationCommitEvent,
   ) => void | Promise<void>;
-  private readonly surfaceActionLocks = new Map<string, Promise<void>>();
+  private readonly scheduler: SurfaceScheduler;
 
   constructor(options: AgentAdapterOptions) {
     if (!options.registry) {
@@ -250,6 +264,12 @@ export class AgentAdapter {
     this.createSurfaceId = options.createSurfaceId ?? (() => `surface-${randomUUID()}`);
     this.defaultGenerationMessage = options.defaultGenerationMessage ?? '';
     this.onGenerationCommitted = options.onGenerationCommitted;
+    this.scheduler = schedulerForOwner(this.runManager, options.scheduler);
+  }
+
+  /** The per-adapter (or injected runtime) scheduler; single dispatch owner. */
+  get dispatchScheduler(): SurfaceScheduler {
+    return this.scheduler;
   }
 
   /** Capture the actual execution definition on first use; later host mutations cannot change it. */
@@ -292,26 +312,34 @@ export class AgentAdapter {
     request: AgentGenerateRequest,
     options: AgentPrepareOptions = {},
   ): Promise<AgentPlan> {
+    return this.toPlan(await this.enqueueGeneration(request, options));
+  }
+
+  /** @internal Runtime entry: enqueue one generation run, capacity/record rejections included. */
+  async enqueueGeneration(
+    request: AgentGenerateRequest,
+    options: AgentPrepareOptions = {},
+  ): Promise<EnqueueOutcome> {
     if (typeof request.catalogId !== 'string' || request.catalogId === '') {
       return {
-        ok: false,
+        accepted: false,
+        stage: 'request',
         message: '生成请求必须显式提供 catalogId；SDK 不回落任何默认 Catalog',
       };
     }
     const catalogId = request.catalogId;
     if (isOfficialBasicCatalog(catalogId)) {
       return {
-        ok: false,
+        accepted: false,
+        stage: 'request',
         message:
           'Nexus 不注册官方 Basic Catalog；请使用 Nexus Basic Task Profile 或宿主自定义 catalog',
       };
     }
     const catalog = this.describeCatalog(catalogId);
     if (!catalog) {
-      return { ok: false, message: `Agent catalog 未注册: ${catalogId}` };
+      return { accepted: false, stage: 'request', message: `Agent catalog 未注册: ${catalogId}` };
     }
-
-    const surfaceId = this.createSurfaceId();
     const message =
       typeof request.message === 'string' && request.message.trim()
         ? request.message
@@ -320,6 +348,52 @@ export class AgentAdapter {
     if (useLlm && !this.createGenerationSource && !this.streamLlm) {
       throw new Error('useLlm 启用时必须显式注入 streamLlm 生成源；SDK 不再默认绑定模型 SDK');
     }
+    if (!this.createGenerationSource && !useLlm && !this.fallbackGeneration) {
+      return {
+        accepted: false,
+        stage: 'request',
+        message:
+          'Generation source 未配置；宿主需注入 createGenerationSource、fallbackGeneration 或启用 LLM',
+      };
+    }
+    const surfaceId = this.createSurfaceId();
+    const runId = randomUUID();
+    const outcome = enqueueScheduledRun(
+      { runManager: this.runManager, scheduler: this.scheduler },
+      {
+        kind: 'generate',
+        runId,
+        surfaceId,
+        prepare: async ({ signal }) =>
+          this.prepareGenerationInTask({
+            catalogId,
+            catalog,
+            message,
+            surfaceId,
+            runId,
+            useLlm,
+            signal,
+          }),
+      },
+      options,
+    );
+    return outcome;
+  }
+
+  /**
+   * 调度内生成准备（SPEC §6.2）：history 读取与生成源构造发生在获得 surface
+   * 槽位之后；commit 闭包先做完整候选校验，任何传输/直接调用路径都无法绕过。
+   */
+  private async prepareGenerationInTask(ctx: {
+    catalogId: string;
+    catalog: CatalogDefinition;
+    message: string;
+    surfaceId: string;
+    runId: string;
+    useLlm: boolean;
+    signal?: AbortSignal;
+  }): Promise<PreparedRun> {
+    const { catalogId, catalog, message, surfaceId, runId, useLlm, signal } = ctx;
     const supportedActions = catalog.actions.map((action) => action.name);
     const supportedComponents = Object.keys(catalog.components);
     const catalogContract = createCatalogContractReference(catalog);
@@ -334,15 +408,8 @@ export class AgentAdapter {
       supportedActions,
       catalogContract,
       history,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(signal === undefined ? {} : { signal }),
     };
-    if (!this.createGenerationSource && !useLlm && !this.fallbackGeneration) {
-      return {
-        ok: false,
-        message:
-          'Generation source 未配置；宿主需注入 createGenerationSource、fallbackGeneration 或启用 LLM',
-      };
-    }
     const createGenerationSource = this.createGenerationSource;
     const streamLlm = this.streamLlm;
     const fallbackGeneration = this.fallbackGeneration;
@@ -357,325 +424,327 @@ export class AgentAdapter {
           supportedComponents,
           supportedActions,
           history,
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(signal === undefined ? {} : { signal }),
         });
       else yield* fallbackGeneration!(sourceRequest);
     })();
     const shouldRecordHistory = Boolean(this.createGenerationSource) || useLlm;
-    const generationRunId = randomUUID();
+    const sequence: AgentSequenceOptions = {
+      kind: 'generate',
+      surfaceId,
+      catalogId,
+      registry: new FixedCatalogRegistry([structuredClone(catalog)]),
+      supportedActions,
+      message,
+      policy: this.policy,
+    };
     return {
-      ok: true,
-      run: manageAgentRun(
-        {
-          runId: generationRunId,
-          source,
-          sequence: {
-            kind: 'generate',
-            surfaceId,
-            catalogId,
-            registry: new FixedCatalogRegistry([structuredClone(catalog)]),
-            supportedActions,
-            message,
-            policy: this.policy,
+      identity: { catalogId, catalogHash: catalogContract.hash },
+      source,
+      sequence,
+      commitStep: async (messages) => {
+        // S3.2：完整候选与最终校验是所有提交路径的权威闸门（含直接消费），
+        // 非 HTTP generation 不再缺同等保证。
+        validateAgentCandidateSequence(messages, sequence);
+        const surfaceCatalog = findSurfaceCatalog(messages);
+        if (!surfaceCatalog) throw new Error('生成流缺少 createSurface，不能提交 history');
+        const committed = await this.actionStateStore.commitGeneration(
+          surfaceCatalog.surfaceId,
+          surfaceCatalog.catalogId,
+          messages,
+          {
+            catalogHash: catalogContract.hash,
+            contractVersion: catalogContract.version,
+            catalog,
           },
-          commit: async (messages) => {
-            const surfaceCatalog = findSurfaceCatalog(messages);
-            if (!surfaceCatalog) throw new Error('生成流缺少 createSurface，不能提交 history');
-            const committed = await this.actionStateStore.commitGeneration(
-              surfaceCatalog.surfaceId,
-              surfaceCatalog.catalogId,
-              messages,
-              {
-                catalogHash: catalogContract.hash,
-                contractVersion: catalogContract.version,
-                catalog,
-              },
-            );
-            try {
-              await this.onGenerationCommitted?.({
-                surfaceId: surfaceCatalog.surfaceId,
-                catalogId: surfaceCatalog.catalogId,
-                messages,
-              });
-              await this.historyStore.commitGeneration(
-                surfaceCatalog.surfaceId,
-                surfaceCatalog.catalogId,
-                shouldRecordHistory
-                  ? [
-                      { role: 'user', content: message },
-                      { role: 'assistant', content: JSON.stringify(messages) },
-                    ]
-                  : [],
-              );
-            } catch (error) {
-              await this.actionStateStore.removeSnapshot(surfaceCatalog.surfaceId);
-              throw error;
-            }
-            return commitResult(committed, generationRunId);
-          },
-        },
-        this.runManager,
-        options.signal,
-      ),
+        );
+        try {
+          await this.onGenerationCommitted?.({
+            surfaceId: surfaceCatalog.surfaceId,
+            catalogId: surfaceCatalog.catalogId,
+            messages,
+          });
+          await this.historyStore.commitGeneration(
+            surfaceCatalog.surfaceId,
+            surfaceCatalog.catalogId,
+            shouldRecordHistory
+              ? [
+                  { role: 'user', content: message },
+                  { role: 'assistant', content: JSON.stringify(messages) },
+                ]
+              : [],
+          );
+        } catch (error) {
+          await this.actionStateStore.removeSnapshot(surfaceCatalog.surfaceId);
+          throw error;
+        }
+        return commitResult(committed, runId);
+      },
     };
   }
 
   async prepareAction(action: AgentAction, options: AgentPrepareOptions = {}): Promise<AgentPlan> {
-    const releaseLock = await this.acquireSurfaceLock(action.surfaceId);
-    let transferred = false;
-    try {
-      const snapshot = await this.actionStateStore.get(action.surfaceId);
-      if (!snapshot) {
-        return { ok: false, message: `Action surface 不存在或已过期: ${action.surfaceId}` };
-      }
-      // 准入与 guard 解释一律使用提交边界固定的契约副本，不读当前 registry：
-      // 宿主原地修改声明不能让同一 revision/hash/输入从拒绝翻转为接受
-      const catalogId = snapshot.catalogId;
-      const catalog = snapshot.contract.catalog;
-
-      const surfaceAction = findSurfaceAction(snapshot, action.name, action.sourceComponentId);
-      if (!surfaceAction) {
-        return {
-          ok: false,
-          message: `Action 与服务端 surface 状态不匹配: ${action.surfaceId}/${action.sourceComponentId}/${action.name}`,
-        };
-      }
-
-      const handler = this.actionHandlers.get(createActionHandlerKey(catalogId, action.name));
-      if (!handler) {
-        return {
-          ok: false,
-          message: `Action handler 未注册: ${catalogId}/${action.name}`,
-        };
-      }
-
-      const ledgerKey = createActionLedgerKey(action);
-      const ledgerStarted = this.actionLedger.begin({
-        key: ledgerKey,
-        surfaceId: action.surfaceId,
-        actionName: action.name,
-        sourceComponentId: action.sourceComponentId,
-      });
-      if (!ledgerStarted) {
-        return { ok: false, message: 'Action 重放或重复提交已被拒绝' };
-      }
-
-      const clientContext = { ...action.context };
-      const clientContextError = rejectUndeclaredClientContext(
-        surfaceAction.declaration,
-        clientContext,
-      );
-      if (clientContextError !== null) {
-        this.actionLedger.complete(ledgerKey, 'failed');
-        return { ok: false, message: clientContextError, code: 'param-invalid' };
-      }
-
-      // 共享权威准入先于一切参数解释：nexus 必填核对、action 来源能力、浏览器
-      // 输入整批校验与临时模型重算。拒绝即 handler 未调用、快照与 revision 不变。
-      let editable: ReadonlySet<string>;
-      try {
-        editable = createEditablePathWhitelist(this.editablePaths?.(action.surfaceId) ?? []);
-      } catch (error) {
-        this.actionLedger.complete(ledgerKey, 'failed');
-        // 白名单来自宿主可信装配：配置错误必须显式暴露，不得伪装成业务拒绝
-        throw error;
-      }
-      const admission = admitAction(
-        { snapshot, editablePaths: editable },
-        {
-          name: action.name,
-          surfaceId: action.surfaceId,
-          sourceComponentId: action.sourceComponentId,
-          context: action.context,
-          actionId: action.actionId,
-          nexus: {
-            sessionVersion: action.sessionVersion,
-            actionId: action.actionId,
-            surfaceRevision: action.surfaceRevision,
-            catalogHash: action.catalogHash,
-            inputs: action.inputs,
-          },
-        },
-      );
-      if (!admission.ok) {
-        this.actionLedger.complete(ledgerKey, 'failed');
-        return { ok: false, message: admission.message, code: admission.code };
-      }
-
-      let context: Record<string, unknown>;
-      try {
-        if (this.resolveActionContext) {
-          // resolver 后置：只能在共享准入之后扩展参数，输出仍须通过未声明字段
-          // 拒绝与 paramSchema，不得把被拒输入重新变为可执行 action。
-          context = await this.resolveActionContext({
-            action: structuredClone(action),
-            surfaceAction: structuredClone(surfaceAction),
-            clientContext: structuredClone(clientContext),
-            params: structuredClone(admission.params),
-            tempDataModel: structuredClone(admission.tempDataModel),
-          });
-          if (typeof context !== 'object' || context === null || Array.isArray(context)) {
-            throw new Error('Action context resolver 必须返回 JSON 对象');
-          }
-          const resolverError = rejectUndeclaredClientContext(surfaceAction.declaration, context);
-          if (resolverError !== null) throw new Error(resolverError);
-        } else {
-          context = structuredClone(admission.params);
-        }
-        // paramSchema 校验作用于最终交给 handler 的参数（默认=重算值，
-        // resolver=其输出），缺省即参数必须为空对象
-        const paramError = validateActionParams(
-          context,
-          findActionDeclaration(catalog, action.name),
-        );
-        if (paramError !== null) throw new Error(paramError);
-      } catch (error) {
-        this.actionLedger.complete(ledgerKey, 'failed');
-        return {
-          ok: false,
-          message: error instanceof Error ? error.message : 'Action context 解析失败',
-          code: 'param-invalid',
-        };
-      }
-
-      let history: AgentTurn[];
-      try {
-        history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
-          ...turn,
-        }));
-      } catch (error) {
-        this.actionLedger.complete(ledgerKey, 'failed');
-        return {
-          ok: false,
-          message: `Action 历史读取失败: ${
-            error instanceof Error ? error.message : 'history store unavailable'
-          }`,
-        };
-      }
-
-      const authoritativeAction: AgentAction = { ...action, context };
-
-      // Invoke the host handler only after the common record owner has reserved capacity.
-      const source: AgentMessageSource = (async function* () {
-        yield* await handler(authoritativeAction, {
-          catalogId,
-          catalog: structuredClone(catalog),
-          supportedActions: catalog.actions.map((action) => action.name),
-          catalogContract: createCatalogContractReference(catalog),
-          history,
-          surfaceAction: structuredClone(surfaceAction),
-          clientContext: structuredClone(clientContext),
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        });
-      })();
-      let released = false;
-      const releaseOnce = (): void => {
-        if (released) return;
-        released = true;
-        releaseLock();
-      };
-
-      const sequence: AgentSequenceOptions = {
-        kind: 'action',
-        surfaceId: action.surfaceId,
-        catalogId,
-        registry: new FixedCatalogRegistry([structuredClone(catalog)]),
-        supportedActions: catalog.actions.map((entry) => entry.name),
-        policy: this.policy,
-        initialState: {
-          components: [...snapshot.components.values()],
-          dataModel: structuredClone(admission.tempDataModel),
-        },
-      };
-      const runId = randomUUID();
-      let finished = false;
-      const abortRun = (): void => {
-        if (finished) return;
-        finished = true;
-        try {
-          this.actionLedger.complete(ledgerKey, 'failed');
-        } finally {
-          releaseOnce();
-        }
-      };
-      const run: AgentRun = {
-        runId,
-        // Publish the admitted input model before patches so consumers see the same composition.
-        source: (async function* () {
-          try {
-            if (admission.inputWrites.length > 0) {
-              yield {
-                version: 'v0.9',
-                updateDataModel: {
-                  surfaceId: action.surfaceId,
-                  value: structuredClone(admission.tempDataModel),
-                },
-              };
-            }
-            yield* source;
-          } catch (error) {
-            abortRun();
-            throw error;
-          }
-        })(),
-        sequence,
-        commit: async (messages) => {
-          if (finished) throw new Error('Action run 已终止，不能再次提交');
-          finished = true;
-          try {
-            const candidates = structuredClone(messages);
-            const state = createAgentStreamState(sequence);
-            for (const [index, candidate] of candidates.entries()) {
-              const protocol = validateProtocolMessage(candidate);
-              if (!protocol.ok || !protocol.message)
-                throw new Error(protocol.error?.message ?? '非法 patch');
-              const issue =
-                validateNexusProfileMessage(protocol.message) ??
-                validateAgentStreamMessageDetailed(protocol.message, index, sequence, state);
-              if (issue) throw new Error(issue.message);
-            }
-            const finalIssue = validateAgentStreamFinalDetailed(sequence, state);
-            if (finalIssue) throw new Error(finalIssue.message);
-            const committed = await this.actionStateStore.commitAction(candidates, {
-              surfaceId: action.surfaceId,
-              expectedEpoch: snapshot.epoch,
-              expectedRevision: snapshot.version,
-              inputWrites: admission.inputWrites,
-            });
-            this.actionLedger.complete(ledgerKey, 'succeeded');
-            return commitResult(committed, runId);
-          } catch (error) {
-            this.actionLedger.complete(ledgerKey, 'failed');
-            throw error;
-          } finally {
-            releaseOnce();
-          }
-        },
-        onError: abortRun,
-        dispose: abortRun,
-      };
-
-      const managed = manageAgentRun(run, this.runManager, options.signal);
-      transferred = true;
-      return { ok: true, run: managed };
-    } finally {
-      if (!transferred) releaseLock();
-    }
+    return this.toPlan(await this.enqueueAction(action, options));
   }
 
-  private async acquireSurfaceLock(surfaceId: string): Promise<() => void> {
-    const previous = this.surfaceActionLocks.get(surfaceId) ?? Promise.resolve();
-    let releaseLock!: () => void;
-    const current = new Promise<void>((resolve) => {
-      releaseLock = resolve;
+  /** @internal Runtime entry: enqueue one action run; admission failures are run terminals. */
+  async enqueueAction(
+    action: AgentAction,
+    options: AgentPrepareOptions = {},
+  ): Promise<EnqueueOutcome> {
+    // surfaceId 是调度队列与运行记录的键：入队前拒绝垃圾键，不建记录。
+    if (typeof action.surfaceId !== 'string' || action.surfaceId === '') {
+      return {
+        accepted: false,
+        stage: 'request',
+        message: 'Action 请求必须提供非空 surfaceId',
+      };
+    }
+    // Capture before enqueue: caller mutation must never redirect the task to
+    // another surface or alter the inputs/context while it waits for its slot.
+    const request = structuredClone(action);
+    const runId = randomUUID();
+    return enqueueScheduledRun(
+      { runManager: this.runManager, scheduler: this.scheduler },
+      {
+        kind: 'action',
+        runId,
+        surfaceId: request.surfaceId,
+        prepare: async ({ signal }) => this.prepareActionInTask(request, runId, signal),
+      },
+      options,
+    );
+  }
+
+  /**
+   * 调度内 action 准入与执行准备：快照读取 → action/handler 查找 → ledger →
+   * 客户端 context/白名单/整批输入准入 → resolver → paramSchema → history。
+   * 任何拒绝都转换为运行失败终态（RUN_ADMISSION_REJECTED），handler 未调用、
+   * 快照与 revision 不变；ledger 由 onAbort 统一记 failed。
+   */
+  private async prepareActionInTask(
+    action: AgentAction,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<PreparedRun> {
+    const snapshot = await this.actionStateStore.get(action.surfaceId);
+    if (!snapshot) {
+      throw new RunTaskError(
+        'RUN_ADMISSION_REJECTED',
+        `Action surface 不存在或已过期: ${action.surfaceId}`,
+        {
+          actionId: action.actionId,
+        },
+      );
+    }
+    // 准入与 guard 解释一律使用提交边界固定的契约副本，不读当前 registry：
+    // 宿主原地修改声明不能让同一 revision/hash/输入从拒绝翻转为接受
+    const catalogId = snapshot.catalogId;
+    const catalog = snapshot.contract.catalog;
+
+    const surfaceAction = findSurfaceAction(snapshot, action.name, action.sourceComponentId);
+    if (!surfaceAction) {
+      throw new RunTaskError(
+        'RUN_ADMISSION_REJECTED',
+        `Action 与服务端 surface 状态不匹配: ${action.surfaceId}/${action.sourceComponentId}/${action.name}`,
+        { actionId: action.actionId },
+      );
+    }
+
+    const handler = this.actionHandlers.get(createActionHandlerKey(catalogId, action.name));
+    if (!handler) {
+      throw new RunTaskError(
+        'RUN_ADMISSION_REJECTED',
+        `Action handler 未注册: ${catalogId}/${action.name}`,
+        {
+          actionId: action.actionId,
+        },
+      );
+    }
+
+    const ledgerKey = createActionLedgerKey(action);
+    const ledgerStarted = this.actionLedger.begin({
+      key: ledgerKey,
+      surfaceId: action.surfaceId,
+      actionName: action.name,
+      sourceComponentId: action.sourceComponentId,
     });
-    this.surfaceActionLocks.set(surfaceId, current);
-    await previous;
-    return () => {
-      releaseLock();
-      if (this.surfaceActionLocks.get(surfaceId) === current) {
-        this.surfaceActionLocks.delete(surfaceId);
+    if (!ledgerStarted) {
+      throw new RunTaskError('RUN_ADMISSION_REJECTED', 'Action 重放或重复提交已被拒绝', {
+        actionId: action.actionId,
+      });
+    }
+    const completeLedgerFailed = (): void => {
+      this.actionLedger.complete(ledgerKey, 'failed');
+    };
+
+    const clientContext = { ...action.context };
+    const clientContextError = rejectUndeclaredClientContext(
+      surfaceAction.declaration,
+      clientContext,
+    );
+    if (clientContextError !== null) {
+      completeLedgerFailed();
+      throw new RunTaskError('RUN_ADMISSION_REJECTED', clientContextError, {
+        actionId: action.actionId,
+      });
+    }
+
+    // 共享权威准入先于一切参数解释：nexus 必填核对、action 来源能力、浏览器
+    // 输入整批校验与临时模型重算。拒绝即 handler 未调用、快照与 revision 不变。
+    let editable: ReadonlySet<string>;
+    try {
+      editable = createEditablePathWhitelist(this.editablePaths?.(action.surfaceId) ?? []);
+    } catch (error) {
+      completeLedgerFailed();
+      // 白名单来自宿主可信装配：配置错误必须显式暴露，不得伪装成业务拒绝
+      throw error;
+    }
+    const admission = admitAction(
+      { snapshot, editablePaths: editable },
+      {
+        name: action.name,
+        surfaceId: action.surfaceId,
+        sourceComponentId: action.sourceComponentId,
+        context: action.context,
+        actionId: action.actionId,
+        nexus: {
+          sessionVersion: action.sessionVersion,
+          actionId: action.actionId,
+          surfaceRevision: action.surfaceRevision,
+          catalogHash: action.catalogHash,
+          inputs: action.inputs,
+        },
+      },
+    );
+    if (!admission.ok) {
+      completeLedgerFailed();
+      throw new RunTaskError('RUN_ADMISSION_REJECTED', admission.message, {
+        actionId: action.actionId,
+      });
+    }
+
+    let context: Record<string, unknown>;
+    try {
+      if (this.resolveActionContext) {
+        // resolver 后置：只能在共享准入之后扩展参数，输出仍须通过未声明字段
+        // 拒绝与 paramSchema，不得把被拒输入重新变为可执行 action。
+        context = await this.resolveActionContext({
+          action: structuredClone(action),
+          surfaceAction: structuredClone(surfaceAction),
+          clientContext: structuredClone(clientContext),
+          params: structuredClone(admission.params),
+          tempDataModel: structuredClone(admission.tempDataModel),
+        });
+        if (typeof context !== 'object' || context === null || Array.isArray(context)) {
+          throw new Error('Action context resolver 必须返回 JSON 对象');
+        }
+        const resolverError = rejectUndeclaredClientContext(surfaceAction.declaration, context);
+        if (resolverError !== null) throw new Error(resolverError);
+      } else {
+        context = structuredClone(admission.params);
       }
+      // paramSchema 校验作用于最终交给 handler 的参数（默认=重算值，
+      // resolver=其输出），缺省即参数必须为空对象
+      const paramError = validateActionParams(context, findActionDeclaration(catalog, action.name));
+      if (paramError !== null) throw new Error(paramError);
+    } catch (error) {
+      completeLedgerFailed();
+      throw new RunTaskError(
+        'RUN_ADMISSION_REJECTED',
+        error instanceof Error ? error.message : 'Action context 解析失败',
+        { actionId: action.actionId },
+      );
+    }
+
+    let history: AgentTurn[];
+    try {
+      history = (await this.historyStore.getHistory(action.surfaceId)).map((turn) => ({
+        ...turn,
+      }));
+    } catch (error) {
+      completeLedgerFailed();
+      throw new RunTaskError(
+        'RUN_FAILED',
+        `Action 历史读取失败: ${error instanceof Error ? error.message : 'history store unavailable'}`,
+        { actionId: action.actionId },
+      );
+    }
+
+    const authoritativeAction: AgentAction = { ...action, context };
+    const sequence: AgentSequenceOptions = {
+      kind: 'action',
+      surfaceId: action.surfaceId,
+      catalogId,
+      registry: new FixedCatalogRegistry([structuredClone(catalog)]),
+      supportedActions: catalog.actions.map((entry) => entry.name),
+      policy: this.policy,
+      initialState: {
+        components: [...snapshot.components.values()],
+        dataModel: structuredClone(admission.tempDataModel),
+      },
+    };
+
+    // Invoke the host handler only after the surface slot is acquired (in-task).
+    const source: AgentMessageSource = (async function* () {
+      if (admission.inputWrites.length > 0) {
+        yield {
+          version: 'v0.9',
+          updateDataModel: {
+            surfaceId: action.surfaceId,
+            value: structuredClone(admission.tempDataModel),
+          },
+        };
+      }
+      yield* await handler(authoritativeAction, {
+        catalogId,
+        catalog: structuredClone(catalog),
+        supportedActions: catalog.actions.map((entry) => entry.name),
+        catalogContract: createCatalogContractReference(catalog),
+        history,
+        surfaceAction: structuredClone(surfaceAction),
+        clientContext: structuredClone(clientContext),
+        ...(signal === undefined ? {} : { signal }),
+      });
+    })();
+
+    let committed = false;
+    return {
+      identity: { catalogId, catalogHash: snapshot.contract.catalogHash },
+      surfaceRevision: snapshot.version,
+      actionId: action.actionId,
+      source,
+      sequence,
+      onAbort: completeLedgerFailed,
+      commitStep: async (messages) => {
+        if (committed) throw new Error('Action run 已终止，不能再次提交');
+        committed = true;
+        try {
+          const candidates = structuredClone(messages);
+          // 与生成路径共用同一份权威闸门（S3.2 评审 P2-4），避免双份实现漂移。
+          validateAgentCandidateSequence(candidates, sequence);
+          const committedSnapshot = await this.actionStateStore.commitAction(candidates, {
+            surfaceId: action.surfaceId,
+            expectedEpoch: snapshot.epoch,
+            expectedRevision: snapshot.version,
+            inputWrites: admission.inputWrites,
+          });
+          this.actionLedger.complete(ledgerKey, 'succeeded');
+          return commitResult(committedSnapshot, runId);
+        } catch (error) {
+          completeLedgerFailed();
+          throw error;
+        }
+      },
+    };
+  }
+
+  private toPlan(outcome: EnqueueOutcome): AgentPlan {
+    if (outcome.accepted) return { ok: true, run: outcome.run };
+    return {
+      ok: false,
+      message: outcome.message,
+      ...(outcome.stage === 'capacity' ? { code: 'capacity-limit' as const } : {}),
     };
   }
 }

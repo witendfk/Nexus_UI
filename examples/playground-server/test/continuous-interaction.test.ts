@@ -179,16 +179,21 @@ describe('S2.6.4.3 拒绝不变式与双 surface 隔离（headless，真实 HTTP
     const sent = runtime.extractLatestInputDrafts(surfaceId);
     const inputs = sent.entries.map((entry) => entry.input);
 
+    // S3.2：调度内准入失败（stale revision/错 hash/越权属性）经 SSE error 报告
+    //（200 + error 帧），不再是入队前 400；handler 零调用、草稿不确认不变。
     const staleRevision = await postRaw(
       actionEnvelope(generation.commit, inputs, { surfaceRevision: 99 }),
     );
-    assert.equal(staleRevision.status, 400);
+    assert.equal(staleRevision.status, 200);
+    assert.match(staleRevision.text, /event: error/);
+    assert.match(staleRevision.text, /"runCode":"RUN_ADMISSION_REJECTED"/);
     assert.doesNotMatch(staleRevision.text, /已提交/);
 
     const wrongHash = await postRaw(
       actionEnvelope(generation.commit, inputs, { catalogHash: `sha256:${'0'.repeat(64)}` }),
     );
-    assert.equal(wrongHash.status, 400);
+    assert.equal(wrongHash.status, 200);
+    assert.match(wrongHash.text, /event: error/);
     assert.doesNotMatch(wrongHash.text, /已提交/);
 
     const undeclaredProperty = await postRaw(
@@ -196,7 +201,8 @@ describe('S2.6.4.3 拒绝不变式与双 surface 隔离（headless，真实 HTTP
         { componentId: 'name', property: 'label', value: '越权' },
       ]),
     );
-    assert.equal(undeclaredProperty.status, 400);
+    assert.equal(undeclaredProperty.status, 200);
+    assert.match(undeclaredProperty.text, /event: error/);
     assert.doesNotMatch(undeclaredProperty.text, /已提交/);
 
     // 失败不确认：草稿原样保留；快照/revision 不变，原基准仍可用。
@@ -283,8 +289,11 @@ describe('S2.6.3.4 查询不恢复资格（真实路由）', () => {
     assert.ok(queried.surfaceRevision < action.commit.surfaceRevision);
 
     // 用查询到的旧结果当基准提交 action：服务端 revision 已是 2，必须拒绝。
+    // S3.2：调度内准入失败经 SSE error 报告（200 + error 帧），不再是 400。
     const stale = await postRaw(actionEnvelope(queried, []));
-    assert.equal(stale.status, 400);
+    assert.equal(stale.status, 200);
+    assert.match(stale.text, /event: error/);
+    assert.match(stale.text, /"runCode":"RUN_ADMISSION_REJECTED"/);
     assert.doesNotMatch(stale.text, /已提交/);
 
     // 未知 runId：404，不能构造任何基准。

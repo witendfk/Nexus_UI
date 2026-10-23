@@ -181,8 +181,10 @@ describe('S2.6.2.2 中立 scorecard 经实际装配的 HTTP 闭环', () => {
         body: JSON.stringify(scorecardActionEnvelope(commit, surfaceId, item.inputs as never)),
       });
       const text = await response.text();
-      assert.equal(response.status, 400, item.label);
-      assert.match(text, /INVALID_REQUEST/, item.label);
+      // S3.2：调度内准入失败经 SSE error 报告（200 + error 帧），handler 零调用。
+      assert.equal(response.status, 200, item.label);
+      assert.match(text, /event: error/, item.label);
+      assert.match(text, /"runCode":"RUN_ADMISSION_REJECTED"/, item.label);
       assert.doesNotMatch(text, /已记录/, item.label);
       assert.doesNotMatch(text, /event: done/, item.label);
     }

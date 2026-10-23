@@ -1,0 +1,81 @@
+{
+  "id": "cancel-queued",
+  "kind": "session-stream",
+  "scenario": "cancel",
+  "requirements": ["R5"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-s3-2",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-s3-2",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["rating-1"] },
+              {
+                "id": "rating-1",
+                "component": "RatingInput",
+                "score": { "path": "/score" },
+                "label": "评分",
+                "action": {
+                  "event": { "name": "rate", "context": { "score": { "path": "/score" } } }
+                }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-2", "value": { "score": 3 } } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "rate",
+          "surfaceId": "s-s3-2",
+          "sourceComponentId": "rating-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": { "score": { "path": "/score" } }
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "cancel-queued-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    { "enqueue": "blocking-run", "note": "同 surface 先入队一个挂起的运行占住调度" },
+    { "enqueue": "action-A" },
+    { "cancel": "action-A", "at": "queued" },
+    { "release": "blocking-run" }
+  ],
+  "source": {
+    "messages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-2", "value": { "score": 5 } } }
+    ]
+  },
+  "expected": {
+    "events": [{ "event": "error", "code": "RUN_CANCELLED", "commitState": "notCommitted" }],
+    "terminal": "canceled",
+    "commitState": "notCommitted",
+    "sourceFactoryCalls": 0,
+    "handlerCalls": 0,
+    "surfaceRevisionAfter": 1,
+    "note": "排队取消先于 source 工厂/handler：无 start 事件（未进调度无基准可报告），唯一事件是 error 终态；队列额度立即释放"
+  }
+}

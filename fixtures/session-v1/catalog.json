@@ -1,0 +1,72 @@
+{
+  "id": "session-v1-form",
+  "kind": "catalog",
+  "expect": "accept",
+  "catalog": {
+    "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2",
+    "components": {
+      "Column": {
+        "schema": { "type": "object", "additionalProperties": false, "properties": {} }
+      },
+      "Text": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string", "dynamic": "allowed" }
+          }
+        }
+      },
+      "RatingInput": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score"],
+          "properties": {
+            "score": { "type": "integer", "minimum": 1, "maximum": 5, "dynamic": "required" },
+            "label": { "type": "string", "dynamic": "allowed" }
+          }
+        },
+        "inputs": { "score": { "type": "integer", "minimum": 1, "maximum": 5 } },
+        "origin": "host-extension"
+      },
+      "TextField": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": { "type": "string", "dynamic": "allowed" },
+            "label": { "type": "string", "dynamic": "allowed" }
+          }
+        },
+        "inputs": { "value": { "type": "string", "maxLength": 200 } }
+      },
+      "ConfirmTrigger": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": { "label": { "type": "string", "dynamic": "allowed" } }
+        },
+        "action": { "required": true },
+        "origin": "host-extension"
+      }
+    },
+    "actions": [
+      {
+        "name": "rate",
+        "sources": ["RatingInput"],
+        "paramSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score"],
+          "properties": { "score": { "type": "integer", "minimum": 1, "maximum": 5 } }
+        }
+      },
+      {
+        "name": "submit",
+        "sources": ["ConfirmTrigger"]
+      }
+    ]
+  }
+}

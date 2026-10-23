@@ -164,11 +164,11 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     ];
     for (const [index, action] of rejections.entries()) {
       const plan = await adapter.prepareAction(action);
-      assert.equal(plan.ok, false, `rejection ${index} 应失败`);
-      assert.ok(
-        'code' in plan && typeof plan.code === 'string',
-        `rejection ${index} 应带结构化 code`,
-      );
+      // S3.2 迁移：准入移入调度任务，入队即接受；拒绝 = 运行失败终态（RUN_ADMISSION_REJECTED）
+      assert.ok(plan.ok, `S3.2：rejection ${index} 入队即接受`);
+      const outcome = await plan.run.result;
+      assert.equal(outcome.terminal, 'failed', `rejection ${index} 应失败`);
+      assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED', `rejection ${index} 应带结构化 code`);
       assert.equal(handlerCalls.length, 0, `rejection ${index} 不得调用 handler`);
     }
 
@@ -181,6 +181,9 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
       actionWith({ surfaceRevision: 1, catalogHash, inputs: [] }),
     );
     assert.ok(retry.ok, retry.ok ? '' : retry.message);
+    // S3.2 迁移：以重试运行真实成功终态证明 failed 记录不误锁重放保护
+    const retryOutcome = await retry.run.result;
+    assert.equal(retryOutcome.terminal, 'succeeded');
   });
 
   it('可编辑白名单缺省即全部拒绝；白名单配置错误显式抛出', async () => {
@@ -192,14 +195,23 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
         inputs: [{ componentId: 'note', property: 'value', value: '浏览器编辑' }],
       }),
     );
-    assert.equal(plan.ok, false);
-    assert.ok(!plan.ok && plan.code === 'path-forbidden');
+    // S3.2 迁移：白名单拒绝是运行内失败终态（原 path-forbidden plan 拒绝）
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /白名单/);
     assert.equal(denied.handlerCalls.length, 0);
 
     const broken = await createHarness({
       editablePaths: () => ['/a', '/a'],
     });
-    await assert.rejects(() => broken.adapter.prepareAction(actionWith({ inputs: [] })), /重复/);
+    // S3.2 迁移：白名单配置错误在调度任务内显式失败，不伪装成业务拒绝
+    const brokenPlan = await broken.adapter.prepareAction(actionWith({ inputs: [] }));
+    assert.ok(brokenPlan.ok, 'S3.2：入队即接受');
+    const brokenOutcome = await brokenPlan.run.result;
+    assert.equal(brokenOutcome.terminal, 'failed');
+    assert.match(brokenOutcome.message ?? '', /重复/);
   });
 
   it('合法输入经临时模型重算参数到达 handler；已提交快照在准入时不变', async () => {
@@ -215,23 +227,16 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
       }),
     );
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
-    assert.equal(handlerCalls.length, 0, '消息源消费前不执行 handler');
-    for await (const message of plan.run.source) void message;
+    // S3.2 迁移：消费与 handler 执行都在调度任务内自动发生，任务终态后核对；
+    // "准入本身不发布输入、不递增 revision"收敛为"输入与 handler patch 一次组合提交，仅递增一次"
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
     assert.equal(handlerCalls.length, 1);
     // 参数来自临时输入模型（0.5），不是已提交模型（0.2）
     assert.deepEqual(handlerCalls[0]?.context, { counter: 0.2, note: '浏览器编辑' });
 
-    const midStream = await snapshotOf(store);
-    assert.equal(midStream.version, before.version, '准入本身不发布输入、不递增 revision');
-
-    await plan.run.commit([
-      {
-        version: 'v0.9',
-        updateDataModel: { surfaceId: SURFACE, value: { counter: 0.2, note: '浏览器编辑' } },
-      },
-    ]);
     const after = await snapshotOf(store);
-    assert.equal(after.version, before.version + 1, '提交沿既有 patch 路径递增');
+    assert.equal(after.version, before.version + 1, '组合提交沿既有 patch 路径递增一次');
     assert.deepEqual(after.dataModel, { counter: 0.2, note: '浏览器编辑' });
   });
 
@@ -275,14 +280,15 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
       }),
     );
     assert.ok(ok.ok, ok.ok ? '' : ok.message);
+    // S3.2 迁移：resolver 在调度任务内执行，任务终态后核对观测结果
+    const okOutcome = await ok.run.result;
+    assert.equal(okOutcome.terminal, 'succeeded');
     assert.deepEqual(
       seen[0]?.params,
       { counter: 0.2, note: '浏览器编辑' },
       'resolver 收到共享准入重算的参数',
     );
-    for await (const message of ok.run.source) void message;
     assert.deepEqual(handlerCalls[0], { counter: 0.2, note: '浏览器编辑' });
-    ok.run.dispose?.();
 
     // resolver 输出未声明键：即使输入已准入，也必须拒绝且 handler 未调用
     const store2 = new InMemorySurfaceActionStateStore();
@@ -309,9 +315,12 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     await generation2.run.commit(GENERATION_STREAM);
 
     const rejected = await adapter2.prepareAction(actionWith({ surfaceRevision: 1, catalogHash }));
-    assert.equal(rejected.ok, false);
-    assert.ok(!rejected.ok && rejected.code === 'param-invalid');
-    assert.match(rejected.message, /injected/);
+    // S3.2 迁移：resolver 输出未声明键 = 运行内准入失败终态（原 param-invalid plan 拒绝）
+    assert.ok(rejected.ok, 'S3.2：入队即接受');
+    const rejectedOutcome = await rejected.run.result;
+    assert.equal(rejectedOutcome.terminal, 'failed');
+    assert.equal(rejectedOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(rejectedOutcome.message ?? '', /injected/);
     assert.equal(handlerCalls2.length, 0, 'resolver 不得把额外字段带成可执行 action');
   });
 
@@ -363,9 +372,12 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
         inputs: [],
       }),
     );
-    assert.equal(plan.ok, false, '重算参数违反 paramSchema 必须拒绝');
-    assert.ok(!plan.ok && plan.code === 'param-invalid');
-    assert.match(plan.message, /counter/);
+    // S3.2 迁移：paramSchema 默认路径拒绝 = 运行内准入失败终态（原 param-invalid plan 拒绝）
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed', '重算参数违反 paramSchema 必须拒绝');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /counter/);
     assert.equal(handlerCalls.length, 0, '默认路径参数违规不得进入 handler');
 
     const after = await snapshotOf(store);
@@ -412,24 +424,33 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     for await (const _ of generation.run.source) void _;
     await generation.run.commit(GENERATION_STREAM);
 
-    // store 拒绝：prepareAction 必须抛出而非挂起，且已释放 surface 锁。
+    // store 拒绝：S3.2 迁移——快照读取在调度任务内，失败 = 运行失败终态而非
+    // prepareAction 抛错；watchdog 证明不挂起，failed 终态携带原始错误。
     store.failNextGet = true;
-    await assert.rejects(
-      Promise.race([
-        adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash, inputs: [] })),
-        watchdog('哨兵：store 拒绝路径挂起'),
-      ]),
-      /store 暂时不可用/,
-    );
+    const first = await Promise.race([
+      adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash, inputs: [] })),
+      watchdog('哨兵：store 拒绝路径挂起'),
+    ]);
+    assert.ok(first.ok, 'S3.2：入队即接受');
+    const firstOutcome = await Promise.race([
+      first.run.result,
+      watchdog('哨兵：store 拒绝路径挂起'),
+    ]);
+    assert.equal(firstOutcome.terminal, 'failed');
+    assert.match(firstOutcome.message ?? '', /store 暂时不可用/);
+    assert.equal(handlerCalls.length, 0, 'store 拒绝路径不得进入 handler');
 
-    // 锁未泄漏：同 surface 下一枚 action 可正常准入；若泄漏，此调用挂起至哨兵触发。
+    // 锁未泄漏：同 surface 下一枚 action 可正常准入并完成；若泄漏，result 挂起至哨兵触发。
     const retry = await Promise.race([
       adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash, inputs: [] })),
       watchdog('哨兵：surface 锁泄漏，后续 action 永久排队'),
     ]);
     assert.ok(retry.ok, retry.ok ? '' : retry.message);
-    if (retry.ok) retry.run.dispose?.();
-    assert.equal(handlerCalls.length, 0, '两次尝试均不得进入 handler');
+    const retryOutcome = await Promise.race([
+      retry.run.result,
+      watchdog('哨兵：surface 锁泄漏，后续 action 永久排队'),
+    ]);
+    assert.equal(retryOutcome.terminal, 'succeeded');
   });
 });
 
@@ -484,8 +505,12 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     const before = await snapshotOf(store);
 
     const plan = await adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash }));
-    assert.equal(plan.ok, false);
-    assert.ok(!plan.ok && plan.code === 'param-invalid');
+    // S3.2 迁移：resolver 污染后的非法参数 = 运行内准入失败终态（原 param-invalid plan 拒绝）
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /injected/);
 
     const after = await snapshotOf(store);
     assert.deepEqual(after, before);
@@ -525,8 +550,12 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     const stale = await staleAdapter.prepareAction(
       actionWith({ surfaceRevision: 1, catalogHash, inputs: [] }),
     );
-    assert.equal(stale.ok, false);
-    assert.ok(!stale.ok && stale.code === 'revision-mismatch');
+    // S3.2 迁移：旧 revision 请求被拒 = 运行内准入失败终态（原 revision-mismatch plan 拒绝）
+    assert.ok(stale.ok, 'S3.2：入队即接受');
+    const staleOutcome = await stale.run.result;
+    assert.equal(staleOutcome.terminal, 'failed');
+    assert.equal(staleOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(staleOutcome.message ?? '', /revision 不一致/);
 
     // 版本上溢：显式失败，不重置为可碰撞的基准
     const overflowStore = new InMemorySurfaceActionStateStore();
@@ -547,29 +576,50 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
   });
 
   it('P1-5：action 准入后发生新生成，其提交按代核对拒绝，过期 patch 不落库', async () => {
-    const { adapter, store, handlerCalls } = await createHarness({
+    // S3.2 迁移：准入与提交都在调度任务内，"准入后、提交前"的交错改由宿主
+    // handler 执行期间落地新生成来复现（确定性位于 handler 与任务提交之间）。
+    const store = new InMemorySurfaceActionStateStore();
+    const handlerCalls: unknown[] = [];
+    const adapter = new AgentAdapter({
+      registry,
+      actionStateStore: store,
       editablePaths: () => ['/note'],
+      createSurfaceId: () => SURFACE,
+      createGenerationSource: () =>
+        GENERATION_STREAM[Symbol.iterator]() as unknown as AgentMessageSource,
     });
+    adapter.registerActionHandler(ADMISSION_CATALOG_ID, 'submit', async (action) => {
+      handlerCalls.push({ context: { ...action.context } });
+      // 旧 action handler 已执行，新 generation 提交（替换快照、推进代与版本）
+      await store.commitGeneration(SURFACE, ADMISSION_CATALOG_ID, GENERATION_STREAM, {
+        catalogHash,
+        contractVersion: 2,
+        catalog: admissionCatalog,
+      });
+      return [
+        {
+          version: 'v0.9',
+          updateDataModel: { surfaceId: action.surfaceId, path: '/counter', value: 9 },
+        },
+      ];
+    });
+    const generation = await adapter.prepareGeneration({
+      message: '建立 surface',
+      catalogId: ADMISSION_CATALOG_ID,
+    });
+    assert.ok(generation.ok, generation.ok ? '' : generation.message);
+    for await (const _ of generation.run.source) void _;
+    await generation.run.commit(GENERATION_STREAM);
+
     const plan = await adapter.prepareAction(actionWith({ surfaceRevision: 1, catalogHash }));
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
+    // S3.2：任务自动提交；store 按代核对拒绝过期 patch → 运行失败终态（原直提 reject）
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.match(outcome.message ?? '', /提交基准已变化/);
 
-    for await (const message of plan.run.source) void message;
-    // 旧 action handler 已执行，新 generation 提交（替换快照、推进代与版本）
-    await store.commitGeneration(SURFACE, ADMISSION_CATALOG_ID, GENERATION_STREAM, {
-      catalogHash,
-      contractVersion: 2,
-      catalog: admissionCatalog,
-    });
     const replaced = await snapshotOf(store);
-    assert.equal(replaced.epoch, 2);
-
-    await assert.rejects(
-      async () =>
-        plan.run.commit([
-          { version: 'v0.9', updateDataModel: { surfaceId: SURFACE, value: { counter: 9 } } },
-        ]),
-      /提交基准已变化/,
-    );
+    assert.equal(replaced.epoch, 2, '新生成已替换快照');
     // 过期 patch（含已准入输入）不得落库；快照保持新代内容
     const after = await snapshotOf(store);
     assert.deepEqual(after.dataModel, { counter: 0.2, note: '' });
@@ -625,6 +675,9 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
       actionWith({ surfaceRevision: 1, catalogHash: liveCatalogHash }),
     );
     assert.ok(plan.ok, plan.ok ? '' : plan.message);
+    // S3.2 迁移：以运行真实成功终态证明准入用的是提交边界固定的契约副本
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
   });
 
   it('P1-7：缺失 nexus 元数据的 prepareAction 一律拒绝（无兼容旁路）', async () => {
@@ -639,8 +692,13 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
       actionId: 'bypass-attempt',
       context: {},
     } as unknown as AgentAction);
-    assert.equal(plan.ok, false);
-    assert.ok(!plan.ok && plan.code === 'nexus-invalid');
+    // S3.2 迁移：缺失 nexus 元数据 = 运行内准入失败终态（原 nexus-invalid plan 拒绝）
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    // 缺失 nexus 段触发同一 nexus-invalid 拒绝族（此处先命中 sessionVersion 校验）
+    assert.match(outcome.message ?? '', /nexus/);
     assert.equal(handlerCalls.length, 0);
   });
 });
@@ -680,41 +738,36 @@ describe('S2.7 复核修复', () => {
       }
       const ledger = new FlakyLedger();
       const { adapter, store, handlerCalls } = await createHarness({ actionLedger: ledger });
-      if (failure === 'begin' || failure === 'rejection') {
-        await assert.rejects(
-          adapter.prepareAction(
-            actionWith(failure === 'rejection' ? { context: { injected: true } } : {}),
-          ),
-          /ledger unavailable/,
-        );
-      } else {
-        const plan = await adapter.prepareAction(actionWith({}));
-        assert.ok(plan.ok);
-        if (failure === 'dispose') assert.throws(() => plan.run.dispose?.(), /ledger unavailable/);
-        else {
-          const messages: unknown[] = [];
-          for await (const message of plan.run.source) messages.push(message);
-          await assert.rejects(async () => {
-            await plan.run.commit(messages);
-          }, /ledger unavailable/);
-        }
-      }
+      // S3.2 迁移：ledger 调用发生在调度任务内，抛错 = 运行失败终态而非
+      // prepareAction/dispose/commit 抛错；dispose 不再是独立注入点，与 commit
+      // 同在任务提交收敛处暴露（首运行会真实消费源，handler 调用一次）。
+      const first = await adapter.prepareAction(
+        actionWith(failure === 'rejection' ? { context: { injected: true } } : {}),
+      );
+      assert.ok(first.ok, 'S3.2：入队即接受');
+      const firstOutcome = await first.run.result;
+      assert.equal(firstOutcome.terminal, 'failed');
+      assert.match(firstOutcome.message ?? '', /ledger unavailable/);
+
       ledger.fail = false;
       const before = await snapshotOf(store);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const next = await Promise.race([
-          adapter.prepareAction(actionWith({ surfaceRevision: before.version })),
+          (async () => {
+            const plan = await adapter.prepareAction(
+              actionWith({ surfaceRevision: before.version }),
+            );
+            assert.ok(plan.ok, plan.ok ? '' : plan.message);
+            return plan.run.result;
+          })(),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('surface lock leaked')), 500);
           }),
         ]);
-        assert.ok(next.ok, next.ok ? '' : next.message);
-        const messages = [];
-        for await (const message of next.run.source) messages.push(message);
-        const commit = await next.run.commit(messages);
-        assert.equal(commit.surfaceRevision, before.version + 1);
-        assert.equal(handlerCalls.length, failure === 'commit' ? 2 : 1);
+        assert.equal(next.terminal, 'succeeded');
+        assert.equal(next.commit.surfaceRevision, before.version + 1);
+        assert.equal(handlerCalls.length, failure === 'begin' || failure === 'rejection' ? 1 : 2);
       } finally {
         clearTimeout(timer);
       }

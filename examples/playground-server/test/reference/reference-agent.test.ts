@@ -16,7 +16,11 @@ async function validateReference(policy?: AgentPolicy) {
     catalogId: NEXUS_BASIC_TASK_CATALOG,
     message: '搜索任务',
   });
-  assert.ok(plan.ok);
+  assert.ok(plan.ok, 'S3.2：入队即接受');
+  // S3.2：sequence 在调度内准备完成后才可读，先等运行终态；本测试只消费 sequence
+  // 校验公开 guard，fallback fixture 与搜索意图 Policy 的匹配不是本测试证伪点，
+  // 故不断言运行成功（S2 下该运行从未被消费）。
+  await plan.run.result;
   const seq = plan.run.sequence;
   const state = createAgentStreamState();
   const messages: A2UIMessage[] = [

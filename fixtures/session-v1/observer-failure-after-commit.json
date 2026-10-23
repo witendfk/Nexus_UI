@@ -1,0 +1,61 @@
+{
+  "id": "observer-failure-after-commit",
+  "kind": "session-stream",
+  "scenario": "observer-failure",
+  "requirements": ["R5"],
+  "catalog": "session-v1-form",
+  "request": {
+    "kind": "generate",
+    "generate": {
+      "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2",
+      "message": "生成界面"
+    }
+  },
+  "source": {
+    "messages": [
+      {
+        "version": "v0.9",
+        "createSurface": {
+          "surfaceId": "s-obs-1",
+          "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateComponents": {
+          "surfaceId": "s-obs-1",
+          "components": [
+            { "id": "root", "component": "Column", "children": ["text-1"] },
+            { "id": "text-1", "component": "Text", "text": { "path": "/title" } }
+          ]
+        }
+      },
+      {
+        "version": "v0.9",
+        "updateDataModel": { "surfaceId": "s-obs-1", "value": { "title": "界面" } }
+      }
+    ]
+  },
+  "steps": [
+    { "enqueue": "generation-A" },
+    {
+      "inject": "history-throw",
+      "at": "after-store-commit",
+      "note": "history/hook/recordCommit 等观察面在 store 提交成功后抛错"
+    }
+  ],
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": null },
+      { "event": "message", "count": 3 },
+      { "event": "done", "surfaceRevision": 1 }
+    ],
+    "terminal": "succeeded",
+    "commitState": "committed",
+    "sourceFactoryCalls": 1,
+    "handlerCalls": 0,
+    "surfaceRevisionAfter": 1,
+    "snapshotPresent": true,
+    "note": "发布点之后 history/hook/记录/传输失败不得删除快照、不得把已提交倒写为未提交或伪造失败留存；扩展失败按诊断面报告，UI 提交事实与查询结果保持可读"
+  }
+}

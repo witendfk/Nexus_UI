@@ -16,11 +16,11 @@ import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { sendAgentRun } from '../../src/api/send-messages';
 
 /**
- * S2.5.2 共用运行所有者的留存接线与拒绝路径：
- * - managed run commit 在成功 done 写出之前调用 manager.recordCommit 留存固定结果；
- * - 留存失败不得发布成功 done；
- * - 记录建立拒绝（重复 ID/容量满且全部活动）发生在占用 SSE 响应之前：
- *   不泄漏响应、不启动生成源/动作消息源、释放动作运行持有的 surface 锁。
+ * S2.5.2 共用运行所有者的留存接线与拒绝路径（S3.2 迁移后语义）：
+ * - 调度任务自动提交，recordCommit 在成功 done 写出之前留存固定结果；留存失败不得发布成功 done；
+ * - 记录建立（含容量拒绝）随 enqueue 前移到 prepare 阶段：拒绝返回 ok:false 计划，
+ *   不产生 run、不占用 SSE 响应、不启动生成源/动作消息源；
+ * - 响应占用失败以 promise 拒绝暴露，发送层以 run.cancel() 终止排队中的运行。
  */
 
 const RETENTION_CATALOG_ID = 'https://example.com/catalogs/run-retention/v1';
@@ -233,11 +233,11 @@ describe('发送层固定结果留存（S2.5.2）', () => {
     manager.create({ id: 'active-blocker', surfaceId: 's-blocker', kind: 'generate' });
 
     const adapter = createAdapter(manager);
-    const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
-    assert.ok(plan.ok);
-
     const { ctx } = createSseCapture();
-    assert.throws(() => sendAgentRun(ctx, plan.run, { manager, streamDelayMs: 0 }), /容量/);
+    // S3.2 迁移：记录建立（含容量拒绝）随 enqueue 前移到 prepare 阶段，拒绝返回
+    // ok:false 计划（无 run 可发送），不再进入发送层。
+    const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
+    assert.ok(!plan.ok && plan.code === 'capacity-limit' && /容量/.test(plan.message));
     assert.equal(ctx.body, undefined, '拒绝时不得占用 SSE 响应');
     assert.equal(flowEvents.length, 0, '生成源不得在记录建立拒绝后启动');
   });
@@ -247,11 +247,15 @@ describe('发送层固定结果留存（S2.5.2）', () => {
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     const adapter = createAdapter(manager);
     // 非 HTTP 提交也留存结果；终态记录可被随后活动记录淘汰。
+    // S3.2 迁移：非 HTTP 提交由调度任务自动完成，不再手工数组直提。
     const generation = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
     assert.ok(generation.ok);
-    await generation.run.commit(generationMessages());
+    const generationOutcome = await generation.run.result;
+    assert.equal(generationOutcome.terminal, 'succeeded');
     manager.create({ id: 'active-blocker', surfaceId: 's-blocker', kind: 'generate' });
 
+    // S3.2 迁移：记录容量拒绝同样前移到 prepareAction 入队段（原在 sendAgentRun
+    // 同步段），拒绝计划不产生 run，也不启动动作 handler。
     const first = await adapter.prepareAction({
       name: 'refresh',
       surfaceId: SURFACE,
@@ -263,12 +267,8 @@ describe('发送层固定结果留存（S2.5.2）', () => {
       surfaceRevision: 1,
       catalogHash,
     });
-    assert.ok(first.ok);
-
-    const { ctx } = createSseCapture();
-    assert.throws(() => sendAgentRun(ctx, first.run, { manager, streamDelayMs: 0 }), /容量/);
-    assert.equal(ctx.body, undefined, '拒绝时不得占用 SSE 响应');
-    assert.equal(flowEvents.length, 0, '动作消息源不得在记录建立拒绝后启动');
+    assert.ok(!first.ok && /容量/.test(first.message));
+    assert.ok(!flowEvents.includes('action-handler-started'), '动作消息源不得在记录建立拒绝后启动');
 
     // 释放容量后，同 surface 的下一个 action 必须能拿到锁并完整提交：
     // 若拒绝路径泄漏了锁，这里的 prepareAction 会永远挂起。
@@ -303,35 +303,31 @@ describe('发送层固定结果留存（S2.5.2）', () => {
 });
 
 describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
-  it('SDK run 拒绝另一个 manager，清理宿主资源且不占用响应', async () => {
+  it('SDK run 拒绝另一个 manager：不占用响应，运行仍归属原所有者', async () => {
     const adapter = createAdapter();
     const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
     assert.ok(plan.ok);
     const other = new InMemoryAgentRunManager();
-    let disposed = 0;
     const { ctx } = createSseCapture();
-    assert.throws(
-      () =>
-        sendAgentRun(ctx, plan.run, {
-          manager: other,
-          dispose: () => {
-            disposed++;
-          },
-        }),
-      /所有者一致/,
-    );
-    assert.equal(disposed, 1);
+    assert.throws(() => sendAgentRun(ctx, plan.run, { manager: other }), /所有者一致/);
+    // S3.2 迁移：记录自 enqueue 起归属 adapter 所有者，所有者不匹配的发送只在
+    // 占用响应前的同步段拒绝——另一个 manager 永远拿不到记录，运行本身不受影响
+    // （原「清理记录 + 宿主 dispose + 运行终止」是发送层创建记录时代的清理契约）。
     assert.equal(ctx.body, undefined);
-    assert.equal(adapter.runManager.get(plan.run.runId), undefined);
     assert.equal(other.get(plan.run.runId), undefined);
-    await assert.rejects(async () => plan.run.commit(generationMessages()), /已终止/);
+    const outcome = await plan.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    assert.equal(adapter.runManager.get(plan.run.runId)?.state, 'succeeded');
   });
 
   it('非 HTTP generation/action commit 使用同一 adapter 的记录所有者', async () => {
     const adapter = createAdapter();
     const generation = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
     assert.ok(generation.ok);
-    const commit = await generation.run.commit(generationMessages());
+    // S3.2 迁移：非 HTTP 提交由调度任务自动完成；留存结果即运行终态 commit。
+    const outcome = await generation.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    const commit = outcome.commit;
     assert.deepEqual(adapter.runManager.get(generation.run.runId)?.commit, commit);
     const action = await adapter.prepareAction({
       name: 'refresh',
@@ -345,15 +341,13 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
       catalogHash,
     });
     assert.ok(action.ok);
-    const messages: unknown[] = [];
-    for await (const message of action.run.source) messages.push(message);
-    const actionCommit = await action.run.commit(messages);
-    assert.deepEqual(adapter.runManager.get(action.run.runId)?.commit, actionCommit);
+    const actionOutcome = await action.run.result;
+    assert.equal(actionOutcome.terminal, 'succeeded');
+    assert.deepEqual(adapter.runManager.get(action.run.runId)?.commit, actionOutcome.commit);
     assert.equal(adapter.runManager.get(action.run.runId)?.state, 'succeeded');
   });
-  it('容量拒绝调用宿主 dispose 且不启动自定义 source', async () => {
+  it('容量拒绝发生在 enqueue：不启动自定义 source', async () => {
     let created = false;
-    let disposed = 0;
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     manager.create({ id: 'occupied', surfaceId: 'occupied-surface', kind: 'generate' });
     const adapter = new AgentAdapter({
@@ -365,24 +359,13 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
         return generationMessages();
       },
     });
+    // S3.2 迁移：记录容量拒绝随 enqueue 前移到 prepare 阶段（返回 ok:false 计划，
+    // 无 run 可发送）；原「sendAgentRun 同步抛错并回调宿主 dispose」随之消失。
     const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
-    assert.ok(plan.ok);
-    const { ctx } = createSseCapture();
-    assert.throws(
-      () =>
-        sendAgentRun(ctx, plan.run, {
-          manager,
-          dispose: () => {
-            disposed++;
-          },
-        }),
-      /容量/,
-    );
-    assert.equal(disposed, 1);
-    assert.equal(created, false);
-    assert.equal(ctx.body, undefined);
+    assert.ok(!plan.ok && plan.code === 'capacity-limit' && /容量/.test(plan.message));
+    assert.equal(created, false, '自定义生成源不得在容量拒绝后构造');
   });
-  it('响应占用抛错时结束记录、释放运行与宿主资源，容量可再次使用', async () => {
+  it('响应占用抛错时取消运行、回调宿主 dispose，容量可再次使用', async () => {
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     const adapter = new AgentAdapter({
       registry,
@@ -397,6 +380,8 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
     ctx.set = () => {
       throw new Error('headers failed');
     };
+    // S3.2 迁移：占用失败保持 S2 同步抛错语义（DESIGN D3），排队中的运行
+    // 以取消终态写回记录，容量随终态释放。
     assert.throws(
       () =>
         sendAgentRun(ctx, plan.run, {
@@ -408,22 +393,26 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
       /headers failed/,
     );
     assert.equal(disposed, 1);
-    assert.equal(manager.get(plan.run.runId)?.state, 'failed');
+    // 取消收敛是任务侧落账：句柄终态先行，记录随终态写 canceled。
+    assert.equal((await plan.run.result).terminal, 'canceled');
+    assert.equal(manager.get(plan.run.runId)?.state, 'canceled');
     assert.doesNotThrow(() =>
       manager.create({ id: 'replacement', surfaceId: 'replacement-surface', kind: 'generate' }),
     );
   });
   it('flushHeaders 在 body 占用后失败时撤销流并且仅清理一次', async () => {
     let hostDisposed = 0;
-    let runDisposed = 0;
+    let runCanceled = 0;
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     const adapter = createAdapter(manager);
     const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
     assert.ok(plan.ok);
-    const dispose = plan.run.dispose!.bind(plan.run);
-    plan.run.dispose = () => {
-      runDisposed++;
-      dispose();
+    // S3.2 迁移：占用失败时发送层以 run.cancel() 收敛运行且恰好一次；
+    // 占用错误保持 S2 同步抛错语义。
+    const cancel = plan.run.cancel.bind(plan.run);
+    plan.run.cancel = () => {
+      runCanceled++;
+      cancel();
     };
     const { ctx } = createSseCapture();
     ctx.respond = true;
@@ -442,11 +431,12 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
       /flush failed/,
     );
     assert.equal(hostDisposed, 1);
-    assert.equal(runDisposed, 1);
+    assert.equal(runCanceled, 1);
+    assert.equal((await plan.run.result).terminal, 'canceled');
     assert.equal(claimed?.destroyed, true);
     assert.equal(ctx.body, null);
     assert.equal(ctx.respond, true);
-    assert.equal(manager.get(plan.run.runId)?.state, 'failed');
+    assert.equal(manager.get(plan.run.runId)?.state, 'canceled');
     assert.doesNotThrow(() => manager.create({ id: 'next', surfaceId: SURFACE, kind: 'generate' }));
   });
 });

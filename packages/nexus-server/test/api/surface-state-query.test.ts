@@ -468,9 +468,46 @@ describe('S2.5.3 baseline 时序夹具经真实 HTTP 查询路由验证', () => 
         'stale-next-action',
         fixture.expectedNextAction.surfaceRevision,
       );
-      assert.equal(stale.status, 400, '旧 revision 的 action 必须被拒');
+      // S3.2 迁移：stale revision 准入移入调度任务，拒绝从同步 400 变为 HTTP 200 SSE + error 事件终态
+      assert.equal(
+        stale.status,
+        200,
+        '旧 revision 的 action 仍必须被拒（调度内失败 → 200 SSE error）',
+      );
       assert.doesNotMatch(stale.text, /event: done/);
+      const staleError = parseSse(stale.text).find((frame) => frame.event === 'error');
+      assert.ok(staleError, '旧 revision 拒绝必须以 error 事件终态');
+      assert.equal(
+        (staleError.data as { runCode?: string }).runCode,
+        'RUN_ADMISSION_REJECTED',
+        '旧 revision 准入拒绝的运行内错误码',
+      );
+      assert.equal((staleError.data as { commitState?: string }).commitState, 'notCommitted');
       assert.equal(handlerCalls.rate, handlerCallsBefore, '旧 revision 拒绝时 handler 不得调用');
+      // S3.2 迁移：拒绝仍留下 failed 运行记录——按 run 查询该 runId 返回 409（有记录无结果），不是 404
+      const staleRunId = (staleError.data as { runId?: string }).runId;
+      assert.ok(
+        typeof staleRunId === 'string' && staleRunId !== '',
+        'error 载荷携带本次运行 runId',
+      );
+      const staleQuery = await queryBaseline(baseUrl, SURFACE, staleRunId);
+      assert.equal(staleQuery.status, 409, 'failed 运行有记录无结果 → 409 而非 404');
+      assert.deepEqual(staleQuery.body, {
+        error: 'SURFACE_STATE_COMMIT_UNAVAILABLE',
+        message: '运行存在但尚无可确认的 UI 提交结果',
+      });
+      // 先前固定结果不受旧 revision 拒绝影响
+      const resultAfterStale = await queryBaseline(baseUrl, SURFACE, rendered.runId);
+      assert.equal(resultAfterStale.status, 200);
+      assert.deepEqual(
+        resultAfterStale.body,
+        {
+          ...fixture.expectedResponse.body,
+          runId: rendered.runId,
+          catalogHash: CATALOG_HASH,
+        },
+        '旧 revision action 被拒后，先前固定结果不受影响',
+      );
       // 夹具声明的 oracle 结论与实际行为逐项一致，不退化为文档字段。
       assert.equal(fixture.expectedNextAction.decision, 'reject-stale-revision');
       assert.equal(fixture.expectedNextAction.handlerCalls, 0);

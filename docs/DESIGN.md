@@ -1,6 +1,6 @@
 # DESIGN — SDK 设计决策
 
-更新：2026-10-16。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
+更新：2026-10-23。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
 
 ## 决策索引
 
@@ -14,7 +14,7 @@
 | D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
-| D9   | 单一运行调度与有界资源                          | 已决策，待改造                          |
+| D9   | 单一运行调度与有界资源                          | 契约已定型（S3.1，2026-10-22），实施随 S3.2–S3.6 |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
 | D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
 | D12  | 按职责分包，通过层内高层 API 聚合接入能力       | 已决策，暂不新增总门面包                |
@@ -58,6 +58,8 @@
 **选择**：core 按 A2UI 消息顺序更新状态；client/server 的运行层区分临时预览和已提交 revision；业务成功与失败由宿主认定。Nexus 的运行元数据不写入 A2UI 消息 payload。
 
 client 只在明确成功终态且本地校验通过后开放当前 revision 的 action。失败丢弃本次预览；已有提交视图可保留展示，但在提交结果未知或版本不一致时必须标记失同步并禁用 action。缺失终态、网络中断和提交确认丢失不能推断服务端未提交。
+
+**提交事实口径（S3.1 补充，2026-10-22）**：服务端 commitState 由 store 结果契约三分（SPEC §6.3）——确定性拒绝为 notCommitted，确认提交为 committed，store 异常且无法证明未写入为 unknown（不得凭异常推断未提交）；确认后不可倒写。客户端在未获得可信终态时保守使用 unknown。
 
 **副作用边界**：取消与 patch 失败不回滚宿主事务。SDK 不自动重试业务 action，不把 ledger 的 failed 当作业务可重试。宿主可提供不透明操作关联标识及恢复回调；SDK 不内建领域结果库。
 
@@ -121,6 +123,17 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **代价**：双锁/全局 store 迁移需要并发和取消反例；保留有界整树重建，暂不建设分布式执行引擎或自研 reconciler。
 
+**契约定型（S3.1，2026-10-22）**：
+
+- 入口与调度：server 公开 `createAgentRuntime` 工厂（见 D12）；每 runtime 实例一份调度器，同 surface 的 generation 与 action 同队列 FIFO 串行，覆盖快照读取到提交全链；不同 surface 并发，跨实例互不阻塞。入队阶段只做 access 钩子、队列容量与请求级校验，三类拒绝不建运行记录；调度内准入失败是运行失败终态（不再是入队前 400）。adapter 的 `prepareGeneration/prepareAction` 保留为委托同一实现的兼容外壳，不构成旁路。
+- 提交事实三分：store 提交方法返回 `committed | notCommitted | unknown` 结果契约——确定性拒绝（revision/epoch 比较、结构校验）返回 notCommitted；无法证明未写入的异常一律映射 unknown；确认提交后取消/失败/传输异常不得倒写。发布点之后的 history/hook/recordCommit/传输失败按诊断面报告，不删除快照、不改写留存（替代 S2 的 hook/history 异常回滚快照方案）。
+- ledger 重放：留存窗口内任意已知记录（含 failed/canceled）拒绝重入，`failed` 不是重试许可；SDK 不自动重放，业务重试归宿主。备选方案「failed 重入=业务重试入口」被拒：SDK 无法证明 failed 记录的 handler 未执行，把重试许可建在不可证明的事实上会把重复副作用伪装成安全行为。
+- 资源预算：默认值定稿于 `fixtures/session-v1/budgets.json`（SPEC §6.6 同源）——run 512、ledger 1024、surface 256、history 64×20 沿 S2 并补活动/排队保护；每 surface 排队 32、每 run 消息与字节上限、SSE 高水位与慢消费硬上限为新增；执行/排队超时默认不启用、显式配置。非法配置装配抛错，超限显式拒绝，全部活动时拒绝新建而不淘汰活动记录。
+- 访问准入：`access.read/generate/action` 钩子缺省一律拒绝（D4 默认拒绝原则扩展到写入路径），拒绝在入队前、不建记录不泄露存在性；`runsAccess` 迁移为 `access.read`，可信身份由宿主闭包从自己的上下文提取，SDK 不解释 context。
+- 取消语义：排队取消先于工厂/handler，无 start 事件、唯一 error 终态；store 确认提交后的迟到取消不倒写终态；宿主不理会 signal 时不假装已杀死业务代码，超时按取消收敛并丢弃晚到的 handler 返回（提交由 SDK 介导，悬挂 handler 无法自行提交）。
+
+**S3.2 所有权落实（2026-10-23）**：调度关联放在运行模块，adapter/runtime/自定义 run 按 runManager 身份取得同一 scheduler；传输层不另建平行队列。显式共用记录所有者就共用调度；对同一所有者装配冲突 scheduler 直接报错，避免静默覆盖预算或串行边界。入队时隔离 action 请求，取消排队即释放额度；记录终态写入失败作为诊断报告，不能阻断句柄本地终态，也不假装外部记录已修复。
+
 ## D10. 产物格式与原生 ESM 路径
 
 **选择**：首发提供 ESM JavaScript 与 `.d.ts`，建议提供可用的 `.js.map`；React/后续 Vue 可提供显式导入的独立样式。暂不双发 CJS，不提供 UMD/IIFE；有明确消费需求再评估。SDK 保留模块结构，由宿主负责最终应用打包，React/Vue 为 peer dependency，内部包间依赖不重复内嵌。
@@ -142,6 +155,8 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 ## D12. 高层接入 API 与包边界
 
 **选择**：保留 core/client/react/server 的目标分包，暂不新增统一重导出四包的总门面包。各包通过公开根入口及职责内的高层 API 简化接入：client 会话控制器聚合生成/action、订阅、取消与恢复；React 提供 Provider/Surface/hooks；server 运行工厂装配准入、调度、生成源与 handler。名称与精确类型按对应实现切片定型。
+
+**server 高层 API（S3.1 定型，2026-10-22）**：server 公开 `createAgentRuntime(options): AgentRuntime` 作为传输无关运行入口——聚合 adapter 全部显式装配项并新增调度/访问/预算配置，暴露 `generate`/`action` 入队结果、运行句柄（事件流、终态、取消/dispose）与只读查询；Koa router 退为薄适配。不新增包、不新增总门面包。
 
 **依据**：宿主按环境与框架选用能力。浏览器入口不重导出 Node server，框架无关入口不引入 React/后续 Vue，不依靠 tree shaking 消除跨环境解析与可选依赖问题。统一文档和兼容说明可以提供一致接入体验；减少重复接线比减少包名更有价值。
 

@@ -1,0 +1,104 @@
+{
+  "id": "runtime-budget-defaults",
+  "kind": "session-budgets",
+  "note": "S3.1 定稿的资源预算默认值，权威契约见 SPEC §6.6，本文件是供测试断言的同源数据：实现配置、默认值与超限行为必须与之一致。单位与所有者是契约；实现必须提供这些配置项，非法值（非正安全整数，或对可空项以外的非整数值）在装配时显式抛错，0 不表示关闭限制。",
+  "budgets": {
+    "runRecords": {
+      "default": 512,
+      "unit": "records",
+      "owner": "AgentRunManager",
+      "onLimit": "优先淘汰最旧终态记录；全部活动时拒绝新建",
+      "activeProtection": "queued/running 记录不淘汰"
+    },
+    "actionLedgerRecords": {
+      "default": 1024,
+      "unit": "records",
+      "owner": "SurfaceActionLedger",
+      "onLimit": "优先淘汰最旧终态记录；全部活动时拒绝新条目且不执行 handler",
+      "activeProtection": "running 记录不淘汰；已知记录（含终态）在留存窗口内拒绝重入"
+    },
+    "surfaceSnapshots": {
+      "default": 256,
+      "unit": "surfaces",
+      "owner": "SurfaceActionStateStore",
+      "onLimit": "LRU 淘汰非活动 surface",
+      "activeProtection": "有活动/排队 run 的 surface 不淘汰"
+    },
+    "historySurfaces": {
+      "default": 64,
+      "unit": "surfaces",
+      "owner": "SurfaceHistoryStore"
+    },
+    "historyTurnsPerSurface": {
+      "default": 20,
+      "unit": "turns",
+      "owner": "SurfaceHistoryStore"
+    },
+    "maxQueuedPerSurface": {
+      "default": 32,
+      "unit": "tasks",
+      "owner": "surfaceScheduler",
+      "onLimit": "入队显式拒绝，不建运行记录、不占用 HTTP 响应",
+      "httpStatus": 503,
+      "errorCode": "RUN_CAPACITY_REJECTED"
+    },
+    "maxMessagesPerRun": {
+      "default": 2000,
+      "unit": "messages",
+      "owner": "runtimeGuard",
+      "onLimit": "流中途结构化失败，不发布部分 UI",
+      "errorCode": "RESOURCE_LIMIT_EXCEEDED"
+    },
+    "maxBytesPerMessage": {
+      "default": 1000000,
+      "unit": "bytes",
+      "owner": "runtimeGuard",
+      "onLimit": "同 maxMessagesPerRun",
+      "errorCode": "RESOURCE_LIMIT_EXCEEDED"
+    },
+    "maxTotalBytesPerRun": {
+      "default": 8000000,
+      "unit": "bytes",
+      "owner": "runtimeGuard",
+      "onLimit": "同 maxMessagesPerRun",
+      "errorCode": "RESOURCE_LIMIT_EXCEEDED"
+    },
+    "sseHighWaterMark": {
+      "default": 1048576,
+      "unit": "bytes",
+      "owner": "sseAdapter",
+      "onLimit": "尊重背压暂停读取；暂停超过 slowConsumerTimeoutMs 断流"
+    },
+    "slowConsumerTimeoutMs": {
+      "default": 30000,
+      "unit": "ms",
+      "owner": "sseAdapter",
+      "onLimit": "断开输出并结束运行；合法大流在时限内必须完整送达"
+    },
+    "requestBody": {
+      "maxBytes": 1048576,
+      "timeoutMs": 10000,
+      "owner": "httpAdapter",
+      "status": "S2 现状保持"
+    },
+    "externalAgentRpc": {
+      "timeoutMs": 15000,
+      "maxBytes": 2000000,
+      "owner": "externalAgentAdapter",
+      "status": "S2 现状保持"
+    },
+    "executionTimeoutMs": {
+      "default": null,
+      "configurable": true,
+      "owner": "surfaceScheduler",
+      "note": "默认不启用；启用后超时按取消收敛，晚到 handler 返回被丢弃，不假装已杀死业务代码"
+    },
+    "queueTimeoutMs": {
+      "default": null,
+      "configurable": true,
+      "owner": "surfaceScheduler",
+      "note": "默认不启用；启用后排队超时按取消收敛并释放队列额度"
+    }
+  },
+  "invalidConfig": "所有数值预算必须为正安全整数；可空项只接受正安全整数或显式 null；非法值在工厂初始化时抛错，不静默采用默认值或关闭限制。"
+}

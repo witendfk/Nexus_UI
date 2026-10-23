@@ -170,6 +170,7 @@ describe('S2.6.4.3 scorecard 拒绝与双 surface 隔离', () => {
     assert.deepEqual(runtime.getLatestInputs(surfaceId), []);
 
     // 绕过本地校验直接发越界输入：服务端拒绝，handler 零调用。
+    // S3.2：调度内准入失败经 SSE error 报告（200 + error 帧），不再是入队前 400。
     const rejected = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,16 +178,23 @@ describe('S2.6.4.3 scorecard 拒绝与双 surface 隔离', () => {
         envelope(generation.commit, [{ componentId: 'scoreDial', property: 'score', value: 101 }]),
       ),
     });
-    assert.equal(rejected.status, 400);
-    assert.doesNotMatch(await rejected.text(), /已记录/);
+    const rejectedText = await rejected.text();
+    assert.equal(rejected.status, 200, 'S3.2：入队成功的运行以 error 终态收场');
+    assert.match(rejectedText, /event: error/);
+    assert.match(rejectedText, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.doesNotMatch(rejectedText, /已记录/);
+    assert.doesNotMatch(rejectedText, /event: done/);
 
-    // 旧 revision 拒绝。
+    // 旧 revision 拒绝：同样以调度内 error 终态报告。
     const stale = await fetch(`${baseUrl}/api/a2ui/event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(envelope(generation.commit, [], { surfaceRevision: 999 })),
     });
-    assert.equal(stale.status, 400);
+    const staleText = await stale.text();
+    assert.equal(stale.status, 200);
+    assert.match(staleText, /event: error/);
+    assert.doesNotMatch(staleText, /event: done/);
 
     // 快照未变：原基准提交合法输入仍成功。
     assert.ok(runtime.setInputValue('scoreDial', surfaceId, 'score', 9));

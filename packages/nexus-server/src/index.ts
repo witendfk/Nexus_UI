@@ -75,6 +75,19 @@ export type {
   RequiredMediaPolicy,
   ResolvedAgentPolicy,
 } from './agent/policy';
+export { createAgentRuntime } from './runtime/runtime-facade';
+export type { AgentRuntime } from './runtime/runtime-facade';
+export { DEFAULT_MAX_QUEUED_PER_SURFACE, SurfaceScheduler } from './runtime/surface-scheduler';
+export type { AgentSchedulerOptions } from './runtime/agent-runtime';
+export type { AgentRuntimeOptions, EnqueueOutcome } from './runtime/agent-runtime';
+export type {
+  CommitState,
+  RunOutcome,
+  RuntimeErrorCode,
+  RuntimeRunEvent,
+  RuntimeRunListener,
+} from './runtime/run-handle';
+export { RuntimeRunHandle } from './runtime/run-handle';
 export { createAgentRouter } from './api/routes';
 export type { NexusActionRequest } from './api/nexus-request';
 export type { SurfaceStateBaseline } from './api/surface-state';

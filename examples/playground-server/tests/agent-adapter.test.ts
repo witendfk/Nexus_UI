@@ -8,7 +8,7 @@ import {
   sendAgentRun,
   InMemorySurfaceHistoryStore,
 } from '@nexus-ui/server';
-import type { AgentLlmStreamRequest, AgentMessageSource } from '@nexus-ui/server';
+import type { AgentLlmStreamRequest } from '@nexus-ui/server';
 import { createCatalogContractHash } from '@nexus-ui/server';
 import { agentCatalogRegistry } from '../src/agent/catalog';
 import {
@@ -20,12 +20,6 @@ import {
 } from '../src/agent/catalog';
 import { WorkbenchTaskStore } from '../src/agent/workbench-agent';
 import { createReferenceAgentAdapter } from '../src/reference/reference-agent';
-
-async function collect(source: AgentMessageSource): Promise<unknown[]> {
-  const messages: unknown[] = [];
-  for await (const message of source) messages.push(message);
-  return messages;
-}
 
 function createSseContext(): Koa.Context {
   return {
@@ -70,7 +64,9 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     });
     const plan = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
 
-    assert.ok(plan.ok);
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result; // S3.2：sequence 在调度内准备完成后才可读
+    assert.equal(outcome.terminal, 'succeeded');
     assert.equal(plan.run.sequence.surfaceId, 'surface-task-adapter');
     assert.equal(plan.run.sequence.catalogId, TASK_CATALOG);
   });
@@ -80,19 +76,21 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       createSurfaceId: () => 'surface-action-adapter',
     });
     const generation = await adapter.prepareGeneration({ catalogId: TASK_CATALOG });
-    assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await generation.run.commit(messages);
+    assert.ok(generation.ok, 'S3.2：入队即接受');
+    // S3.2：调度自动消费生成源并提交，无需 collect+commit
+    const generationOutcome = await generation.run.result;
+    assert.equal(generationOutcome.terminal, 'succeeded');
 
     const start = await adapter.prepareAction(
       createAction('start', generation.run.sequence.surfaceId, TASK_CATALOG_HASH),
     );
-    assert.ok(start.ok);
+    assert.ok(start.ok, 'S3.2：入队即接受');
+    const startOutcome = await start.run.result; // S3.2：消息断言改用终态 outcome.messages
+    assert.equal(startOutcome.terminal, 'succeeded');
     assert.equal(start.run.sequence.catalogId, TASK_CATALOG);
-    const startResponse = await collect(start.run.source);
+    const startResponse = startOutcome.messages;
     assert.match(JSON.stringify(startResponse), /进行中/);
     assert.match(JSON.stringify(startResponse), /"name":"complete"/);
-    await start.run.commit(startResponse);
 
     // complete 在 start 提交（revision 2）之后准入：客户端观测随之刷新为 2
     const completeAction = {
@@ -101,17 +99,21 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       timestamp: '2026-09-21T00:00:01.000Z',
     };
     const complete = await adapter.prepareAction(completeAction);
-    assert.ok(complete.ok);
-    const completeResponse = await collect(complete.run.source);
+    assert.ok(complete.ok, 'S3.2：入队即接受');
+    const completeOutcome = await complete.run.result;
+    assert.equal(completeOutcome.terminal, 'succeeded');
+    const completeResponse = completeOutcome.messages;
     assert.match(JSON.stringify(completeResponse), /已完成/);
     assert.match(JSON.stringify(completeResponse), /"disabled":true/);
-    await complete.run.commit(completeResponse);
 
     // 重放以 actionId 为键：同一提交标识再次到达即拒绝（ledger 终态可重试的
-    // 是失败记录，不是成功提交）
+    // 是失败记录，不是成功提交）。S3.2：ledger 准入移入调度任务，拒绝变为运行失败终态
     const duplicate = await adapter.prepareAction(completeAction);
-    assert.ok(!duplicate.ok);
-    assert.match(duplicate.message, /Action 重放或重复提交已被拒绝/);
+    assert.ok(duplicate.ok, 'S3.2：入队即接受');
+    const duplicateOutcome = await duplicate.run.result;
+    assert.equal(duplicateOutcome.terminal, 'failed');
+    assert.equal(duplicateOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(duplicateOutcome.message ?? '', /Action 重放或重复提交已被拒绝/);
   });
 
   it('Workbench 生成后 submit action 创建任务并原地关闭提交入口', async () => {
@@ -122,9 +124,11 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       resolveActionContext: ({ clientContext }) => ({ ...clientContext }),
     });
     const generation = await adapter.prepareGeneration({ catalogId: WORKBENCH_CATALOG });
-    assert.ok(generation.ok);
-    const messages = await collect(generation.run.source);
-    await generation.run.commit(messages);
+    assert.ok(generation.ok, 'S3.2：入队即接受');
+    // S3.2：调度自动消费并提交，消息断言改用终态 outcome.messages
+    const generationOutcome = await generation.run.result;
+    assert.equal(generationOutcome.terminal, 'succeeded');
+    const messages = generationOutcome.messages;
 
     assert.match(
       JSON.stringify(messages),
@@ -153,8 +157,11 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         customerName: '华云科技',
       },
     });
-    assert.ok(empty.ok);
-    await assert.rejects(collect(empty.run.source), /请输入跟进任务标题/);
+    assert.ok(empty.ok, 'S3.2：入队即接受');
+    // S3.2：handler 业务报错在调度内消费时发生，收敛为运行失败终态
+    const emptyOutcome = await empty.run.result;
+    assert.equal(emptyOutcome.terminal, 'failed');
+    assert.match(emptyOutcome.message ?? '', /请输入跟进任务标题/);
 
     for (const priority of [[], ['urgent'], ['high', 'low']]) {
       const invalid = await adapter.prepareAction({
@@ -174,8 +181,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
           customerName: '华云科技',
         },
       });
-      assert.ok(invalid.ok);
-      await assert.rejects(collect(invalid.run.source), /请选择有效的任务优先级/);
+      assert.ok(invalid.ok, 'S3.2：入队即接受');
+      const invalidOutcome = await invalid.run.result; // S3.2：handler 报错收敛为运行失败终态
+      assert.equal(invalidOutcome.terminal, 'failed');
+      assert.match(invalidOutcome.message ?? '', /请选择有效的任务优先级/);
     }
 
     for (const [reminderAt, message] of [
@@ -199,8 +208,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
           customerName: '华云科技',
         },
       });
-      assert.ok(invalid.ok);
-      await assert.rejects(collect(invalid.run.source), { message });
+      assert.ok(invalid.ok, 'S3.2：入队即接受');
+      const invalidOutcome = await invalid.run.result; // S3.2：handler 报错收敛为运行失败终态
+      assert.equal(invalidOutcome.terminal, 'failed');
+      assert.equal(invalidOutcome.message, message);
     }
 
     const plan = await adapter.prepareAction({
@@ -220,11 +231,11 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         customerName: '华云科技',
       },
     });
-    assert.ok(plan.ok);
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const planOutcome = await plan.run.result; // S3.2：调度自动提交，直接读终态消息
+    assert.equal(planOutcome.terminal, 'succeeded');
     assert.equal(plan.run.sequence.catalogId, WORKBENCH_CATALOG);
-    const response = await collect(plan.run.source);
-    const serialized = JSON.stringify(response);
-    await plan.run.commit(response);
+    const serialized = JSON.stringify(planOutcome.messages);
 
     assert.match(serialized, /followup-0001/);
     assert.match(serialized, /发送方案修订版/);
@@ -250,8 +261,10 @@ describe('playground reference adapter（参考装配，注册表与生成源显
         customerName: '华云科技',
       },
     });
-    assert.ok(duplicate.ok);
-    await assert.rejects(collect(duplicate.run.source), /该客户的跟进任务已创建，不能重复提交/);
+    assert.ok(duplicate.ok, 'S3.2：入队即接受');
+    const duplicateOutcome = await duplicate.run.result; // S3.2：handler 报错收敛为运行失败终态
+    assert.equal(duplicateOutcome.terminal, 'failed');
+    assert.match(duplicateOutcome.message ?? '', /该客户的跟进任务已创建，不能重复提交/);
   });
 
   it('Basic search action 返回包含用户输入值的原地更新', async () => {
@@ -299,18 +312,19 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       message: '创建查询界面',
       catalogId: BASIC_CATALOG,
     });
-    assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.ok(generation.ok, 'S3.2：入队即接受');
+    const generationOutcome = await generation.run.result; // S3.2：调度自动消费并提交
+    assert.equal(generationOutcome.terminal, 'succeeded');
     const action = await adapter.prepareAction({
       ...createAction('search', surfaceId),
       sourceComponentId: 'searchButton',
       context: { keyword: 'A2UI Runtime' },
     });
 
-    assert.ok(action.ok, action.ok ? undefined : action.message);
-    const response = await collect(action.run.source);
-    assert.deepEqual(response, [
+    assert.ok(action.ok, 'S3.2：入队即接受');
+    const actionOutcome = await action.run.result; // S3.2：调度自动提交，消息断言改用终态
+    assert.equal(actionOutcome.terminal, 'succeeded');
+    assert.deepEqual(actionOutcome.messages, [
       {
         version: 'v0.9',
         updateComponents: {
@@ -378,18 +392,19 @@ describe('playground reference adapter（参考装配，注册表与生成源显
       message: '创建操作界面',
       catalogId: BASIC_CATALOG,
     });
-    assert.ok(generation.ok);
-    const generationMessages = await collect(generation.run.source);
-    await generation.run.commit(generationMessages);
+    assert.ok(generation.ok, 'S3.2：入队即接受');
+    const generationOutcome = await generation.run.result; // S3.2：调度自动消费并提交
+    assert.equal(generationOutcome.terminal, 'succeeded');
     const action = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'submitButton',
       context: { name: 'A2UI Runtime', subscribed: true },
     });
 
-    assert.ok(action.ok, action.ok ? undefined : action.message);
-    const response = await collect(action.run.source);
-    assert.deepEqual(response, [
+    assert.ok(action.ok, 'S3.2：入队即接受');
+    const actionOutcome = await action.run.result; // S3.2：调度自动提交，消息断言改用终态
+    assert.equal(actionOutcome.terminal, 'succeeded');
+    assert.deepEqual(actionOutcome.messages, [
       {
         version: 'v0.9',
         updateComponents: {
@@ -422,8 +437,12 @@ describe('playground reference adapter（参考装配，注册表与生成源显
     const adapter = createReferenceAgentAdapter({ historyStore, useLlm: () => false });
 
     const action = await adapter.prepareAction(createAction('search', 'surface-legacy-action'));
-    assert.ok(!action.ok);
-    assert.match(action.message, /Action surface 不存在或已过期/);
+    assert.ok(action.ok, 'S3.2：入队即接受');
+    // S3.2：快照准入移入调度任务，surface 缺失变为运行失败终态
+    const outcome = await action.run.result;
+    assert.equal(outcome.terminal, 'failed');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /Action surface 不存在或已过期/);
   });
 
   it('参考装配显式携带演示 registry 与 LLM 生成源', async () => {
@@ -441,12 +460,24 @@ describe('playground reference adapter（参考装配，注册表与生成源显
               catalogId: request.catalogId,
             },
           },
+          // S3.2：最终校验在调度内执行，mock 流补全 root 组件以满足生成流契约
+          {
+            version: 'v0.9',
+            updateComponents: {
+              surfaceId: request.surfaceId,
+              components: [
+                { id: 'root', component: 'Column', children: ['heading'] },
+                { id: 'heading', component: 'Text', text: 'Nexus' },
+              ],
+            },
+          },
         ];
       },
     });
     const plan = await adapter.prepareGeneration({ catalogId: NEXUS_BASIC_TASK_CATALOG });
-    assert.ok(plan.ok);
-    await collect(plan.run.source);
+    assert.ok(plan.ok, 'S3.2：入队即接受');
+    const outcome = await plan.run.result; // S3.2：调度自动消费生成源
+    assert.equal(outcome.terminal, 'succeeded');
 
     assert.equal(generationRequests.length, 1);
     assert.equal(generationRequests[0]?.catalogId, NEXUS_BASIC_TASK_CATALOG);

@@ -1,0 +1,33 @@
+{
+  "id": "slow-consumer-large-output",
+  "kind": "session-stream",
+  "scenario": "slow-consumer",
+  "requirements": ["R6", "R7"],
+  "catalog": "session-v1-form",
+  "request": {
+    "kind": "generate",
+    "generate": {
+      "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2",
+      "message": "生成大界面"
+    }
+  },
+  "source": {
+    "generate": {
+      "messageCount": 500,
+      "minTotalBytes": 2097152,
+      "note": "合法候选消息批量生成：单条合法、总量超过 sseHighWaterMark 默认 1 MiB"
+    }
+  },
+  "expected": {
+    "events": [
+      { "event": "start", "surfaceRevision": null },
+      { "event": "message", "count": 500 },
+      { "event": "done" }
+    ],
+    "terminal": "succeeded",
+    "commitState": "committed",
+    "sourceFactoryCalls": 1,
+    "handlerCalls": 0,
+    "note": "合法大流不得因缓冲阈值被误判为空输出或截断：消费速率推进读取，尊重背压但保证在 slowConsumerTimeoutMs 内完整送达全部消息与终态；真正超时的慢消费才断流并以结构化失败收场"
+  }
+}

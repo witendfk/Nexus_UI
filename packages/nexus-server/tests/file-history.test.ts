@@ -71,8 +71,12 @@ describe('FileSurfaceHistoryStore', () => {
       catalogHash: 'sha256:' + '0'.repeat(64),
       context: {},
     });
-    assert.ok(!action.ok);
-    assert.match(action.message, /Action surface 不存在或已过期/);
+    // S3.2 迁移：准入移入调度任务——入队即接受，拒绝改在运行终态断言。
+    assert.ok(action.ok, 'S3.2：入队即接受，准入在调度内执行');
+    const outcome = await action.run.result;
+    assert.equal(outcome.terminal, 'failed', '重启恢复的历史不得复活 action 权威');
+    assert.equal(outcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(outcome.message ?? '', /Action surface 不存在或已过期/);
     assert.equal(await secondStore.getCatalogId(surfaceId), TEST_CATALOG_ID);
     assert.equal((await secondStore.getHistory(surfaceId)).length, 2);
   });

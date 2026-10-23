@@ -1,0 +1,81 @@
+{
+  "id": "reject-duplicate-action-id",
+  "kind": "session-stream",
+  "scenario": "duplicate",
+  "requirements": ["R5", "R6"],
+  "catalog": "session-v1-form",
+  "setup": {
+    "surface": {
+      "messages": [
+        {
+          "version": "v0.9",
+          "createSurface": {
+            "surfaceId": "s-s3-5",
+            "catalogId": "https://example.com/catalogs/fixtures/session-v1/v2"
+          }
+        },
+        {
+          "version": "v0.9",
+          "updateComponents": {
+            "surfaceId": "s-s3-5",
+            "components": [
+              { "id": "root", "component": "Column", "children": ["confirm-1"] },
+              {
+                "id": "confirm-1",
+                "component": "ConfirmTrigger",
+                "label": "提交",
+                "action": { "event": { "name": "submit" } }
+              }
+            ]
+          }
+        },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-5", "value": {} } }
+      ]
+    }
+  },
+  "request": {
+    "kind": "action",
+    "action": {
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "submit",
+          "surfaceId": "s-s3-5",
+          "sourceComponentId": "confirm-1",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "context": {}
+        }
+      },
+      "nexus": {
+        "sessionVersion": 1,
+        "actionId": "dup-1",
+        "surfaceRevision": 1,
+        "catalogHash": "{{catalogHash}}",
+        "inputs": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "enqueue": "first-attempt",
+      "failAt": "store-commit",
+      "note": "首次提交以确定失败终态（notCommitted）结束，ledger 记录留存"
+    },
+    { "enqueue": "second-attempt", "note": "同 actionId、同内容再次提交" }
+  ],
+  "source": {
+    "messages": [
+      { "version": "v0.9", "updateDataModel": { "surfaceId": "s-s3-5", "value": { "done": true } } }
+    ]
+  },
+  "expected": {
+    "events": [
+      { "event": "error", "code": "RUN_ADMISSION_REJECTED", "commitState": "notCommitted" }
+    ],
+    "terminal": "failed",
+    "commitState": "notCommitted",
+    "sourceFactoryCalls": 0,
+    "handlerCallsTotal": 1,
+    "note": "首次 attempt failed 终态后，同 actionId 在留存窗口内重入被拒（failed 不是重试许可）；handler 累计只调用 1 次。重试义务归宿主业务：换新 actionId 或由宿主幂等层判定；留存窗口淘汰后 SDK 不再承诺 exactly-once"
+  }
+}

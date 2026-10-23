@@ -169,7 +169,10 @@ describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
     const adapter = createAdapter(manager);
     const generation = await adapter.prepareGeneration({ catalogId: IDENTITY_CATALOG_ID });
     assert.ok(generation.ok);
-    await generation.run.commit(generationMessages());
+    // S3.2 迁移：commit 不再接受手工消息数组直提（仅接受调度实际产出的消息），
+    // 改为等待调度终态；adapter 生成源产出的就是 generationMessages()。
+    const generationOutcome = await generation.run.result;
+    assert.equal(generationOutcome.terminal, 'succeeded');
 
     const plan = await adapter.prepareAction({
       name: 'refresh',
@@ -207,7 +210,10 @@ describe('sendAgentRun 单一运行标识（S2.5.1）', () => {
     });
     const generation = await adapter.prepareGeneration({ catalogId: IDENTITY_CATALOG_ID });
     assert.ok(generation.ok);
-    const baseline = await generation.run.commit(generationMessages());
+    // S3.2 迁移：手工数组直提已禁用；基线 commit 改取调度终态的实际产出。
+    const generationOutcome = await generation.run.result;
+    assert.equal(generationOutcome.terminal, 'succeeded');
+    const baseline = generationOutcome.commit;
     const plan = await adapter.prepareAction({
       name: 'refresh',
       surfaceId: SURFACE,

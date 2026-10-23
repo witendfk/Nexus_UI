@@ -1,6 +1,6 @@
 # SPEC — SDK 契约
 
-更新：2026-10-19。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
+更新：2026-10-23。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
 
 ## 0. 术语与权威
 
@@ -141,7 +141,7 @@ revision 必须区分同一 surfaceId 的先后提交，包括重新生成，不
 
 提交结果留存（S2.5.2，2026-10-20 评审修正）：传输无关的 managed run 是运行生命周期入口，adapter 持有每实例隔离的 `runManager`（可在 adapter 构造时注入），HTTP、非 HTTP generation/action 共用同一记录所有者。非 HTTP 首次消费 source 或调用 commit 时建立 queued/running 记录；HTTP 在同步占用 SSE 响应前先预留 queued 记录，排队完成后转 running。生成源工厂与 action handler 均延迟到消息源消费、记录容量准入成功之后才调用；工厂/handler 抛错属于运行失败，HTTP 已占用响应时用 SSE error 收场。prepare 阶段的协议/权限/参数/resolver 拒绝仍在流前完成。正常 source EOF 或迭代器 return 不等于提交，直接消费者必须 commit/onError/dispose 显式结束；source 异常会结束运行并释放资源。
 
-managed run 在底层 commit 成功后验证完整提交结构与本次固定身份，调用 `recordCommit(runId, commit)` 并迁移 succeeded 后才返回结果，因此先于成功 done 可读；返回值与留存值隔离。记录建立失败不占用 SSE 响应、不调用生成源工厂/handler，并释放 action 锁。响应占用失败将已创建记录迁移 failed，撤销已分配的流并释放运行和宿主 dispose 资源，清理至多一次。留存失败（无记录、重复写入、终态补记）按失败处理，不发布成功 done，已提交快照不因此回滚。自定义原始 AgentRun 由发送层包装以复用同一生命周期；router 可省略 runManager，若显式提供必须与 adapter.runManager 是同一实例。
+managed run 在底层 commit 成功后验证完整提交结构与本次固定身份，调用 `recordCommit(runId, commit)` 并迁移 succeeded 后才返回结果，因此先于成功 done 可读；返回值与留存值隔离。记录建立失败不占用 SSE 响应、不调用生成源工厂/handler，并释放 action 锁。响应占用失败同步撤销已分配的流并将已创建记录收敛为 canceled（S3.2 起；取消不倒写 store 已确认的提交），释放运行和宿主 dispose 资源，清理至多一次。留存失败（无记录、重复写入、终态补记）按失败处理，不发布成功 done，已提交快照不因此回滚。自定义原始 AgentRun 由发送层包装以复用同一生命周期；router 可省略 runManager，若显式提供必须与 adapter.runManager 是同一实例。
 
 `InMemoryAgentRunManager` 写入与读取均深拷贝，后续状态迁移不能覆盖已留存结果；recordCommit 同时校验结构与记录 ID/surface，重复 ID 与重复结果显式拒绝。容量按插入序优先淘汰终态记录，queued/running 受保护，全部活动时显式拒绝新建。HTTP 与非 HTTP 均留存 adapter 提交边界的同一固定结果，不从最新快照拼装；结果淘汰后明确不可用。已确认提交后的观察/传输失败保留结果和成功事实，不另造 revision；完整 commitState/history 与统一调度归 S3。
 
@@ -193,17 +193,155 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 消费者关联本次运行的权威入口是 `X-Nexus-Run-Id` 响应头与成功 `done` 载荷（按 run 查询路由已由 S2.5.3 实施，见 §5.1 后续列表）。消费者不得解析 SSE event id 格式来猜 runId：event id 只是流内帧标识，不是公开查询键；SDK 不提供也不暗示该用法，关联核对以显式响应头与 `done` 元数据为准。
 
-响应头写入失败与其它 SSE 响应头同策略：响应占用失败（含 `flushHeaders` 抛错）撤销已分配的流、运行转 failed 并释放宿主 dispose 资源，不留半占用响应。完整 Session/SSE 生命周期（`start` 事件、断线恢复）不在本切片内，归 S3/S4；按 run 查询路由已由 S2.5.3 实施（§5.1）。
+响应头写入失败与其它 SSE 响应头同策略：响应占用失败（含 `flushHeaders` 抛错）在调用方同步段抛出并撤销已分配的流、运行收敛为 canceled 并释放宿主 dispose 资源，不留半占用响应（S3.2 语义更新：S2 时期记录迁移 failed）。完整 Session/SSE 生命周期（`start` 事件、断线恢复）不在本切片内，归 S3/S4；按 run 查询路由已由 S2.5.3 实施（§5.1）。
 
-## 6. 目标 server runtime（待实现）
+### 5.4 Session v1 事件契约（S3.1 锁定，2026-10-22；实施随 S3.4–S3.6）
 
-- 生成源、registry、Host Policy、handler、状态实现均显式装配；缺少必需依赖报错。可提供确定性的可选标准 Catalog 工厂，不使用模型 key 或业务词选择默认行为。
-- 同一 runtime 的 surface 调度覆盖快照读取、revision/hash 核对、输入/action 准入、handler 和 patch 提交；handler 不得在排队准入前执行。HTTP 适配器不拥有第二套 surface 锁。
-- snapshot commit 是 UI revision 的发布点。确认失败发生在发布前报告 notCommitted；存储写入结果不确定时报告 unknown，不能仅凭写入异常推断未提交。发布后传输/观察者失败不能改写成未提交。history/观测为显式可选扩展，不伪装成与宿主数据库的原子事务。
-- default store、ledger、scheduler 按 runtime 实例隔离；可替换存储不意味着支持多实例一致性。首发只保证单实例调度，宿主另行处理跨实例业务幂等。
-- 取消关闭候选源、reader、监听器和排队任务；已经开始的宿主操作能否取消由 handler 决定。资源超限须显式拒绝，禁止无限排队、缓冲或淘汰运行中保护记录。
-- HTTP 适配在读取/公开 surface 数据及执行 action 前调用宿主访问准入。认证主体来自可信请求上下文；surfaceId、catalogHash 与客户端 context 都不是凭据。参考应用的本地演示模式须显式配置，不能作为公网默认授权。
-- Koa 适配保持调用时响应占用与 await/void 时序；非 Koa 消费无需构造 Koa Context，即可复用相同运行逻辑与准入结果。
+本节为 S3.1 定型的 wire 契约；实施前不代表已交付能力。共享 oracle 数据定稿于 `fixtures/session-v1/`（含预算表、正常/取消/提交前后/unknown/重复/容量/慢消费/观察者失败场景），core 解析与 server 运行时对同一数据必须给出一致结论。
+
+**事件模型**：每次 run 恰一个有序事件流，wire 事件名为 `start`、`message`、`done`、`error`。HTTP SSE 与非 Koa 事件消费共用同一事实源与同一序列规则；`runId` 贯穿事件、`X-Nexus-Run-Id` 响应头、运行记录与 done 载荷（§5.1）。
+
+`start` 事件字段：
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `sessionVersion` | 字面量 1 | `NEXUS_SESSION_VERSION` |
+| `runId` | string | 非空，本次运行唯一不可变标识 |
+| `surfaceId` | string | 非空 |
+| `catalogId` | string | 非空 |
+| `contractVersion` | 数值 | 等于 `CATALOG_CONTRACT_VERSION`（当前 2） |
+| `catalogHash` | string | `sha256:` 加 64 位十六进制 |
+| `surfaceRevision` | 正安全整数，可选 | action 运行必带，值为调度内实际读取快照的 revision；generation 运行不携带（surface 由本次运行创建，无旧基准可报告） |
+
+`start` 在调度任务内、完成快照读取与准入（含参数重算与可选 resolver）后、先于候选消息消费与 handler 调用发出；基准取调度内实际快照，不得提前读最新快照拼装。排队中的 run 未进调度，被取消时不产生 `start`。
+
+`message` 事件 data 为原始 A2UI v0.9 信封，形状与 §1 一致，不追加任何运行元数据；逐条经共享 guard 校验后才进入本次预览。
+
+`done` 事件 data 为本次运行提交边界捕获的固定 `NexusSurfaceCommit`（§5.1），语义为 UI 提交成功，不表示业务成功。
+
+`error` 事件字段：
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `sessionVersion` | 字面量 1 | |
+| `runId` | string | 非空 |
+| `surfaceId` | string | 非空 |
+| `code` | 枚举 | 见下表 |
+| `commitState` | `notCommitted` \| `unknown` | error 流不得为 `committed`（已确认提交走 done） |
+| `message` | string，可选 | 截断至诊断上限 |
+| `diagnostics` | 数组，可选 | 复用 §1 结构化诊断（`PROTOCOL_INVALID` 等）与 `path`/`dataPath` |
+| `actionId` | string，可选 | action 运行可获得时携带 |
+
+错误码枚举（Nexus session 契约，不伪装为 A2UI 协议字段）：
+
+| code | 语义 | 典型 commitState |
+| --- | --- | --- |
+| `RUN_ADMISSION_REJECTED` | 调度内准入/校验拒绝（revision/hash、声明、白名单、参数、ledger 重复） | `notCommitted` |
+| `RUN_FAILED` | source/handler/store 确定性失败等运行失败 | `notCommitted` |
+| `RUN_COMMIT_UNKNOWN` | store 提交异常且无法证明未写入 | `unknown` |
+| `RUN_CANCELLED` | 取消或 dispose 收敛的终态 | `notCommitted`（提交竞态例外见 §6.3） |
+| `RESOURCE_LIMIT_EXCEEDED` | 消息数/字节/缓冲等预算超限 | 按提交事实 |
+| `AGENT_STREAM_ERROR` | 传输边界错误（S2 既有码，保留） | 按提交事实 |
+
+**序列规则**：`start` 是首事件（排队取消例外：唯一事件为 `error`/`RUN_CANCELLED`）；其后 `message` 零或多条；每条流恰一个终态（`done` 或 `error`），终态后不得再有任何事件；EOF/iterator return 不是终态，消费方不得据此推断成功。连接已断而无法投递终态时，运行在本地记录终态事实（§6.3），不要求重放。
+
+**运行记录存在性**：入队前的拒绝（access 未配置/拒绝、队列容量、envelope/装配错误）不创建运行记录、无 `X-Nexus-Run-Id` 响应头；入队成功即建立 `queued` 记录并占用响应（排队 run 同步写头，不回落 404）。调度内准入失败是运行失败终态，记录存在且可查询（无结果时 409）。
+
+**查询与状态码**：按运行查询保持 S2 语义（§5.1）：400 参数缺失、403 access、404 记录不存在/淘汰/surface 不匹配（同一响应体）、409 尚无可确认结果（queued/running/failed/canceled/unknown 一律 409）、200 返回固定 `NexusSurfaceCommit`。generate/action 路由新增映射：access 未配置或拒绝 403（`GENERATE_ACCESS_NOT_CONFIGURED`/`GENERATE_ACCESS_DENIED`/`ACTION_ACCESS_NOT_CONFIGURED`/`ACTION_ACCESS_DENIED`），队列容量拒绝 503（`RUN_CAPACITY_REJECTED`）；envelope 解析失败保持 400。已接受运行的调度内失败经 SSE `error` 报告，不再使用入队前 400——准入发生在调度内，400/错误事件的分界以入队为界。
+
+**版本决策（S3.1）**：Nexus Session 保持 1（本契约新增事件与错误码枚举值，不改变既有 `done`/`message` 形状，消费方按事件名分派）；server API 保持 1；外部 Agent RPC 保持 1（请求载荷不变）；agent onboarding 保持 1；Catalog Contract 保持 2。不做新旧两套流解释；新增字段只出现在新事件中，A2UI payload 不掺运行元数据。
+
+## 6. 运行时契约（S3.1 锁定，2026-10-22；实施随 S3.2–S3.6）
+
+本节为 S3.1 定型的运行契约；实施完成前各条目不代表当前保证（现状见 §3、ARCHITECTURE §6）。
+
+### 6.1 运行入口、句柄与所有权
+
+- `createAgentRuntime(options): AgentRuntime` 为 server 公开高层入口（DESIGN D12）：`options` 覆盖现有 `AgentAdapterOptions` 全部显式装配项（`registry` 必填、`historyStore` 缺省隔离新建、`useLlm` 默认 false、`catalogId` 必填等，§2），新增 `scheduler`、`access`、`budgets`；缺少必需依赖在工厂初始化时抛错。默认 store、ledger、scheduler、runManager 每实例一份，实例间互不共享；根入口无 listener、环境读取或模型默认值。
+- `AgentRuntime.generate(request, options?)` / `AgentRuntime.action(request, options?)` 返回 `Promise<{ accepted: true, run } | { accepted: false, stage, code?, message }>`（成功字段固定为 `run`；拒绝 `stage` 为 `request` 或 `capacity`）：预期拒绝（access、容量、请求级校验）以结果报告，不抛异常；装配/编程错误抛错。非 Koa 消费无需构造任何 HTTP 对象。
+- 运行句柄暴露 `runId`/`surfaceId`/`kind`、`events(): AsyncIterable<SessionEvent>`（单消费者、S3.4 事实源）、`result`（终态结果 Promise，含终态/commitState/固定提交）、`cancel(reason?)` 与幂等 `dispose()`。
+- `queryRun(surfaceId, runId)` / `listRuns(surfaceId)` 只读 run 记录所有者；语义与 §5.1 查询一致，不读当前 surface 快照。
+
+| 事实 | 唯一所有者 | 备注 |
+| --- | --- | --- |
+| Catalog 固定副本、handler 表、Policy | adapter（由 runtime 持有） | 发布绑定实际执行声明（§8） |
+| 每 surface 调度队列 | runtime scheduler | 默认每 runtime 一份；显式共用 runManager 的入口复用同一调度器 |
+| 运行记录与固定结果 | `adapter.runManager` | 注入或默认隔离（S2.5 语义不变） |
+| surface 快照 / ledger | `actionStateStore` / `actionLedger` | 每 adapter 一份，可注入 |
+| Session 事件流 | runtime 事件源 | SSE 适配只消费，不自建事实 |
+| HTTP 响应、连接、序列化 | Koa 适配层 | 运行模块不接受 Koa Context |
+
+生命周期（每次 run 恰一个终态；`commitState` 随终态固定，确认提交后不可倒写）：
+
+```text
+enqueue（access → 队列容量 → 建 queued 记录；拒绝则无记录）
+  │
+  ▼
+queued ──调度出队──► running ──store 确认提交──► succeeded (committed)
+  │                    │
+  │排队取消             ├── 准入/校验确定未写 ──► failed (notCommitted)
+  ▼                    ├── store 写入不确定 ───► failed (unknown)
+canceled               ├── 取消先于提交确认 ───► canceled (notCommitted/unknown)
+(notCommitted,         └── 提交确认后取消迟到 ─► succeeded (committed)
+ 无 start 事件)
+```
+
+排队语义：同一 runtime 同一 surface 的 generation 与 action 同队列 FIFO 串行（覆盖固定 surfaceId 工厂碰撞/重建）；不同 surface 可并发；两个 runtime 实例的同名 surface 互不阻塞。排队容量与取消先于 source 工厂与 handler 函数体。取消排队项立即移出队列并释放额度，不等待活动任务结束。action 请求在入队前深拷贝（含 context/inputs），调度键、准入与提交只使用同一请求快照。
+
+**S3.2 实施补充（2026-10-23）**：adapter、runtime 与自定义 `AgentRun` 以同一 `runManager` 身份关联唯一 scheduler（关联由运行模块持有，传输层不另建队列）；显式为既有所有者配置第二个 scheduler 时装配报错。`sendAgentRun` 的 signal 与准备阶段 signal 都能取消运行，终态清理监听器。提交前运行失败/排队取消时，即便 manager 的终态写入或清理抛错，句柄仍收敛 result 与唯一 error，并附 `RUN_LIFECYCLE_ERROR` 诊断；不伪造外部记录已写成功，按 run 查询仍只读该所有者的实际记录。提交后的存储/留存事实隔离仍由 S3.3 完成。
+
+### 6.2 调度内准入与统一候选校验
+
+排队任务覆盖完整链：快照读取 → revision/hash/来源/action 声明准入 → ledger → 输入/白名单/参数重算 → 可选 resolver → handler → 候选逐条 guard → 完整最终校验 → store 提交。generation 与 action 同队列；准入使用提交边界固定的 Catalog 声明副本（§4.3），`paramSchema` 校验点与拒绝顺序沿 S2 不变。
+
+所有提交路径（HTTP、非 Koa、直接 commit、自定义 `AgentRun`）在提交前经同一完整校验（逐条 guard + `validateAgentStreamFinalDetailed` + root 要求）；流式下发侧的逐条校验保留用于尽早拒绝，实现共用一份 guard，不是两套解释。
+
+### 6.3 提交事实与失败矩阵
+
+| 阶段 | 写入结果 | run 终态 | commitState | 客户端所见 | 副作用 |
+| --- | --- | --- | --- | --- | --- |
+| 入队拒绝（access/容量/envelope） | 未写 | 无运行记录 | — | 403/503/400 | 无 |
+| 调度内准入/校验拒绝 | 确定未写 | failed | notCommitted | error `RUN_ADMISSION_REJECTED` | handler 未调用 |
+| handler 执行后 patch 提交被拒 | 确定未写 | failed | notCommitted | error `RUN_FAILED` | 副作用已发生；不重放、不回滚 |
+| store 确认提交 | 已发布 | succeeded | committed | done（固定提交） | — |
+| store 提交异常（无法证明未写） | 不确定 | failed | unknown | error `RUN_COMMIT_UNKNOWN` | 不自动重试 |
+| 提交成功后 history/hook/record/传输失败 | 已发布 | succeeded | committed | done 已发或传输失败 | 留存与 UI 事实不改写 |
+
+- store 结果契约：`commitGeneration`/`commitAction` 返回 `{ outcome: 'committed' | 'notCommitted' | 'unknown' }`。确定性拒绝（revision/epoch 比较、结构校验、surface 缺失）必须返回 `notCommitted`；实现无法证明未写入时返回或被映射为 `unknown`（异常一律视为 unknown，不得凭异常推断未提交）。
+- `commitState` 一经 `committed` 不可被取消、失败或传输异常倒写；取消与提交竞态时以 store 确认结果为准（`fixtures/session-v1/cancel-racing-commit.json`）。
+- revision/epoch 单调、声明固定、引用隔离、合法空输出 action 仍一次提交并推进 revision 沿 §4.3 不变。
+
+### 6.4 重复 action 与 ledger
+
+- `begin` 返回三态：接受 / `duplicate` / `capacity`。留存窗口内已知记录（running/succeeded/failed/canceled）一律拒绝重入；`failed` 不是重试许可，SDK 不自动重放。
+- 容量满且全部活动时拒绝新条目且不执行 handler；活动记录不参与淘汰。留存窗口之外不承诺永久 exactly-once；业务重试与幂等归宿主。
+- ledger 完成失败不泄漏 surface 调度权；UI 提交事实不依赖 ledger complete 成功。
+
+### 6.5 访问准入钩子
+
+- `access: { read?, generate?, action? }`，签名 `(request, context?) => boolean | Promise<boolean>`；`context` 由传输适配透传（HTTP 适配传 Koa Context，宿主闭包自行提取可信身份），运行模块不解释其内容。
+- 三类钩子缺省一律拒绝（DESIGN D4/D9）：未配置即拒绝，显式本地 demo 自行放行。读取路由保持既有 403 码（`runsAccess` 迁移为 `access.read`）；generate/action 见 §5.4 状态码表。
+- 拒绝发生在入队前：不启动 source/resolver/handler、不创建运行记录、不泄露记录存在性。可信身份来自宿主上下文；surfaceId、catalogHash 与客户端 context 都不是凭据。
+
+### 6.6 资源预算
+
+预算默认值、单位、所有者与超限行为定稿于 `fixtures/session-v1/budgets.json`（同源测试数据），要点：run 记录 512、ledger 1024、surface 快照 256、history 64×20 沿 S2 现状并补活动保护；每 surface 排队 32（超限入队 503）；每 run 消息 2000 条、单条 1,000,000 字节、累计 8,000,000 字节（超限流中结构化失败，不发布部分 UI）；SSE 高水位 1 MiB 与慢消费 30 s 硬上限；执行/排队超时默认不启用、可显式配置。所有数值预算必须为正安全整数，非法值装配时抛错；超限显式拒绝或断流，禁止无限排队、缓冲或淘汰活动记录。
+
+### 6.7 旧 API 迁移表
+
+| 旧 | 处置 | 落地切片 |
+| --- | --- | --- |
+| `surfaceRunQueues` 模块全局队列（send-messages） | 删除；runtime scheduler 替代 | S3.2 |
+| `AgentAdapter.acquireSurfaceLock`（私有双锁） | 删除；统一调度接管 | S3.2 |
+| `AgentAdapter.prepareGeneration/prepareAction` | 保留公开兼容外壳，内部委托同一调度；`{ok:false}` 收窄为入队前错误 | S3.2 |
+| `AgentPlan` 语义 | `ok:false` 仅限入队前拒绝；运行内失败走句柄终态 | S3.2 |
+| 生成提交的 hook/history 异常回滚快照 | 删除；扩展失败与 UI 事实分离（§6.3） | S3.3 |
+| ledger `failed` 记录重入 | 任意已知记录拒绝重入（§6.4） | S3.3 |
+| `runsAccess` 路由选项 | 迁移为 `access.read`，读取 403 码保持 | S3.5 |
+| `sendAgentRun(ctx, run, options)` | 签名保留；内部改为句柄→SSE 薄适配，不再自建队列或解释 Catalog | S3.5 |
+| `sendMessages`（模块内，未公开导出） | 保留为非运行工具路径，不产生运行记录、不携带运行头 | — |
+
+`AgentRun`/`AgentRunManager` 注入语义沿 S2.5 不变：自定义 run 必须显式传入 manager、`commit` 必须返回固定 `NexusSurfaceCommit`、`recordCommit` 为结果接口；SDK run 不接受另一个记录所有者。Koa 适配保持调用时响应占用与 `await`/`void` 时序（DESIGN D3）：排队 run 同步写 `X-Nexus-Run-Id` 头，两种调用写法均逐条下发；该保证属于 Koa 适配行为，非 Koa 消费不复制 socket 操作。
 
 ## 7. 目标 React 与 client 组合（待实现）
 

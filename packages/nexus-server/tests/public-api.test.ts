@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as publicApi from '../src/index';
+// S3.2 迁移：新增运行时句柄契约导出。类型导出在 Object.keys 快照中不可见，
+// 以 type-only 再导出在 typecheck 时锚定其存在于公开入口。
+export type {
+  AgentRuntime,
+  AgentRuntimeOptions,
+  AgentSchedulerOptions,
+  CommitState,
+  EnqueueOutcome,
+  RunOutcome,
+  RuntimeErrorCode,
+  RuntimeRunEvent,
+  RuntimeRunListener,
+} from '../src/index';
 
 describe('server host-assembly public API surface', () => {
   it('exports only the documented root-entry contract', () => {
@@ -10,14 +23,18 @@ describe('server host-assembly public API surface', () => {
       'AGENT_ONBOARDING_CONTRACT_VERSION',
       'AgentAdapter',
       'CATALOG_CONTRACT_VERSION',
+      'DEFAULT_MAX_QUEUED_PER_SURFACE',
       'FileSurfaceHistoryStore',
       'InMemoryAgentRunManager',
       'InMemorySurfaceHistoryStore',
       'NEXUS_RUN_ID_HEADER',
+      'RuntimeRunHandle',
       'SERVER_API_VERSION',
+      'SurfaceScheduler',
       'VERSION',
       'createAgentOnboardingContract',
       'createAgentRouter',
+      'createAgentRuntime',
       'createAgentStreamState',
       'createCatalogContractHash',
       'createCatalogContractReference',

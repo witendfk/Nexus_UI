@@ -68,6 +68,24 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
     });
   const generate = async () =>
     fixedCommit(await (await post('generate', { catalogId: catalog.catalogId })).text());
+  // S3.2 迁移：调度内准入失败（旧 revision/重放/陈旧 actionId）从同步 400 变为
+  // HTTP 200 SSE + error 事件（runCode RUN_ADMISSION_REJECTED、commitState notCommitted），
+  // handler 不得调用；拒绝语义本身保持不变。
+  const assertEventRejected = async (body: unknown, why: string) => {
+    const response = await post('event', body);
+    const text = await response.text();
+    assert.equal(response.status, 200, `${why}（S3.2 调度内失败 → 200 SSE）：${text}`);
+    assert.ok(text.includes('event: error'), `${why}：应以 error 事件终态`);
+    assert.ok(!text.includes('event: done'), `${why}：被拒不产生 done 提交`);
+    const payload = JSON.parse(
+      text
+        .split('\n\n')
+        .find((block) => block.includes('event: error'))!
+        .match(/data: (.*)/)![1],
+    ) as { runCode?: string; commitState?: string };
+    assert.equal(payload.runCode, 'RUN_ADMISSION_REJECTED', `${why}：运行内准入拒绝码`);
+    assert.equal(payload.commitState, 'notCommitted');
+  };
   const first = await generate();
   assert.equal((await post('event', fixture.request.message)).status, 400);
   const envelope = {
@@ -90,7 +108,7 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   // Another generation commits before the old view submits: latest-state reconstruction would bless it.
   const second = await generate();
   assert(second.surfaceRevision > first.surfaceRevision);
-  assert.equal((await post('event', envelope)).status, 400);
+  await assertEventRejected(envelope, '旧渲染 revision 的提交必须被拒');
   assert.equal(calls, 0);
   const current = {
     ...envelope,
@@ -102,16 +120,11 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   const actionCommit = fixedCommit(output);
   assert(actionCommit.surfaceRevision > second.surfaceRevision);
   assert.equal(calls, 1);
-  assert.equal((await post('event', current)).status, 400);
+  await assertEventRejected(current, 'same actionId cannot execute twice');
   assert.equal(calls, 1, 'same actionId cannot execute twice');
-  assert.equal(
-    (
-      await post('event', {
-        ...current,
-        nexus: { ...current.nexus, actionId: 'another-stale-action' },
-      })
-    ).status,
-    400,
+  await assertEventRejected(
+    { ...current, nexus: { ...current.nexus, actionId: 'another-stale-action' } },
+    'old rendered commit cannot be refreshed from current server state',
   );
   assert.equal(calls, 1, 'old rendered commit cannot be refreshed from current server state');
 });
