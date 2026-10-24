@@ -57,6 +57,18 @@ export interface SurfaceInputWrite {
   readonly value: unknown;
 }
 
+/**
+ * 提交事实三态（S3.3，SPEC §6.3）：确定性拒绝（revision/epoch 比较、结构校验、
+ * surface 缺失、版本上溢）必须返回 `notCommitted`，不得以异常表达；实现无法证明
+ * 写入是否落盘时返回 `unknown`。运行时把 store 抛出的任何异常一律映射为 unknown。
+ */
+export type SurfaceCommitOutcome = 'committed' | 'notCommitted' | 'unknown';
+
+export type SurfaceCommitResult =
+  | { readonly outcome: 'committed'; readonly snapshot: SurfaceActionSnapshot }
+  | { readonly outcome: 'notCommitted'; readonly reason: string }
+  | { readonly outcome: 'unknown'; readonly reason?: string };
+
 export interface SurfaceActionStateStore {
   get(surfaceId: string): Promise<SurfaceActionSnapshot | undefined>;
   commitGeneration(
@@ -64,11 +76,11 @@ export interface SurfaceActionStateStore {
     catalogId: string,
     messages: readonly unknown[],
     contract: SurfaceActionContract,
-  ): Promise<SurfaceActionSnapshot>;
+  ): Promise<SurfaceCommitResult>;
   commitAction(
     messages: readonly unknown[],
     commit: SurfaceActionCommit,
-  ): Promise<SurfaceActionSnapshot>;
+  ): Promise<SurfaceCommitResult>;
   removeSnapshot(surfaceId: string): Promise<void>;
 }
 
@@ -82,8 +94,17 @@ export interface SurfaceActionLedgerRecord {
   readonly status: 'running' | 'succeeded' | 'failed';
 }
 
+/**
+ * ledger 入账三态（S3.3，SPEC §6.4）：留存窗口内任何已知记录（running/
+ * succeeded/failed）一律 `duplicate`——failed 不是重试许可；容量满且无可淘汰
+ * 终态记录时 `capacity`，此时不得执行 handler。
+ */
+export type SurfaceLedgerBegin =
+  | { readonly admitted: true }
+  | { readonly admitted: false; readonly reason: 'duplicate' | 'capacity' };
+
 export interface SurfaceActionLedger {
-  begin(record: Omit<SurfaceActionLedgerRecord, 'startedAt' | 'status'>): boolean;
+  begin(record: Omit<SurfaceActionLedgerRecord, 'startedAt' | 'status'>): SurfaceLedgerBegin;
   complete(
     key: string,
     status: Extract<SurfaceActionLedgerRecord['status'], 'succeeded' | 'failed'>,
@@ -118,8 +139,15 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     catalogId: string,
     messages: readonly unknown[],
     contract: SurfaceActionContract,
-  ): Promise<SurfaceActionSnapshot> {
-    const version = this.nextVersion(this.revision);
+  ): Promise<SurfaceCommitResult> {
+    // 内存 store 的拒绝全部发生在写入之前，因此一律是确定性的 notCommitted；
+    // 它永远不会产生 unknown（单线程、无外部 IO）。
+    let version: number;
+    try {
+      version = this.nextVersion(this.revision);
+    } catch (error) {
+      return { outcome: 'notCommitted', reason: errorMessage(error) };
+    }
     const epoch = version;
     const next: MutableSurfaceActionSnapshot = {
       surfaceId,
@@ -131,12 +159,16 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
       contract: cloneContract(contract),
     };
 
-    for (const message of structuredClone(messages)) {
-      applyMessage(next, message);
+    try {
+      for (const message of structuredClone(messages)) {
+        applyMessage(next, message);
+      }
+    } catch (error) {
+      return { outcome: 'notCommitted', reason: errorMessage(error) };
     }
 
     if (next.components.size === 0) {
-      throw new Error('生成流缺少组件，不能建立 action 权威状态');
+      return { outcome: 'notCommitted', reason: '生成流缺少组件，不能建立 action 权威状态' };
     }
     // 每次写入刷新顺序，重生成不能淘汰刚提交的权威快照。
     this.snapshots.delete(surfaceId);
@@ -147,39 +179,52 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
       if (oldest === undefined) break;
       this.snapshots.delete(oldest);
     }
-    return cloneSnapshot(next);
+    return { outcome: 'committed', snapshot: cloneSnapshot(next) };
   }
 
   async commitAction(
     messages: readonly unknown[],
     commit: SurfaceActionCommit,
-  ): Promise<SurfaceActionSnapshot> {
+  ): Promise<SurfaceCommitResult> {
     const first = messages.find(isRecord);
     const surfaceId = commit.surfaceId ?? readSurfaceId(first);
-    if (!surfaceId) throw new Error('action 流缺少 surfaceId，不能更新 action 权威状态');
+    if (!surfaceId) {
+      return {
+        outcome: 'notCommitted',
+        reason: 'action 流缺少 surfaceId，不能更新 action 权威状态',
+      };
+    }
 
     const current = this.snapshots.get(surfaceId);
-    if (!current) throw new Error(`Action surface 不存在: ${surfaceId}`);
+    if (!current) return { outcome: 'notCommitted', reason: `Action surface 不存在: ${surfaceId}` };
     // 同时核对 revision 与生成代，拒绝任何基于旧快照准备的 patch。
     if (current.epoch !== commit.expectedEpoch || current.version !== commit.expectedRevision) {
-      throw new Error(
-        `Action 提交基准已变化: surface ${surfaceId} 已被新提交（epoch ${current.epoch}）替换，读取时为 epoch ${commit.expectedEpoch}，过期 patch 拒绝应用`,
-      );
+      return {
+        outcome: 'notCommitted',
+        reason: `Action 提交基准已变化: surface ${surfaceId} 已被新提交（epoch ${current.epoch}）替换，读取时为 epoch ${commit.expectedEpoch}，过期 patch 拒绝应用`,
+      };
     }
 
-    const next = cloneSnapshot(current);
-    // Input model is the base; handler output is authoritative, including root replacement.
-    for (const write of commit.inputWrites ?? []) {
-      next.dataModel = setStrictPath(next.dataModel, write.path, structuredClone(write.value));
+    // 全部变更先在克隆上完成；任何失败都不触碰权威状态，故为确定性 notCommitted。
+    let next: MutableSurfaceActionSnapshot;
+    let version: number;
+    try {
+      next = cloneSnapshot(current);
+      // Input model is the base; handler output is authoritative, including root replacement.
+      for (const write of commit.inputWrites ?? []) {
+        next.dataModel = setStrictPath(next.dataModel, write.path, structuredClone(write.value));
+      }
+      for (const message of structuredClone(messages)) applyMessage(next, message);
+      version = this.nextVersion(this.revision);
+    } catch (error) {
+      return { outcome: 'notCommitted', reason: errorMessage(error) };
     }
-    for (const message of structuredClone(messages)) applyMessage(next, message);
-    const version = this.nextVersion(this.revision);
     next.version = version;
     this.revision = version;
     // 与 commitGeneration 同口径：刷新插入位，容量淘汰不选中刚提交的快照。
     this.snapshots.delete(surfaceId);
     this.snapshots.set(surfaceId, next);
-    return cloneSnapshot(next);
+    return { outcome: 'committed', snapshot: cloneSnapshot(next) };
   }
 
   async removeSnapshot(surfaceId: string): Promise<void> {
@@ -206,22 +251,22 @@ export class InMemorySurfaceActionLedger implements SurfaceActionLedger {
     this.maxRecords = maxRecords;
   }
 
-  begin(record: Omit<SurfaceActionLedgerRecord, 'startedAt' | 'status'>): boolean {
-    const existing = this.records.get(record.key);
-    if (existing && existing.status !== 'failed') return false;
+  begin(record: Omit<SurfaceActionLedgerRecord, 'startedAt' | 'status'>): SurfaceLedgerBegin {
+    // 留存窗口内任何已知记录都拒绝重入：failed/canceled 的 handler 可能已执行，
+    // SDK 无法证明副作用未发生，重试许可归宿主业务幂等（SPEC §6.4）。
+    if (this.records.has(record.key)) return { admitted: false, reason: 'duplicate' };
+    // 容量先于入账：只有终态记录可淘汰，全部活动时拒绝新条目而不是越界增长。
+    while (this.records.size >= this.maxRecords) {
+      const evictable = this.findOldestTerminalKey();
+      if (evictable === undefined) return { admitted: false, reason: 'capacity' };
+      this.records.delete(evictable);
+    }
     this.records.set(record.key, {
       ...record,
       startedAt: new Date().toISOString(),
       status: 'running',
     });
-    while (this.records.size > this.maxRecords) {
-      // Only terminal records are evictable: dropping a running record would
-      // silently end replay protection for an in-flight action.
-      const evictable = this.findOldestTerminalKey();
-      if (evictable === undefined) break;
-      this.records.delete(evictable);
-    }
-    return true;
+    return { admitted: true };
   }
 
   private findOldestTerminalKey(): string | undefined {
@@ -341,4 +386,8 @@ function readSurfaceId(message: unknown): string | undefined {
     if (isRecord(payload) && typeof payload.surfaceId === 'string') return payload.surfaceId;
   }
   return undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

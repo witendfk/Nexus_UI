@@ -12,25 +12,25 @@ function record(key: string) {
 describe('InMemorySurfaceActionLedger', () => {
   it('never evicts running records when enforcing capacity', () => {
     const ledger = new InMemorySurfaceActionLedger({ maxRecords: 2 });
-    assert.equal(ledger.begin(record('k1')), true);
-    assert.equal(ledger.begin(record('k2')), true);
+    // S3.3.3：ledger.begin 返回三态入账结果，不再以 boolean 表达。
+    assert.deepEqual(ledger.begin(record('k1')), { admitted: true });
+    assert.deepEqual(ledger.begin(record('k2')), { admitted: true });
 
-    // Capacity is reached with every record still running: k3 must not evict
-    // them, even though that means temporarily exceeding the cap.
-    assert.equal(ledger.begin(record('k3')), true);
+    // Capacity is reached with every record still running: k3 is rejected with
+    // reason 'capacity'（handler 不得执行）instead of exceeding the cap.
+    assert.deepEqual(ledger.begin(record('k3')), { admitted: false, reason: 'capacity' });
     assert.equal(ledger.get('k1')?.status, 'running');
     assert.equal(ledger.get('k2')?.status, 'running');
-    assert.ok(ledger.get('k3'));
+    assert.equal(ledger.get('k3'), undefined, 'rejected record must not be entered');
 
     // Replay protection still holds for the retained running records.
-    assert.equal(ledger.begin(record('k1')), false);
+    assert.deepEqual(ledger.begin(record('k1')), { admitted: false, reason: 'duplicate' });
 
     // Once a record settles it becomes evictable again (oldest terminal first).
     ledger.complete('k1', 'succeeded');
-    assert.equal(ledger.begin(record('k4')), true);
+    assert.deepEqual(ledger.begin(record('k4')), { admitted: true });
     assert.equal(ledger.get('k1'), undefined, 'oldest terminal record is evicted');
     assert.equal(ledger.get('k2')?.status, 'running', 'running records survive eviction');
-    assert.ok(ledger.get('k3'));
     assert.ok(ledger.get('k4'));
   });
 });

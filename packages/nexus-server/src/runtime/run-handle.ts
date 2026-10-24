@@ -179,19 +179,12 @@ export class RuntimeRunHandle {
     this.emit({ type: 'done', commit });
   }
 
-  /**
-   * S3.2 mapping (SPEC §6.3): failures report notCommitted — the in-memory
-   * store throws only on deterministic rejections in this slice. Only a
-   * cancellation racing an in-flight store write reports unknown, because the
-   * write's outcome cannot be proven. S3.3 replaces this with the store
-   * result contract.
-   */
-  emitFailure(
-    error: RunTaskError | Error,
-    stage: { committing: boolean; canceled: boolean },
-  ): void {
+  /** Commit facts come from the commit boundary, independently of cancellation. */
+  emitFailure(error: RunTaskError | Error, stage: { canceled: boolean }): void {
     const commitState: 'notCommitted' | 'unknown' =
-      stage.canceled && stage.committing ? 'unknown' : 'notCommitted';
+      error instanceof RunTaskError && error.code === 'RUN_COMMIT_UNKNOWN'
+        ? 'unknown'
+        : 'notCommitted';
     const diagnostics = error instanceof RunTaskError ? error.diagnostics : undefined;
     if (stage.canceled) {
       this.settleOutcome({
@@ -234,10 +227,7 @@ export class RuntimeRunHandle {
   }
 
   /** @internal Record/extension failures cannot prevent the local terminal. */
-  finishFailure(
-    error: RunTaskError | Error,
-    stage: { committing: boolean; canceled: boolean },
-  ): void {
+  finishFailure(error: RunTaskError | Error, stage: { canceled: boolean }): void {
     const diagnostics: unknown[] = [];
     const phase = stage.canceled ? 'cancel' : 'fail';
     try {
@@ -311,7 +301,6 @@ export class RuntimeRunHandle {
     if (!this.isAborted()) this.controller.abort();
     if (this.cancelQueued?.()) {
       this.finishFailure(new RunTaskError('RUN_CANCELLED', '运行在排队期间被取消'), {
-        committing: false,
         canceled: true,
       });
     }
@@ -470,5 +459,12 @@ export class RunTaskError extends Error {
     if (extra?.diagnostics) this.diagnostics = extra.diagnostics;
     if (extra?.actionId) this.actionId = extra.actionId;
     if (extra?.boundaryCode) this.boundaryCode = extra.boundaryCode;
+  }
+}
+
+/** Missing/invalid write confirmation cannot prove notCommitted (SPEC §6.3). */
+export class UnknownCommitError extends RunTaskError {
+  constructor(message: string) {
+    super('RUN_COMMIT_UNKNOWN', message);
   }
 }

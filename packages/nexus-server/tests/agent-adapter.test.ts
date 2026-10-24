@@ -11,6 +11,7 @@ import type {
   AgentLlmStreamRequest,
   AgentMessageSource,
   AgentRun,
+  NexusRunDiagnostic,
 } from '../src/agent/adapter';
 import { OFFICIAL_BASIC_CATALOG } from '../src/agent/catalog-identity';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
@@ -763,50 +764,12 @@ describe('AgentAdapter 显式装配', () => {
     );
   });
 
-  it('rolls back the action snapshot when the generation commit hook fails', async () => {
+  // S3.3.2 语义翻转（原「rolls back the action snapshot when the generation
+  // commit hook fails」）：hook 失败不回滚快照——运行 succeeded/committed、
+  // done 照发，失败经 onRunDiagnostic(stage 'generation-hook') 报告。
+  it('hook 失败不回滚快照：运行成功、done 照发、经诊断报告（S3.3.2）', async () => {
     const surfaceId = 'surface-rollback-generation';
-    const adapter = new AgentAdapter({
-      registry,
-      useLlm: () => false,
-      createSurfaceId: () => surfaceId,
-      createGenerationSource: () => [
-        {
-          version: 'v0.9',
-          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
-        },
-        {
-          version: 'v0.9',
-          updateComponents: {
-            surfaceId,
-            components: [{ id: 'root', component: 'Column', children: [] }],
-          },
-        },
-      ],
-      onGenerationCommitted: () => {
-        throw new Error('host success hook failed');
-      },
-    });
-    const generation = await adapter.prepareGeneration({
-      message: 'rollback test',
-      catalogId: TEST_CATALOG_ID,
-    });
-    assert.ok(generation.ok);
-    const outcome = await generation.run.result;
-    assert.equal(outcome.terminal, 'failed');
-    assert.match(outcome.message ?? '', /host success hook failed/);
-
-    const snapshot = await adapter.prepareAction({
-      ...createAction('submit', surfaceId),
-      sourceComponentId: 'root',
-    });
-    assert.ok(snapshot.ok);
-    const snapshotOutcome = await snapshot.run.result;
-    assert.equal(snapshotOutcome.terminal, 'failed');
-    assert.match(snapshotOutcome.message ?? '', /Action surface 不存在或已过期/);
-  });
-
-  it('marks the action ledger as failed when the stream fails before commit', async () => {
-    const surfaceId = 'surface-ledger-fail';
+    const diagnostics: NexusRunDiagnostic[] = [];
     const adapter = new AgentAdapter({
       registry,
       useLlm: () => false,
@@ -836,19 +799,96 @@ describe('AgentAdapter 显式装配', () => {
       actionHandlers: new Map([
         [
           `${TEST_CATALOG_ID}:submit`,
-          (function () {
-            let firstCall = true;
-            return async function* () {
-              yield {
-                version: 'v0.9',
-                updateDataModel: { surfaceId, value: { done: true } },
-              } as unknown;
-              if (firstCall) {
-                firstCall = false;
-                throw new Error('stream failed');
-              }
-            };
-          })(),
+          async function* () {
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+          },
+        ],
+      ]),
+      onGenerationCommitted: () => {
+        throw new Error('host success hook failed');
+      },
+      onRunDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    const generation = await adapter.prepareGeneration({
+      message: 'rollback test',
+      catalogId: TEST_CATALOG_ID,
+    });
+    assert.ok(generation.ok);
+
+    // 消费完整事件流直到终态：hook 抛错后成功 done 照发。
+    let doneCommit: unknown;
+    for await (const event of generation.run.events()) {
+      if (event.type === 'done') doneCommit = event.commit;
+    }
+    assert.ok(doneCommit, 'hook 失败后成功 done 照发');
+
+    const outcome = await generation.run.result;
+    assert.equal(outcome.terminal, 'succeeded');
+    assert.equal(outcome.commitState, 'committed');
+    assert.ok(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.stage === 'generation-hook' &&
+          /host success hook failed/.test(diagnostic.message),
+      ),
+      'hook 失败经 onRunDiagnostic 报告',
+    );
+
+    // 快照仍在：describeSurfaceContract 可读，后续 action 基于同一快照正常执行。
+    const contract = await adapter.describeSurfaceContract(surfaceId);
+    assert.ok(contract, '快照不因 hook 失败回滚');
+
+    const action = await adapter.prepareAction({
+      ...createAction('submit', surfaceId),
+      sourceComponentId: 'btn',
+    });
+    assert.ok(action.ok);
+    assert.equal((await action.run.result).terminal, 'succeeded');
+  });
+
+  it('marks the action ledger as failed when the stream fails before commit', async () => {
+    const surfaceId = 'surface-ledger-fail';
+    let handlerCalls = 0;
+    const adapter = new AgentAdapter({
+      registry,
+      useLlm: () => false,
+      createSurfaceId: () => surfaceId,
+      createGenerationSource: () => [
+        {
+          version: 'v0.9',
+          createSurface: { surfaceId, catalogId: TEST_CATALOG_ID },
+        },
+        {
+          version: 'v0.9',
+          updateComponents: {
+            surfaceId,
+            components: [
+              { id: 'root', component: 'Column', children: ['btn', 'label'] },
+              {
+                id: 'btn',
+                component: 'Button',
+                child: 'label',
+                action: { event: { name: 'submit', context: {} } },
+              },
+              { id: 'label', component: 'Text', text: 'Submit' },
+            ],
+          },
+        },
+      ],
+      actionHandlers: new Map([
+        [
+          `${TEST_CATALOG_ID}:submit`,
+          async function* () {
+            handlerCalls += 1;
+            yield {
+              version: 'v0.9',
+              updateDataModel: { surfaceId, value: { done: true } },
+            } as unknown;
+            throw new Error('stream failed');
+          },
         ],
       ]),
     });
@@ -867,11 +907,13 @@ describe('AgentAdapter 显式装配', () => {
     });
     assert.ok(action.ok);
 
-    // 流在提交前失败：终态 failed，ledger 记 failed（S3.3 起failed不再是重试许可）。
+    // 流在提交前失败：终态 failed，ledger 记 failed。
     const failed = await action.run.result;
     assert.equal(failed.terminal, 'failed');
     assert.match(failed.message ?? '', /stream failed/);
 
+    // S3.3.3：failed 不再是重试许可——同 actionId 重入按 duplicate 拒绝，
+    // handler 累计调用数不变（证伪点：保留「流提交前失败」的原始触发条件）。
     const retry = await adapter.prepareAction({
       ...createAction('submit', surfaceId),
       sourceComponentId: 'btn',
@@ -879,7 +921,11 @@ describe('AgentAdapter 显式装配', () => {
       actionId: 'test-action-id-1',
     });
     assert.ok(retry.ok);
-    assert.equal((await retry.run.result).terminal, 'succeeded');
+    const retryOutcome = await retry.run.result;
+    assert.equal(retryOutcome.terminal, 'failed');
+    assert.equal(retryOutcome.code, 'RUN_ADMISSION_REJECTED');
+    assert.match(retryOutcome.message ?? '', /重放或重复/);
+    assert.equal(handlerCalls, 1, '重放拒绝不得再次执行 handler');
   });
 
   it('rejects action context fields not declared on the surface', async () => {

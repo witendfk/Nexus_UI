@@ -2,6 +2,12 @@ import type { NexusSurfaceCommit } from '@nexus-ui/core';
 import type { AgentMessageSource, AgentRun } from './adapter';
 import { createCatalogContractHash } from './catalog-contract';
 import { assertRunCommit, type AgentRunManager } from './run-manager';
+import { UnknownCommitError, RunTaskError } from '../runtime/run-handle';
+import {
+  reportRunDiagnostic,
+  type NexusRunDiagnostic,
+  type RunDiagnosticReporter,
+} from './run-diagnostic';
 
 export interface RunIdentity {
   catalogId: string;
@@ -89,16 +95,52 @@ export class RunRecordHandle {
     }
   }
 
-  /** Validate against the bound identity, retain the result, finish succeeded. */
-  async commitValidated(commit: NexusSurfaceCommit): Promise<NexusSurfaceCommit> {
-    const fixed = assertRunCommit(commit, {
+  /** Validate the raw commit against the bound identity; returns an isolated fixed copy. */
+  assertFixed(commit: NexusSurfaceCommit): NexusSurfaceCommit {
+    return assertRunCommit(commit, {
       id: this.runId,
       surfaceId: this.surfaceId,
       ...this.requireIdentity(),
     });
+  }
+
+  /** Retain the fixed result with the record owner (exactly-once, pre-terminal). */
+  retain(fixed: NexusSurfaceCommit): void {
     // Never let an injected manager mutate the result that is returned/published.
     this.manager.recordCommit(this.runId, structuredClone(fixed));
+  }
+
+  /**
+   * Success terminal without retention. Used when the store confirmed the UI
+   * commit but the record owner failed to retain it (S3.3.2): the published
+   * fact stands, the run is succeeded, and the query side reports 409.
+   */
+  finishSucceeded(): void {
     this.finish('succeeded');
+  }
+
+  /** Validate against the bound identity, retain the result, finish succeeded. */
+  async commitValidated(
+    commit: NexusSurfaceCommit,
+    report?: RunDiagnosticReporter,
+  ): Promise<NexusSurfaceCommit> {
+    let fixed: NexusSurfaceCommit;
+    try {
+      fixed = this.assertFixed(commit);
+    } catch (error) {
+      report?.('commit-identity', errorMessage(error));
+      throw new UnknownCommitError(`提交身份核对失败: ${errorMessage(error)}`);
+    }
+    try {
+      this.retain(fixed);
+    } catch (error) {
+      report?.('record-commit', errorMessage(error));
+    }
+    try {
+      this.finishSucceeded();
+    } catch (error) {
+      report?.('record-transition', errorMessage(error));
+    }
     return fixed;
   }
 
@@ -143,10 +185,23 @@ export class ManagedAgentRun implements AgentRun {
   private readonly run: AgentRun;
   private committing = false;
   private readonly signal?: AbortSignal;
+  private readonly report: RunDiagnosticReporter;
 
-  constructor(run: AgentRun, manager: AgentRunManager, signal?: AbortSignal) {
+  constructor(
+    run: AgentRun,
+    manager: AgentRunManager,
+    signal?: AbortSignal,
+    onDiagnostic?: (diagnostic: NexusRunDiagnostic) => void,
+  ) {
     this.run = run;
     this.signal = signal;
+    this.report = (stage, message) =>
+      reportRunDiagnostic(onDiagnostic, {
+        runId: run.runId,
+        surfaceId: this.record.surfaceId,
+        stage,
+        message,
+      });
     this.sequence = run.sequence;
     const catalog = run.sequence.registry.require(run.sequence.catalogId);
     this.record = new RunRecordHandle(
@@ -194,13 +249,27 @@ export class ManagedAgentRun implements AgentRun {
     this.start();
     this.committing = true;
     try {
-      const commit = await this.record.commitValidated(await this.run.commit(messages));
-      return commit;
+      let raw: NexusSurfaceCommit;
+      try {
+        raw = await this.run.commit(messages);
+      } catch (error) {
+        // 自定义提交函数也可能已写入后失去确认，普通异常不能证明未提交。
+        throw error instanceof RunTaskError ? error : new UnknownCommitError(errorMessage(error));
+      }
+      return await this.record.commitValidated(raw, this.report);
     } catch (error) {
-      this.fail(error);
+      try {
+        this.fail(error);
+      } catch (cause) {
+        this.report('record-transition', errorMessage(cause));
+      }
       throw error;
     } finally {
-      this.dispose();
+      try {
+        this.dispose();
+      } catch (error) {
+        this.report('run-dispose', errorMessage(error));
+      }
     }
   }
 
@@ -244,6 +313,7 @@ export function manageAgentRun(
   run: AgentRun,
   manager?: AgentRunManager,
   signal?: AbortSignal,
+  onDiagnostic?: (diagnostic: NexusRunDiagnostic) => void,
 ): ManagedAgentRun {
   if (run instanceof ManagedAgentRun) {
     if (manager !== undefined && manager !== run.manager) {
@@ -252,5 +322,9 @@ export function manageAgentRun(
     return run;
   }
   if (!manager) throw new Error('自定义 AgentRun 需要显式传入 manager（AgentRunManager）');
-  return new ManagedAgentRun(run, manager, signal);
+  return new ManagedAgentRun(run, manager, signal, onDiagnostic);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

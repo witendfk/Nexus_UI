@@ -558,21 +558,27 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     assert.match(staleOutcome.message ?? '', /revision 不一致/);
 
     // 版本上溢：显式失败，不重置为可碰撞的基准
+    // S3.3：确定性拒绝（版本上溢）经结果契约返回 notCommitted，不再以异常表达。
     const overflowStore = new InMemorySurfaceActionStateStore();
     (
       overflowStore as unknown as {
         revision: number;
       }
     ).revision = Number.MAX_SAFE_INTEGER;
-    await assert.rejects(
-      () =>
-        overflowStore.commitGeneration(SURFACE, ADMISSION_CATALOG_ID, GENERATION_STREAM, {
-          catalogHash,
-          contractVersion: 2,
-          catalog: admissionCatalog,
-        }),
-      /安全整数上限/,
+    const overflowResult = await overflowStore.commitGeneration(
+      SURFACE,
+      ADMISSION_CATALOG_ID,
+      GENERATION_STREAM,
+      {
+        catalogHash,
+        contractVersion: 2,
+        catalog: admissionCatalog,
+      },
     );
+    assert.equal(overflowResult.outcome, 'notCommitted');
+    if (overflowResult.outcome === 'notCommitted') {
+      assert.match(overflowResult.reason, /安全整数上限/);
+    }
   });
 
   it('P1-5：action 准入后发生新生成，其提交按代核对拒绝，过期 patch 不落库', async () => {
@@ -738,16 +744,24 @@ describe('S2.7 复核修复', () => {
       }
       const ledger = new FlakyLedger();
       const { adapter, store, handlerCalls } = await createHarness({ actionLedger: ledger });
-      // S3.2 迁移：ledger 调用发生在调度任务内，抛错 = 运行失败终态而非
-      // prepareAction/dispose/commit 抛错；dispose 不再是独立注入点，与 commit
-      // 同在任务提交收敛处暴露（首运行会真实消费源，handler 调用一次）。
+      // S3.2 迁移：ledger 调用发生在调度任务内；S3.3.3 起按阶段区分——
+      // begin 抛错 = 终态 failed（/Action ledger 不可用/，不再同步抛出、不泄漏
+      // 调度权）；complete 抛错被吞掉并经诊断面报告，不改写 UI 提交事实
+      //（rejection 仍是准入失败终态，dispose/commit 路径运行成功）。
       const first = await adapter.prepareAction(
         actionWith(failure === 'rejection' ? { context: { injected: true } } : {}),
       );
       assert.ok(first.ok, 'S3.2：入队即接受');
       const firstOutcome = await first.run.result;
-      assert.equal(firstOutcome.terminal, 'failed');
-      assert.match(firstOutcome.message ?? '', /ledger unavailable/);
+      if (failure === 'begin') {
+        assert.equal(firstOutcome.terminal, 'failed');
+        assert.match(firstOutcome.message ?? '', /Action ledger 不可用.*ledger unavailable/);
+      } else if (failure === 'rejection') {
+        assert.equal(firstOutcome.terminal, 'failed');
+        assert.match(firstOutcome.message ?? '', /injected/);
+      } else {
+        assert.equal(firstOutcome.terminal, 'succeeded');
+      }
 
       ledger.fail = false;
       const before = await snapshotOf(store);

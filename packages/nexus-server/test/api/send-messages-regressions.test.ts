@@ -156,11 +156,17 @@ describe('sendAgentRun S3.2 独立复审回归', () => {
           yield* messages(surfaceId, 'custom');
         })(),
         commit: async (sent) => {
-          const snapshot = await store.commitGeneration(surfaceId, TEST_CATALOG_ID, sent, {
+          // S3.3：store 结果契约——commitGeneration 返回 SurfaceCommitResult，
+          // 确认提交后从 result.snapshot 取基准。
+          const result = await store.commitGeneration(surfaceId, TEST_CATALOG_ID, sent, {
             catalog,
             contractVersion: 2,
             catalogHash: hash,
           });
+          if (result.outcome !== 'committed') {
+            throw new Error(`custom run 提交未确认: ${result.outcome}`);
+          }
+          const snapshot = result.snapshot;
           return {
             sessionVersion: 1,
             runId: `custom-${first}`,

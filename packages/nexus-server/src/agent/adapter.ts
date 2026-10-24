@@ -8,6 +8,8 @@ import type {
 import { CatalogRegistry as FixedCatalogRegistry } from '@nexus-ui/core';
 import type { AgentSequenceOptions } from './agent-guard';
 import type { AgentPolicy } from './policy';
+import { reportRunDiagnostic, type NexusRunDiagnostic } from './run-diagnostic';
+export type { NexusRunDiagnostic } from './run-diagnostic';
 import type { AgentTurn } from './agent-turn';
 import { InMemorySurfaceHistoryStore, findSurfaceCatalog } from './history';
 import type { SurfaceHistoryStore } from './history';
@@ -24,7 +26,7 @@ import type {
   ResolvedSurfaceAction,
   SurfaceActionLedger,
   SurfaceActionStateStore,
-  SurfaceActionSnapshot,
+  SurfaceLedgerBegin,
 } from './surface-action-state';
 import {
   admitAction,
@@ -42,6 +44,7 @@ import {
 import type { SurfaceScheduler } from '../runtime/surface-scheduler';
 import { schedulerForOwner } from '../runtime/scheduler-owner';
 import { RunTaskError, type RuntimeRunHandle } from '../runtime/run-handle';
+import { commitSurface } from '../runtime/commit-result';
 export interface AgentAction {
   name: string;
   surfaceId: string;
@@ -194,6 +197,12 @@ export interface AgentAdapterOptions {
   defaultGenerationMessage?: string;
   onGenerationCommitted?: (event: AgentGenerationCommitEvent) => void | Promise<void>;
   /**
+   * 宿主观测回调（S3.3.2，ARCHITECTURE §8）：发布点之后的扩展面失败
+   * （generation hook/history、recordCommit、ledger complete）经此报告；
+   * 运行终态与已发布 UI 事实不因这些失败改写。缺省即静默（诊断面缺席）。
+   */
+  onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void;
+  /**
    * @internal 每 runtime 一份的调度器（S3.2）。runtime 工厂注入其调度器；
    * 默认每 adapter 隔离；显式共用 runManager 的入口复用同一调度器。
    */
@@ -239,6 +248,7 @@ export class AgentAdapter {
   private readonly onGenerationCommitted?: (
     event: AgentGenerationCommitEvent,
   ) => void | Promise<void>;
+  private readonly onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void;
   private readonly scheduler: SurfaceScheduler;
 
   constructor(options: AgentAdapterOptions) {
@@ -264,6 +274,7 @@ export class AgentAdapter {
     this.createSurfaceId = options.createSurfaceId ?? (() => `surface-${randomUUID()}`);
     this.defaultGenerationMessage = options.defaultGenerationMessage ?? '';
     this.onGenerationCommitted = options.onGenerationCommitted;
+    this.onRunDiagnostic = options.onRunDiagnostic;
     this.scheduler = schedulerForOwner(this.runManager, options.scheduler);
   }
 
@@ -442,28 +453,55 @@ export class AgentAdapter {
       identity: { catalogId, catalogHash: catalogContract.hash },
       source,
       sequence,
+      onDiagnostic: (stage, diagMessage) =>
+        this.reportDiagnostic(runId, surfaceId, stage, diagMessage),
       commitStep: async (messages) => {
         // S3.2：完整候选与最终校验是所有提交路径的权威闸门（含直接消费），
         // 非 HTTP generation 不再缺同等保证。
         validateAgentCandidateSequence(messages, sequence);
         const surfaceCatalog = findSurfaceCatalog(messages);
         if (!surfaceCatalog) throw new Error('生成流缺少 createSurface，不能提交 history');
-        const committed = await this.actionStateStore.commitGeneration(
-          surfaceCatalog.surfaceId,
-          surfaceCatalog.catalogId,
-          messages,
+        const committed = await commitSurface(
+          () =>
+            this.actionStateStore.commitGeneration(
+              surfaceCatalog.surfaceId,
+              surfaceCatalog.catalogId,
+              messages,
+              {
+                catalogHash: catalogContract.hash,
+                contractVersion: catalogContract.version,
+                catalog,
+              },
+            ),
           {
-            catalogHash: catalogContract.hash,
-            contractVersion: catalogContract.version,
-            catalog,
+            runId,
+            surfaceId,
+            catalogId,
+            contract: {
+              catalogHash: catalogContract.hash,
+              contractVersion: catalogContract.version,
+              catalog,
+            },
           },
+          (stage, message) => this.reportDiagnostic(runId, surfaceId, stage, message),
         );
+        // 发布点之后的扩展失败（S3.3.2）：不删除快照、不改写成功事实，
+        // 经诊断面报告后照常返回固定提交。
         try {
           await this.onGenerationCommitted?.({
             surfaceId: surfaceCatalog.surfaceId,
             catalogId: surfaceCatalog.catalogId,
             messages,
           });
+        } catch (error) {
+          this.reportDiagnostic(
+            runId,
+            surfaceCatalog.surfaceId,
+            'generation-hook',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        try {
           await this.historyStore.commitGeneration(
             surfaceCatalog.surfaceId,
             surfaceCatalog.catalogId,
@@ -475,10 +513,14 @@ export class AgentAdapter {
               : [],
           );
         } catch (error) {
-          await this.actionStateStore.removeSnapshot(surfaceCatalog.surfaceId);
-          throw error;
+          this.reportDiagnostic(
+            runId,
+            surfaceCatalog.surfaceId,
+            'history-commit',
+            error instanceof Error ? error.message : String(error),
+          );
         }
-        return commitResult(committed, runId);
+        return committed;
       },
     };
   }
@@ -563,19 +605,53 @@ export class AgentAdapter {
     }
 
     const ledgerKey = createActionLedgerKey(action);
-    const ledgerStarted = this.actionLedger.begin({
-      key: ledgerKey,
-      surfaceId: action.surfaceId,
-      actionName: action.name,
-      sourceComponentId: action.sourceComponentId,
-    });
-    if (!ledgerStarted) {
+    let ledgerBegin: SurfaceLedgerBegin;
+    try {
+      ledgerBegin = this.actionLedger.begin({
+        key: ledgerKey,
+        surfaceId: action.surfaceId,
+        actionName: action.name,
+        sourceComponentId: action.sourceComponentId,
+      });
+    } catch (error) {
+      // ledger 是扩展面：入账基础设施故障不冒充准入拒绝，也不泄漏调度权
+      //（终态由任务收敛；complete 失败由下方安全封装吞掉并报告）。
+      throw new RunTaskError(
+        'RUN_FAILED',
+        `Action ledger 不可用: ${error instanceof Error ? error.message : String(error)}`,
+        { actionId: action.actionId },
+      );
+    }
+    if (!ledgerBegin.admitted) {
+      if (ledgerBegin.reason === 'capacity') {
+        throw new RunTaskError(
+          'RESOURCE_LIMIT_EXCEEDED',
+          'Action ledger 容量已满（全部记录活动中），不执行 handler',
+          { actionId: action.actionId },
+        );
+      }
       throw new RunTaskError('RUN_ADMISSION_REJECTED', 'Action 重放或重复提交已被拒绝', {
         actionId: action.actionId,
       });
     }
+    // ledger complete 的失败不改写 UI 提交事实，也不得中断任务（S3.3.3）。
+    let ledgerCompleted = false;
+    const completeLedger = (status: 'succeeded' | 'failed'): void => {
+      if (ledgerCompleted) return;
+      ledgerCompleted = true;
+      try {
+        this.actionLedger.complete(ledgerKey, status);
+      } catch (error) {
+        this.reportDiagnostic(
+          runId,
+          action.surfaceId,
+          'ledger-complete',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    };
     const completeLedgerFailed = (): void => {
-      this.actionLedger.complete(ledgerKey, 'failed');
+      completeLedger('failed');
     };
 
     const clientContext = { ...action.context };
@@ -716,27 +792,51 @@ export class AgentAdapter {
       source,
       sequence,
       onAbort: completeLedgerFailed,
+      onDiagnostic: (stage, diagMessage) =>
+        this.reportDiagnostic(runId, action.surfaceId, stage, diagMessage),
       commitStep: async (messages) => {
         if (committed) throw new Error('Action run 已终止，不能再次提交');
         committed = true;
+        const candidates = structuredClone(messages);
+        // 与生成路径共用同一份权威闸门（S3.2 评审 P2-4），避免双份实现漂移。
+        validateAgentCandidateSequence(candidates, sequence);
+        let result: NexusSurfaceCommit;
         try {
-          const candidates = structuredClone(messages);
-          // 与生成路径共用同一份权威闸门（S3.2 评审 P2-4），避免双份实现漂移。
-          validateAgentCandidateSequence(candidates, sequence);
-          const committedSnapshot = await this.actionStateStore.commitAction(candidates, {
-            surfaceId: action.surfaceId,
-            expectedEpoch: snapshot.epoch,
-            expectedRevision: snapshot.version,
-            inputWrites: admission.inputWrites,
-          });
-          this.actionLedger.complete(ledgerKey, 'succeeded');
-          return commitResult(committedSnapshot, runId);
+          result = await commitSurface(
+            () =>
+              this.actionStateStore.commitAction(candidates, {
+                surfaceId: action.surfaceId,
+                expectedEpoch: snapshot.epoch,
+                expectedRevision: snapshot.version,
+                inputWrites: admission.inputWrites,
+              }),
+            {
+              runId,
+              surfaceId: action.surfaceId,
+              catalogId,
+              contract: snapshot.contract,
+              baseline: snapshot,
+            },
+            (stage, message) => this.reportDiagnostic(runId, action.surfaceId, stage, message),
+          );
         } catch (error) {
-          completeLedgerFailed();
+          completeLedger('failed');
           throw error;
         }
+        completeLedger('succeeded');
+        return result;
       },
     };
+  }
+
+  /** 同步、吞异常的诊断面：观测回调自身的失败绝不影响运行终态。 */
+  private reportDiagnostic(
+    runId: string,
+    surfaceId: string,
+    stage: NexusRunDiagnostic['stage'],
+    message: string,
+  ): void {
+    reportRunDiagnostic(this.onRunDiagnostic, { runId, surfaceId, stage, message });
   }
 
   private toPlan(outcome: EnqueueOutcome): AgentPlan {
@@ -747,18 +847,6 @@ export class AgentAdapter {
       ...(outcome.stage === 'capacity' ? { code: 'capacity-limit' as const } : {}),
     };
   }
-}
-
-function commitResult(snapshot: SurfaceActionSnapshot, runId: string): NexusSurfaceCommit {
-  return {
-    sessionVersion: 1,
-    runId,
-    surfaceId: snapshot.surfaceId,
-    catalogId: snapshot.catalogId,
-    contractVersion: snapshot.contract.contractVersion,
-    catalogHash: snapshot.contract.catalogHash,
-    surfaceRevision: snapshot.version,
-  };
 }
 
 function createActionLedgerKey(action: AgentAction): string {

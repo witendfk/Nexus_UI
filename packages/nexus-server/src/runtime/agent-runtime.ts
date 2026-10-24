@@ -1,4 +1,5 @@
 import type { NexusSurfaceCommit } from '@nexus-ui/core';
+import type { RunDiagnosticReporter } from '../agent/run-diagnostic';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../agent/catalog-contract';
 import type { AgentRunManager } from '../agent/run-manager';
 import type { AgentAdapterOptions } from '../agent/adapter';
@@ -41,10 +42,12 @@ export interface PreparedRun {
   actionId?: string;
   source: AsyncIterable<unknown> | Iterable<unknown>;
   sequence: AgentSequenceOptions;
-  /** Authoritative commit step: validation, store write, record retention, success terminal. */
+  /** Authoritative commit step: validation, store write, ledger bookkeeping. */
   commitStep: (sent: unknown[]) => Promise<NexusSurfaceCommit>;
-  /** Ledger/handler write-off on failure paths; called at most once. */
+  /** Idempotent ledger write-off, including final validation failures inside commitStep. */
   onAbort?: () => void;
+  /** 诊断面（S3.3.2）：留存/身份失败经此报告，不改写终态。 */
+  onDiagnostic?: RunDiagnosticReporter;
 }
 
 export type ScheduledRunPreparation = (ctx: { signal: AbortSignal }) => Promise<PreparedRun>;
@@ -126,11 +129,11 @@ export function enqueueScheduledRun(
     executeScheduledRun(handle, async (ctx) => {
       const prepared = await spec.prepare(ctx);
       const rawStep = prepared.commitStep;
-      // Adapter steps return the raw fixed commit; retention and the success
-      // terminal belong to the record owner (assertRunCommit + recordCommit).
       return {
         ...prepared,
-        commitStep: async (sent) => record.commitValidated(await rawStep(sent)),
+        // 与自定义 run 共用提交身份、留存与终态失败隔离。
+        commitStep: async (sent) =>
+          record.commitValidated(await rawStep(sent), prepared.onDiagnostic),
       };
     }),
   );
@@ -186,7 +189,7 @@ export function startManagedRunTask(
         'RESOURCE_LIMIT_EXCEEDED',
         '同 surface 排队运行已达上限，请稍后重试',
       );
-      handle.finishFailure(error, { committing: false, canceled: false });
+      handle.finishFailure(error, { canceled: false });
       return handle;
     }
     const queued = scheduler.enqueue(managed.sequence.surfaceId, task);
@@ -221,7 +224,6 @@ async function executeScheduledRun(
   prepare: ScheduledRunPreparation,
 ): Promise<void> {
   let prepared: PreparedRun | undefined;
-  let committing = false;
   try {
     handle.lifecycle.start();
     if (handle.isAborted()) {
@@ -286,7 +288,6 @@ async function executeScheduledRun(
       throw new RunTaskError('RUN_CANCELLED', '客户端断开，Agent 流已取消');
     }
 
-    committing = true;
     const commit = await prepared.commitStep(handle.sent);
     handle.emitDone(commit);
   } catch (error) {
@@ -308,7 +309,7 @@ async function executeScheduledRun(
         // 扩展面的失败不改变运行终态归属（SPEC §6.3）。
       }
     }
-    handle.finishFailure(failure, { committing, canceled });
+    handle.finishFailure(failure, { canceled });
   } finally {
     handle.disposeLifecycle();
   }

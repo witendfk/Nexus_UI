@@ -10,6 +10,7 @@ import {
 import type { AgentSequenceOptions } from '../agent/agent-guard';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
+import type { NexusRunDiagnostic } from '../agent/run-diagnostic';
 import type { AgentRunManager } from '../agent/run-manager';
 import { manageAgentRun, type ManagedAgentRun } from '../agent/run-lifecycle';
 import { RuntimeRunHandle } from '../runtime/run-handle';
@@ -228,6 +229,8 @@ export interface SendAgentRunOptions {
   streamDelayMs?: number;
   /** Defaults to the SDK run owner; custom runs require one. A different owner is rejected. */
   manager?: AgentRunManager;
+  /** 自定义 AgentRun 的扩展故障诊断；SDK 句柄使用 runtime 装配的诊断回调。 */
+  onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void;
   dispose?: () => void;
 }
 
@@ -259,7 +262,7 @@ export function sendAgentRun(
   let managed: ManagedAgentRun | undefined;
   let stream: PassThrough | undefined;
   try {
-    managed = manageAgentRun(run, options.manager, options.signal);
+    managed = manageAgentRun(run, options.manager, options.signal, options.onRunDiagnostic);
     // Per-owner serialization (S3.2): custom runs queue on the scheduler bound
     // to their record owner, so two runs of one surface stay serial without any
     // module-global state. Rejection happens before the response is claimed.

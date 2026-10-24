@@ -9,15 +9,16 @@ import {
 } from '@nexus-ui/core';
 import type { CatalogDefinition, NexusSurfaceCommit } from '@nexus-ui/core';
 import { AgentAdapter } from '../../src/agent/adapter';
-import type { AgentMessageSource } from '../../src/agent/adapter';
+import type { AgentMessageSource, NexusRunDiagnostic } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import type { AgentRunManager } from '../../src/agent/run-manager';
 import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { sendAgentRun } from '../../src/api/send-messages';
 
 /**
- * S2.5.2 共用运行所有者的留存接线与拒绝路径（S3.2 迁移后语义）：
- * - 调度任务自动提交，recordCommit 在成功 done 写出之前留存固定结果；留存失败不得发布成功 done；
+ * S2.5.2 共用运行所有者的留存接线与拒绝路径（S3.2 迁移后语义；留存语义以 S3.3.2 为准）：
+ * - 调度任务自动提交，recordCommit 在成功 done 写出之前留存固定结果；
+ *   S3.3.2 起留存失败保留成功事实（运行 succeeded、done 照发、诊断 record-commit）；
  * - 记录建立（含容量拒绝）随 enqueue 前移到 prepare 阶段：拒绝返回 ok:false 计划，
  *   不产生 run、不占用 SSE 响应、不启动生成源/动作消息源；
  * - 响应占用失败以 promise 拒绝暴露，发送层以 run.cancel() 终止排队中的运行。
@@ -77,10 +78,14 @@ function generationStream(): AgentMessageSource {
   })() as unknown as AgentMessageSource;
 }
 
-function createAdapter(runManager?: AgentRunManager): AgentAdapter {
+function createAdapter(
+  runManager?: AgentRunManager,
+  onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void,
+): AgentAdapter {
   const adapter = new AgentAdapter({
     registry,
     runManager,
+    ...(onRunDiagnostic ? { onRunDiagnostic } : {}),
     createSurfaceId: () => SURFACE,
     createGenerationSource: () => generationStream(),
   });
@@ -204,13 +209,18 @@ describe('发送层固定结果留存（S2.5.2）', () => {
     assert.ok(flowEvents.includes('generate-source-started'));
   });
 
-  it('留存失败不得发布成功 done，运行记录无可用基准', async () => {
+  // S3.3.2 语义升级（原「留存失败不得发布成功 done，运行记录无可用基准」）：
+  // 以 S3.1 锁定的 §6.3 矩阵为准——store 确认提交后，recordCommit 失败不改写
+  // 已发布的成功事实：运行 succeeded、done 照发（载荷为固定 commit）、记录无
+  // commit（按 run 查询 409）、失败经 onRunDiagnostic(stage 'record-commit') 报告。
+  it('留存失败保留成功事实并经诊断报告', async () => {
     flowEvents.length = 0;
+    const diagnostics: NexusRunDiagnostic[] = [];
     const manager = new SpyRunManager();
     manager.onRecordCommit = () => {
       throw new Error('留存存储不可用');
     };
-    const adapter = createAdapter(manager);
+    const adapter = createAdapter(manager, (diagnostic) => diagnostics.push(diagnostic));
     const plan = await adapter.prepareGeneration({ catalogId: RETENTION_CATALOG_ID });
     assert.ok(plan.ok);
 
@@ -218,12 +228,25 @@ describe('发送层固定结果留存（S2.5.2）', () => {
     const result = await sendAgentRun(ctx, plan.run, { manager, streamDelayMs: 0 });
     await ended;
 
-    assert.equal(result.ok, false);
-    assert.match(output(), /event: error/);
-    assert.doesNotMatch(output(), /event: done/, '留存失败不得发布成功 done');
+    // 成功事实保留：done 照发且载荷为本次运行的固定 commit。
+    assert.equal(result.ok, true);
+    const commit = doneCommit(output());
+    assert.equal(commit.runId, plan.run.runId);
+    assert.equal(commit.surfaceId, SURFACE);
+    assert.doesNotMatch(output(), /event: error/, '留存失败不得改写为错误终态');
+    // 留存失败：记录无可用提交基准（按 run 查询 409），运行记录仍 succeeded。
     const record = manager.get(plan.run.runId);
     assert.equal(record?.commit, undefined, '留存失败不得留下可用提交基准');
-    assert.equal(record?.state, 'failed');
+    assert.equal(record?.state, 'succeeded');
+    // 失败经诊断面报告，不改写终态。
+    assert.ok(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.stage === 'record-commit' && /留存存储不可用/.test(diagnostic.message),
+      ),
+      `应报告 record-commit 诊断：${JSON.stringify(diagnostics)}`,
+    );
+    assert.ok(flowEvents.includes('generate-source-started'));
   });
 
   it('记录建立拒绝发生在占用响应之前：不泄漏响应、不启动生成源', async () => {

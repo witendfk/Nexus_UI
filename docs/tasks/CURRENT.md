@@ -1,12 +1,12 @@
 # CURRENT — 唯一任务与进度源
 
-更新：2026-10-23。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
+更新：2026-10-24。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
 
 ## 当前结论
 
 **产品方向：宿主约束的 Agent UI Runtime SDK。** SDK 提供协议、Catalog、绑定、渲染、运行与交互基建；业务 prompt、模型/工具编排、业务权限与副作用由宿主负责。评审覆盖 SDK 与公开接入契约，不评审接入方业务工程；验证宿主与 Agent 尚未选定，不阻塞确定性夹具验收。
 
-**当前任务：S3 通用 server runtime。** S3.1 契约锁定已完成（2026-10-22）；S3.2 传输无关入口与单一调度已完成（2026-10-23）：`src/runtime/` 新增调度器与运行时模块，`surfaceRunQueues` 与 `acquireSurfaceLock` 双锁删除，prepare* 降级为委托同一调度的兼容外壳。S3.3–S3.7 共 20 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
+**当前任务：S3 通用 server runtime。** S3.1 契约锁定（2026-10-22）、S3.2 传输无关入口与单一调度（2026-10-23，随 `565415f` 提交，含独立复审六项整改）、S3.3 提交事实/ledger 收紧/扩展失败隔离（2026-10-23 交付，2026-10-24 独立复审六项已整改）已完成。S3.4–S3.7 共 16 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
 
 ## 阶段与依赖
 
@@ -15,7 +15,7 @@
 | S0 文档与评审规范 | 已完成 | 产品方向、契约/结构/决策基线、SDK review 范围 |
 | S1 安全基线与业务中立 | 已验收 | 安全防护、显式装配、参考程序迁出、早期产物检查 |
 | S2 Catalog v2 与交互扩展 | 已验收 | 声明驱动交互、共享准入、固定运行结果与消费方迁移 |
-| S3 通用 server runtime | S3.1–S3.2 已完成，S3.3–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
+| S3 通用 server runtime | S3.1–S3.3 已完成，S3.4–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
 | S4 client 与可嵌入 React | 待实施 | 依赖 S2/S3；新 client、Provider/Surface、消费方迁移 |
 | S5 独立契约验收与发行 | 待实施 | 依赖 S1–S4；仓外安装、公开 API/兼容、浏览器和 CI 门禁 |
 
@@ -32,7 +32,7 @@
 
 ## S3 — 单一运行调度与 Session v1
 
-**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.2 已完成，其余 5 个单元 20 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
+**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.3 已完成，其余 4 个单元 16 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
 
 **S3.2 完成记录（2026-10-23）**：传输无关入口与单一调度落地，旧测试按新契约迁移，未删测试消红。
 
@@ -49,7 +49,21 @@ S3.2 首轮门禁（2026-10-23，Node v24.16.0，非本次六项整改证据）�
 
 **S3.1/S3.2 独立复审六项整改（2026-10-23）**：action 入队深拷贝隔离 surface/context/inputs；runtime 与自定义 run 复用唯一 scheduler；manager fail/cancel/dispose 异常不阻断句柄终态并附诊断；sender 初始/后续 signal 接通并释放监听器；排队取消立即释放额度；SPEC 成功字段统一为 `run`。先补反例，修复前定向测试 9 项真实失败（含 1 项已有测试增强），修复后补齐调度器冲突配置与监听器释放检查，定向 23 项通过。六项整改复核 APPROVE，无遗留 actionable finding；不包含 S3.3–S3.7 待实现保证。
 
-本轮门禁（2026-10-23，Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、`pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0。测试合计 874 项（core 319、server 319、React 51、playground 38、standalone 45+11、参考服务 91）；本轮修复涉及的 TS 文件 prettier、六份主链/任务文档本地文件链接（27 个）与围栏、`git diff --check` 通过，本次构建的 server ESM 根入口可加载 `createAgentRuntime`。未运行真实浏览器、仓外安装或远端 CI；未推进 S3.3，未提交/推送。
+本轮门禁（2026-10-23，Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、`pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0。测试合计 874 项（core 319、server 319、React 51、playground 38、standalone 45+11、参考服务 91）；本轮修复涉及的 TS 文件 prettier、六份主链/任务文档本地文件链接（27 个）与围栏、`git diff --check` 通过，本次构建的 server ESM 根入口可加载 `createAgentRuntime`。未运行真实浏览器、仓外安装或远端 CI；未推进 S3.3，未提交/推送。（随注：该轮工作连同 S3.1/S3.2 记录已随 `565415f` 提交，仅未推送。）
+
+**S3.3 完成记录（2026-10-23）**：提交事实三态、观察者隔离与 ledger 收紧落地。
+
+- S3.3.1 store 结果契约：`SurfaceActionStateStore.commitGeneration/commitAction` 返回 `SurfaceCommitResult`（`committed | notCommitted | unknown`）；内存 store 所有拒绝（epoch/revision 比较、缺 surface/组件、版本上溢、写路径失败）都发生在写入前，一律 `notCommitted`，永不 unknown；adapter 把自定义 store 抛出的异常映射 `UnknownCommitError` → 终态 failed、commitState `unknown`、错误码 `RUN_COMMIT_UNKNOWN`，不自动重试。取消与 commit 竞态仍以 store 确认为准（S3.2 已落）。
+- S3.3.2 观察者隔离：删除生成 hook/history 异常后的 `removeSnapshot` 回滚；新增适配器装配项 `onRunDiagnostic`（stage：generation-hook / history-commit / record-commit / commit-identity / ledger-complete / ledger-begin），观测回调自身异常按诊断缺席处理。留存拆分（`RunRecordHandle.assertFixed/retain/finishSucceeded`）：store 确认后 recordCommit 抛错 → 运行 succeeded/committed、done 照发、记录无留存结果（按 run 查询 409）、诊断 record-commit；身份核对失败 → unknown + 诊断 commit-identity。该口径取代 S2.7「留存失败不发布成功 done」，以 SPEC §6.3 矩阵为准。
+- S3.3.3 ledger 收紧：`begin` 三态 `{admitted} | {admitted:false, reason:'duplicate'|'capacity'}`；留存窗口内任意已知记录（running/succeeded/failed）拒绝重入，failed 不再是重试许可；容量满且全部活动 → capacity 拒绝且不入账、不执行 handler（映射 `RESOURCE_LIMIT_EXCEEDED`）；`complete` 抛错被吞并诊断，UI 提交事实不依赖 ledger；`begin` 自身抛错 → `RUN_FAILED`（/Action ledger 不可用/），调度权不泄漏；提交步失败也调用幂等 onAbort，覆盖最终校验拒绝，成功 ledger 不倒写。
+- S3.3.4 证伪集 `test/agent/commit-facts.test.ts`（8 项）：handler 副作用后 patch 被拒 notCommitted 且不重放不回滚（共享 store 双 runtime 制造 epoch 前进）、store 异常 → unknown/RUN_COMMIT_UNKNOWN 单次调用、store notCommitted 传播、hook 失败不回滚快照 + 诊断、recordCommit 失败保留成功事实 + 409 + 诊断、ledger complete 抛错不影响 UI 事实且调度权不泄漏、同 actionId 失败后重试 duplicate 且 handler 累计一次、ledger 容量经跨 surface 命中 capacity 且 handler 零调用。既有回归按新契约迁移（13 文件 113 项，两处语义重写：hook 失败不回滚、留存失败保留成功事实），均保留真实触发条件。
+- 迁移中发现并修复：留存拆分首版把 `finishSucceeded` 放在 retain 的 catch 内，正常路径记录被 dispose 收敛为 canceled；已改为 retain 后无条件收敛（finish 自带终态守卫）。
+
+S3.3 首轮门禁（2026-10-23，历史证据，Node v24.16.0）：`build:packages` exit 0；根 `pnpm test` exit 0（server 327、standalone-host-demo 45、playground-server 91，core/react 同批通过）；`pnpm -r typecheck`、`pnpm -r lint` exit 0；变更文件 prettier 通过；`git diff --check` 通过。SPEC §6.3/§6.4 标注已实施，§6.7 两行迁移项标注已落地，DESIGN D9 状态更新。
+
+**S3.3 独立复审整改（2026-10-24）**：自定义 run 与 adapter 共用提交身份/留存/成功终态收敛；最终校验拒绝执行幂等 ledger 清理；store 非法确认转 unknown；取消不覆盖确定拒绝；组合生命周期故障保留 RUN_COMMIT_UNKNOWN；成功 transition 失败经诊断报告。新增自定义 run 诊断入口（sender 的 onRunDiagnostic），确认提交后清理故障不改写成功事实。先补反例：首批 14 项在修复前 12 fail/2 pass，修复后全绿；额外补两项自定义提交确认丢失与记录异常组合反例，并在成功终态写入失败用例中触发诊断观察者异步拒绝。最终新增 16 项通过；按 SDK review 四维复核，六项整改无遗留 actionable finding。
+
+本轮最终门禁（2026-10-24，Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、`pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0。测试合计 898 项（core 319、server 343、React 51、playground 38、standalone 45+11、参考服务 91）；本轮修复 TS 文件 prettier、六份文档本地文件链接（27 个）/围栏与 `git diff --check` 通过；本次构建 server ESM 根入口及新增 sender 诊断类型声明核对通过。未验证真实浏览器、仓外安装或远端 CI；未推进 S3.4，未提交/推送。
 
 **S3.1 完成记录（2026-10-22）**：契约决策与 oracle 定稿，未实施运行代码。
 
@@ -82,7 +96,7 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | --- | --- | --- | --- | --- |
 | S3.1 | 运行、Session 与迁移契约锁定 | 4 | S2 | **已完成（2026-10-22）**：所有权、状态、提交事实、预算、准入、事件与版本决策写明，正常/失败 oracle 定稿 |
 | S3.2 | 传输无关运行入口与单一调度 | 4 | S3.1 | **已完成（2026-10-23）**：同实例同 surface 全链串行、不同 surface 可并发；HTTP 不另排队；实例隔离 |
-| S3.3 | 提交事实、ledger 与扩展失败隔离 | 4 | S3.2 | 提交前/后/不确定结果可区分；失败不重放副作用；留存与 UI 事实不混淆 |
+| S3.3 | 提交事实、ledger 与扩展失败隔离 | 4 | S3.2 | **已完成（2026-10-23）**：提交前/后/不确定结果可区分；失败不重放副作用；留存与 UI 事实不混淆 |
 | S3.4 | Session v1 事件与诊断 | 4 | S3.3 | start/message/唯一终态统一产生，HTTP/非 HTTP 共用；固定结果与 error commitState 可解析 |
 | S3.5 | Koa/RPC 薄适配与访问准入 | 4 | S3.4 | Koa 只处理 HTTP/序列化/连接；同步占用及 await/void 保留；两种消费路径结果一致 |
 | S3.6 | 资源硬边界与取消收敛 | 4 | S3.2–S3.5 | 队列/活动/消息/字节/留存有界，慢消费停产，取消与 dispose 释放资源 |
@@ -112,7 +126,7 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | S3.2.3 | 迁移 Adapter 锁与 HTTP 全局队列，统一直接调用路径 | Adapter/HTTP 委托接线、旧锁/全局队列删除及既有入口回归 | 删除 `surfaceRunQueues` 与 `acquireSurfaceLock` 的重复所有权；prepare 只做契约允许的预处理，权威读取/业务调用在调度内。source EOF 不提前释放提交资格；重复消费/commit/dispose 按契约拒绝或幂等；显式失败/取消/初始化异常都释放所有权 |
 | S3.2.4 | 补调度、实例隔离与装配失败反例 | 带屏障的并发、实例隔离与异常释放证伪测试集 | 用挂起真实读取/handler 的屏障验证同 surface 顺序、generation/action 交错、排队 handler 零调用、跨 surface 进展、同名跨实例独立、store/ledger/装配抛错后下一任务可完成。不靠 generator 首次 yield 代替工厂/handler 调用计数 |
 
-#### S3.3 — 提交事实、重放与扩展失败隔离（4 项）
+#### S3.3 — 提交事实、重放与扩展失败隔离（4 项，已完成 2026-10-23）
 
 | ID | 子任务与主要位置 | 交付物 | 完成判据 |
 | --- | --- | --- | --- |
@@ -185,7 +199,7 @@ S3.1 已按上述完成记录交付契约与 oracle；S3.2 起执行代码改造
 
 | 待办 | 归属与处置 |
 | --- | --- |
-| failed 重入、提交后异常、旧入口进一步收口、访问钩子 | S3.3–S3.5；唯一调度与句柄失败收敛已在 S3.2 落实 |
+| 旧入口进一步收口、访问钩子 | S3.5；提交事实/ledger 重放与扩展失败隔离已在 S3.3 落实 |
 | 背压/字节硬预算、数组路径越界风险 | S3.6；路径风险先核实可达性，再决定修复范围 |
 | S2 残余草稿恢复与 checks 语义问题 | S3.7.2 核实并明确归属；完整视图恢复由 S4 承接，不借调度重构改业务规则 |
 | Provider 固定布局/runtime 重建、两处 SSE 消费、预览隔离/恢复、草稿读取入口收敛 | S4；同时核对 S1 留下的 React 重复 key 警告与渲染稳定性 |

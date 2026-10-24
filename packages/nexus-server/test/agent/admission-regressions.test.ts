@@ -207,12 +207,12 @@ describe('S2.4 second-review regressions', () => {
     await h.store.commitGeneration('s', h.catalog.catalogId, h.stream, before.contract);
     const recreated = (await h.store.get('s'))!;
     assert(recreated.version > before.version && recreated.epoch !== before.epoch);
-    await assert.rejects(
-      h.store.commitAction([patch('/note', 'stale')], {
-        expectedEpoch: before.epoch,
-        expectedRevision: before.version,
-      }),
-    );
+    // S3.3：确定性拒绝（epoch/revision 基准核对）返回 notCommitted，不再以异常表达。
+    const staleCommit = await h.store.commitAction([patch('/note', 'stale')], {
+      expectedEpoch: before.epoch,
+      expectedRevision: before.version,
+    });
+    assert.equal(staleCommit.outcome, 'notCommitted');
     h.adapter.registerActionHandler(h.catalog.catalogId, 'save', () => []);
     // S3.2 迁移：旧 revision 请求被拒 = 运行内准入失败终态（原 plan.ok=false）
     const stalePlan = await h.adapter.prepareAction(action(h.hash));
@@ -256,9 +256,12 @@ describe('S2.4 second-review regressions', () => {
     assert.equal(secondOutcome.code, 'RUN_ADMISSION_REJECTED');
     assert.match(secondOutcome.message ?? '', /revision 不一致/);
     assert.equal(calls, 1);
-    await assert.rejects(
-      h.store.commitAction([patch('/note', 'stale')], { expectedEpoch: 1, expectedRevision: 1 }),
-    );
+    // S3.3：过期 patch 提交返回 notCommitted，不再以异常表达。
+    const staleCommit = await h.store.commitAction([patch('/note', 'stale')], {
+      expectedEpoch: 1,
+      expectedRevision: 1,
+    });
+    assert.equal(staleCommit.outcome, 'notCommitted');
   });
   it('keeps successful replay protection after repeated terminal cleanup', async () => {
     const h = await harness();

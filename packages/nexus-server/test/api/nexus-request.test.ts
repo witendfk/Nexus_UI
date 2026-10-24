@@ -88,11 +88,13 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   };
   const first = await generate();
   assert.equal((await post('event', fixture.request.message)).status, 400);
+  // S3.3.3：被拒尝试会以 actionId 入账 failed 记录且不再是重试许可，
+  // 因此陈旧视图与合法提交使用不同 actionId。
   const envelope = {
     message: fixture.request.message,
     nexus: {
       ...fixture.request.nexus,
-      actionId: 'original-browser-action',
+      actionId: 'stale-browser-action',
       surfaceRevision: first.surfaceRevision,
       catalogHash: first.catalogHash,
     },
@@ -110,9 +112,20 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   assert(second.surfaceRevision > first.surfaceRevision);
   await assertEventRejected(envelope, '旧渲染 revision 的提交必须被拒');
   assert.equal(calls, 0);
+  // S3.3.3 证伪点：failed 记录不是重试许可——同一 actionId 即使换成当前
+  // revision 也按重放/重复拒绝，handler 不执行（原契约允许 failed 后重试完成）。
+  await assertEventRejected(
+    { ...envelope, nexus: { ...envelope.nexus, surfaceRevision: second.surfaceRevision } },
+    'failed ledger record is not a retry license',
+  );
+  assert.equal(calls, 0);
   const current = {
     ...envelope,
-    nexus: { ...envelope.nexus, surfaceRevision: second.surfaceRevision },
+    nexus: {
+      ...envelope.nexus,
+      actionId: 'original-browser-action',
+      surfaceRevision: second.surfaceRevision,
+    },
   };
   const response = await post('event', current);
   const output = await response.text();

@@ -1,6 +1,6 @@
 # SPEC — SDK 契约
 
-更新：2026-10-23。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
+更新：2026-10-24。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
 
 ## 0. 术语与权威
 
@@ -251,7 +251,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 **版本决策（S3.1）**：Nexus Session 保持 1（本契约新增事件与错误码枚举值，不改变既有 `done`/`message` 形状，消费方按事件名分派）；server API 保持 1；外部 Agent RPC 保持 1（请求载荷不变）；agent onboarding 保持 1；Catalog Contract 保持 2。不做新旧两套流解释；新增字段只出现在新事件中，A2UI payload 不掺运行元数据。
 
-## 6. 运行时契约（S3.1 锁定，2026-10-22；实施随 S3.2–S3.6）
+## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，其余条目实施随 S3.4–S3.6）
 
 本节为 S3.1 定型的运行契约；实施完成前各条目不代表当前保证（现状见 §3、ARCHITECTURE §6）。
 
@@ -296,7 +296,7 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 
 所有提交路径（HTTP、非 Koa、直接 commit、自定义 `AgentRun`）在提交前经同一完整校验（逐条 guard + `validateAgentStreamFinalDetailed` + root 要求）；流式下发侧的逐条校验保留用于尽早拒绝，实现共用一份 guard，不是两套解释。
 
-### 6.3 提交事实与失败矩阵
+### 6.3 提交事实与失败矩阵（已实施，S3.3，2026-10-23）
 
 | 阶段 | 写入结果 | run 终态 | commitState | 客户端所见 | 副作用 |
 | --- | --- | --- | --- | --- | --- |
@@ -307,15 +307,17 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 | store 提交异常（无法证明未写） | 不确定 | failed | unknown | error `RUN_COMMIT_UNKNOWN` | 不自动重试 |
 | 提交成功后 history/hook/record/传输失败 | 已发布 | succeeded | committed | done 已发或传输失败 | 留存与 UI 事实不改写 |
 
-- store 结果契约：`commitGeneration`/`commitAction` 返回 `{ outcome: 'committed' | 'notCommitted' | 'unknown' }`。确定性拒绝（revision/epoch 比较、结构校验、surface 缺失）必须返回 `notCommitted`；实现无法证明未写入时返回或被映射为 `unknown`（异常一律视为 unknown，不得凭异常推断未提交）。
+- store 结果契约（已实施）：`commitGeneration`/`commitAction` 返回 `{ outcome: 'committed' | 'notCommitted' | 'unknown' }`。确定性拒绝（revision/epoch 比较、结构校验、surface 缺失）必须返回 `notCommitted`；实现无法证明未写入时返回或被映射为 `unknown`（store 抛出的异常一律视为 unknown，不得凭异常推断未提交）。提交返回值须经运行时校验 outcome、快照结构、surface/Catalog 身份、声明内容/hash、epoch/revision；确认缺失或非法报 `RUN_COMMIT_UNKNOWN`，不凭字段读取异常推断未写入。取消与确定拒绝竞态仍为 canceled/notCommitted，取消与 unknown 竞态为 canceled/unknown；生命周期附加故障不得覆盖原错误分类。
+- 发布点之后的 history/hook 失败经适配器装配项 `onRunDiagnostic`（诊断面，宿主可选回调）报告，不删除快照、不改写成功事实；留存（`record-commit`）、成功终态写入（`record-transition`）失败同样报告并保留 succeeded/committed。外部记录仍以实际写入为准，不伪造留存或终态成功；无留存结果时按 run 查询返回 409。自定义 `AgentRun` 共用同一身份/留存/终态收敛，诊断从 `sendAgentRun` 的 `onRunDiagnostic` 接收；确认提交后的宿主清理失败报告 `run-dispose`，不调用失败回调或抹除 done。自定义提交函数普通异常按 unknown 处理。诊断回调自身抛错或 Promise 拒绝按诊断缺席处理，不等待观察者完成。
 - `commitState` 一经 `committed` 不可被取消、失败或传输异常倒写；取消与提交竞态时以 store 确认结果为准（`fixtures/session-v1/cancel-racing-commit.json`）。
 - revision/epoch 单调、声明固定、引用隔离、合法空输出 action 仍一次提交并推进 revision 沿 §4.3 不变。
 
-### 6.4 重复 action 与 ledger
+### 6.4 重复 action 与 ledger（已实施，S3.3，2026-10-23）
 
 - `begin` 返回三态：接受 / `duplicate` / `capacity`。留存窗口内已知记录（running/succeeded/failed/canceled）一律拒绝重入；`failed` 不是重试许可，SDK 不自动重放。
 - 容量满且全部活动时拒绝新条目且不执行 handler；活动记录不参与淘汰。留存窗口之外不承诺永久 exactly-once；业务重试与幂等归宿主。
 - ledger 完成失败不泄漏 surface 调度权；UI 提交事实不依赖 ledger complete 成功。
+- 提交步内的最终校验拒绝也须完成 ledger 失败写回；完成操作幂等，不能因已经进入 commitStep 而漏掉发布前失败，也不能在成功后倒写 failed。
 
 ### 6.5 访问准入钩子
 
@@ -335,8 +337,8 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 | `AgentAdapter.acquireSurfaceLock`（私有双锁） | 删除；统一调度接管 | S3.2 |
 | `AgentAdapter.prepareGeneration/prepareAction` | 保留公开兼容外壳，内部委托同一调度；`{ok:false}` 收窄为入队前错误 | S3.2 |
 | `AgentPlan` 语义 | `ok:false` 仅限入队前拒绝；运行内失败走句柄终态 | S3.2 |
-| 生成提交的 hook/history 异常回滚快照 | 删除；扩展失败与 UI 事实分离（§6.3） | S3.3 |
-| ledger `failed` 记录重入 | 任意已知记录拒绝重入（§6.4） | S3.3 |
+| 生成提交的 hook/history 异常回滚快照 | **已删除（S3.3）**；扩展失败经 `onRunDiagnostic` 报告，快照与成功事实保留（§6.3） | S3.3 |
+| ledger `failed` 记录重入 | **已落地（S3.3）**：三态 begin，任意已知记录拒绝重入，容量满拒绝且不执行 handler（§6.4） | S3.3 |
 | `runsAccess` 路由选项 | 迁移为 `access.read`，读取 403 码保持 | S3.5 |
 | `sendAgentRun(ctx, run, options)` | 签名保留；内部改为句柄→SSE 薄适配，不再自建队列或解释 Catalog | S3.5 |
 | `sendMessages`（模块内，未公开导出） | 保留为非运行工具路径，不产生运行记录、不携带运行头 | — |

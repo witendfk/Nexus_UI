@@ -42,7 +42,11 @@ export type {
   SurfaceActionLedgerRecord,
   SurfaceActionSnapshot,
   SurfaceActionStateStore,
+  SurfaceCommitOutcome,
+  SurfaceCommitResult,
+  SurfaceLedgerBegin,
 } from './agent/surface-action-state';
+export type { NexusRunDiagnostic } from './agent/run-diagnostic';
 export type { AgentTurn } from './agent/agent-turn';
 export {
   createAgentStreamState,
