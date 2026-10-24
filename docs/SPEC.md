@@ -195,11 +195,11 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 响应头写入失败与其它 SSE 响应头同策略：响应占用失败（含 `flushHeaders` 抛错）在调用方同步段抛出并撤销已分配的流、运行收敛为 canceled 并释放宿主 dispose 资源，不留半占用响应（S3.2 语义更新：S2 时期记录迁移 failed）。完整 Session/SSE 生命周期（`start` 事件、断线恢复）不在本切片内，归 S3/S4；按 run 查询路由已由 S2.5.3 实施（§5.1）。
 
-### 5.4 Session v1 事件契约（S3.1 锁定，2026-10-22；实施随 S3.4–S3.6）
+### 5.4 Session v1 事件契约（S3.1 锁定，2026-10-22；事件面已随 S3.4 实施，SSE 薄适配与访问准入归 S3.5，资源硬预算归 S3.6）
 
-本节为 S3.1 定型的 wire 契约；实施前不代表已交付能力。共享 oracle 数据定稿于 `fixtures/session-v1/`（含预算表、正常/取消/提交前后/unknown/重复/容量/慢消费/观察者失败场景），core 解析与 server 运行时对同一数据必须给出一致结论。
+本节为 S3.1 定型的 wire 契约。事件面——core 纯类型/解析/序列检查、runtime 统一事件源与锁定 error 形状的 SSE 转发——已随 S3.4 实施；传输薄适配、访问钩子与断连清理归 S3.5，资源硬预算归 S3.6。共享 oracle 数据定稿于 `fixtures/session-v1/`（含预算表、正常/取消/提交前后/unknown/重复/容量/慢消费/观察者失败场景），core 解析与 server 运行时对同一数据必须给出一致结论。
 
-**事件模型**：每次 run 恰一个有序事件流，wire 事件名为 `start`、`message`、`done`、`error`。HTTP SSE 与非 Koa 事件消费共用同一事实源与同一序列规则；`runId` 贯穿事件、`X-Nexus-Run-Id` 响应头、运行记录与 done 载荷（§5.1）。
+**事件模型**：每次 run 恰一个有序事件流，wire 事件名为 `start`、`message`、`done`、`error`。HTTP SSE 与非 Koa 事件消费共用同一事实源与同一序列规则；`runId` 贯穿事件、`X-Nexus-Run-Id` 响应头、运行记录与 done 载荷（§5.1）。`start` 载荷携带 `type: "start"` 判别字段（S3.2 起既有形状；消费方按 SSE 事件名分派，core 解析器按事件名归一并校验该字段）。
 
 `start` 事件字段：
 
@@ -213,7 +213,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 | `catalogHash` | string | `sha256:` 加 64 位十六进制 |
 | `surfaceRevision` | 正安全整数，可选 | action 运行必带，值为调度内实际读取快照的 revision；generation 运行不携带（surface 由本次运行创建，无旧基准可报告） |
 
-`start` 在调度任务内、完成快照读取与准入（含参数重算与可选 resolver）后、先于候选消息消费与 handler 调用发出；基准取调度内实际快照，不得提前读最新快照拼装。排队中的 run 未进调度，被取消时不产生 `start`。
+`start` 在调度任务内身份与基准可得后、先于准入裁决、候选消息消费与 handler 调用发出：generation 在固定 Catalog 后、读取 history 前；action 在读取实际快照后。基准取调度内实际快照，不得提前读最新快照或采用客户端声明拼装。已取得快照的准入拒绝是「start → error」序列（`fixtures/session-v1/reject-admission-stale-revision.json`）。快照不存在/读取异常、记录启动异常等身份准备失败不伪造 start，产生带 `beforeStart:true` 的唯一 error；排队取消同样不产生 start。
 
 `message` 事件 data 为原始 A2UI v0.9 信封，形状与 §1 一致，不追加任何运行元数据；逐条经共享 guard 校验后才进入本次预览。
 
@@ -228,9 +228,10 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 | `surfaceId` | string | 非空 |
 | `code` | 枚举 | 见下表 |
 | `commitState` | `notCommitted` \| `unknown` | error 流不得为 `committed`（已确认提交走 done） |
-| `message` | string，可选 | 截断至诊断上限 |
-| `diagnostics` | 数组，可选 | 复用 §1 结构化诊断（`PROTOCOL_INVALID` 等）与 `path`/`dataPath` |
+| `message` | string，可选 | 截断至诊断上限（core `NEXUS_SESSION_DIAGNOSTIC_LIMIT`，512 字符；字节级预算归 S3.6） |
+| `diagnostics` | 数组，可选 | 复用 §1 结构化诊断（`PROTOCOL_INVALID` 等）与 `path`/`dataPath`；条目 `{ code, message, path?, dataPath? }`，message 同上限截断 |
 | `actionId` | string，可选 | action 运行可获得时携带 |
+| `beforeStart` | 字面量 true，可选 | 身份/基准准备失败或排队取消，没有 start；只能 `notCommitted`，不得为 `RUN_COMMIT_UNKNOWN`；已发 start 后禁止出现 |
 
 错误码枚举（Nexus session 契约，不伪装为 A2UI 协议字段）：
 
@@ -243,7 +244,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 | `RESOURCE_LIMIT_EXCEEDED` | 消息数/字节/缓冲等预算超限 | 按提交事实 |
 | `AGENT_STREAM_ERROR` | 传输边界错误（S2 既有码，保留） | 按提交事实 |
 
-**序列规则**：`start` 是首事件（排队取消例外：唯一事件为 `error`/`RUN_CANCELLED`）；其后 `message` 零或多条；每条流恰一个终态（`done` 或 `error`），终态后不得再有任何事件；EOF/iterator return 不是终态，消费方不得据此推断成功。连接已断而无法投递终态时，运行在本地记录终态事实（§6.3），不要求重放。
+**序列规则**：`start` 是首事件；准备失败或排队取消可为唯一 error（显式 `beforeStart:true`；无此字段时仅保留 `RUN_CANCELLED/notCommitted` 的排队取消兼容形状）。其后 `message` 零或多条；每条流恰一个终态（`done` 或 `error`），终态后不得再有任何事件；EOF/iterator return 不是终态，消费方不得据此推断成功。连接已断而无法投递终态时，运行在本地记录终态事实（§6.3），不要求重放。SSE `error` 载荷即上方字段表（S2 过渡的 `code: AGENT_STREAM_ERROR` 覆盖、`runCode`/顶层 `boundaryCode` 附加字段已随 S3.4 移除，边界分类改入 `diagnostics`）；非 Koa 消费经句柄 `events()` 得到同一事件事实，进程内判别字段不上 wire。订阅更替（提前退出后再次订阅）经缓冲接续同一条逻辑流：iterator.return() 将尚未投递的消息与终态同步归还句柄，旧迭代器关闭后不能再消费；不构成广播，也不产生第二个终态。序列检查保存 start 身份副本，后续 message 的 surfaceId 与 createSurface 的 Catalog 必须一致，error 的 runId/surfaceId 必须一致，done 的运行/契约身份必须一致；action done revision 必须大于 start 的实际基准。actionId 在入队时固定，handler/候选/提交失败与排队/运行取消均保留可获得的关联。
 
 **运行记录存在性**：入队前的拒绝（access 未配置/拒绝、队列容量、envelope/装配错误）不创建运行记录、无 `X-Nexus-Run-Id` 响应头；入队成功即建立 `queued` 记录并占用响应（排队 run 同步写头，不回落 404）。调度内准入失败是运行失败终态，记录存在且可查询（无结果时 409）。
 
@@ -251,7 +252,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 **版本决策（S3.1）**：Nexus Session 保持 1（本契约新增事件与错误码枚举值，不改变既有 `done`/`message` 形状，消费方按事件名分派）；server API 保持 1；外部 Agent RPC 保持 1（请求载荷不变）；agent onboarding 保持 1；Catalog Contract 保持 2。不做新旧两套流解释；新增字段只出现在新事件中，A2UI payload 不掺运行元数据。
 
-## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，其余条目实施随 S3.4–S3.6）
+## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，§6.1 句柄事件面已随 S3.4 实施，其余条目实施随 S3.5–S3.6）
 
 本节为 S3.1 定型的运行契约；实施完成前各条目不代表当前保证（现状见 §3、ARCHITECTURE §6）。
 
@@ -259,7 +260,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 - `createAgentRuntime(options): AgentRuntime` 为 server 公开高层入口（DESIGN D12）：`options` 覆盖现有 `AgentAdapterOptions` 全部显式装配项（`registry` 必填、`historyStore` 缺省隔离新建、`useLlm` 默认 false、`catalogId` 必填等，§2），新增 `scheduler`、`access`、`budgets`；缺少必需依赖在工厂初始化时抛错。默认 store、ledger、scheduler、runManager 每实例一份，实例间互不共享；根入口无 listener、环境读取或模型默认值。
 - `AgentRuntime.generate(request, options?)` / `AgentRuntime.action(request, options?)` 返回 `Promise<{ accepted: true, run } | { accepted: false, stage, code?, message }>`（成功字段固定为 `run`；拒绝 `stage` 为 `request` 或 `capacity`）：预期拒绝（access、容量、请求级校验）以结果报告，不抛异常；装配/编程错误抛错。非 Koa 消费无需构造任何 HTTP 对象。
-- 运行句柄暴露 `runId`/`surfaceId`/`kind`、`events(): AsyncIterable<SessionEvent>`（单消费者、S3.4 事实源）、`result`（终态结果 Promise，含终态/commitState/固定提交）、`cancel(reason?)` 与幂等 `dispose()`。
+- 运行句柄暴露 `runId`/`surfaceId`/`kind`、`events(): AsyncIterable<SessionEvent>`（单条逻辑流、唯一事实源，已随 S3.4 实施：订阅更替经缓冲接续同一条流）、`result`（终态结果 Promise，含终态/commitState/固定提交）、`cancel(reason?)` 与幂等 `dispose()`。
 - `queryRun(surfaceId, runId)` / `listRuns(surfaceId)` 只读 run 记录所有者；语义与 §5.1 查询一致，不读当前 surface 快照。
 
 | 事实 | 唯一所有者 | 备注 |

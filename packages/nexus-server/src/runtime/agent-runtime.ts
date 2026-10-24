@@ -1,4 +1,5 @@
 import type { NexusSurfaceCommit } from '@nexus-ui/core';
+import { NEXUS_SESSION_VERSION } from '@nexus-ui/core';
 import type { RunDiagnosticReporter } from '../agent/run-diagnostic';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../agent/catalog-contract';
 import type { AgentRunManager } from '../agent/run-manager';
@@ -50,7 +51,17 @@ export interface PreparedRun {
   onDiagnostic?: RunDiagnosticReporter;
 }
 
-export type ScheduledRunPreparation = (ctx: { signal: AbortSignal }) => Promise<PreparedRun>;
+export interface ScheduledRunPrepareContext {
+  signal: AbortSignal;
+  /**
+   * 绑定调度内实际身份并发出唯一 start 事件（SPEC §5.4 与 fixtures/session-v1
+   * oracle：start 取实际读取快照的基准，先于准入裁决与候选消息；排队取消不产生
+   * start）。准备完成后未绑定的运行由任务侧以 prepared.identity 兜底补发。
+   */
+  bindBaseline: (identity: RunIdentity, surfaceRevision?: number) => void;
+}
+
+export type ScheduledRunPreparation = (ctx: ScheduledRunPrepareContext) => Promise<PreparedRun>;
 
 /** Adapter-run lifecycle facade over the record created at enqueue time. */
 class AdapterRunLifecycle implements RunLifecycle {
@@ -89,6 +100,7 @@ export function enqueueScheduledRun(
     runId: string;
     surfaceId: string;
     prepare: ScheduledRunPreparation;
+    actionId?: string;
   },
   options?: { signal?: AbortSignal },
 ): EnqueueOutcome {
@@ -121,6 +133,7 @@ export function enqueueScheduledRun(
       surfaceId: spec.surfaceId,
       kind: spec.kind,
       manager: host.runManager,
+      actionId: spec.actionId,
     },
     new AdapterRunLifecycle(record),
     options,
@@ -224,28 +237,34 @@ async function executeScheduledRun(
   prepare: ScheduledRunPreparation,
 ): Promise<void> {
   let prepared: PreparedRun | undefined;
+  // start 恰发一次（SPEC §5.4）：基准由调度内实际快照绑定，准入裁决与候选
+  // 消费都不得早于它；排队取消的 run 不进任务体，天然没有 start。
+  let baselineBound = false;
+  const bindBaseline = (identity: RunIdentity, surfaceRevision?: number): void => {
+    handle.lifecycle.bindIdentity?.(identity);
+    if (baselineBound) return;
+    baselineBound = true;
+    handle.emitStart({
+      type: 'start',
+      sessionVersion: NEXUS_SESSION_VERSION,
+      runId: handle.runId,
+      surfaceId: handle.surfaceId,
+      catalogId: identity.catalogId,
+      contractVersion: CATALOG_CONTRACT_VERSION,
+      catalogHash: identity.catalogHash,
+      ...(surfaceRevision === undefined ? {} : { surfaceRevision }),
+    });
+  };
   try {
     handle.lifecycle.start();
     if (handle.isAborted()) {
       throw new RunTaskError('RUN_CANCELLED', '运行在启动前被取消');
     }
-    prepared = await prepare({ signal: handle.abortSignal });
-    handle.attachSequence(prepared.sequence);
-    if (prepared.identity) handle.lifecycle.bindIdentity?.(prepared.identity);
-    if (prepared.identity) {
-      handle.emitStart({
-        type: 'start',
-        sessionVersion: 1,
-        runId: handle.runId,
-        surfaceId: handle.surfaceId,
-        catalogId: prepared.identity.catalogId,
-        contractVersion: CATALOG_CONTRACT_VERSION,
-        catalogHash: prepared.identity.catalogHash,
-        ...(prepared.surfaceRevision === undefined
-          ? {}
-          : { surfaceRevision: prepared.surfaceRevision }),
-      });
+    prepared = await prepare({ signal: handle.abortSignal, bindBaseline });
+    if (!baselineBound && prepared.identity) {
+      bindBaseline(prepared.identity, prepared.surfaceRevision);
     }
+    handle.attachSequence(prepared.sequence);
 
     const state = createAgentStreamState(prepared.sequence);
     let hasRoot = prepared.sequence.kind === 'action';

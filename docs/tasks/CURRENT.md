@@ -6,7 +6,7 @@
 
 **产品方向：宿主约束的 Agent UI Runtime SDK。** SDK 提供协议、Catalog、绑定、渲染、运行与交互基建；业务 prompt、模型/工具编排、业务权限与副作用由宿主负责。评审覆盖 SDK 与公开接入契约，不评审接入方业务工程；验证宿主与 Agent 尚未选定，不阻塞确定性夹具验收。
 
-**当前任务：S3 通用 server runtime。** S3.1 契约锁定（2026-10-22）、S3.2 传输无关入口与单一调度（2026-10-23，随 `565415f` 提交，含独立复审六项整改）、S3.3 提交事实/ledger 收紧/扩展失败隔离（2026-10-23 交付，2026-10-24 独立复审六项已整改）已完成。S3.4–S3.7 共 16 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
+**当前任务：S3 通用 server runtime。** S3.1 契约锁定（2026-10-22）、S3.2 传输无关入口与单一调度（2026-10-23，随 `565415f` 提交，含独立复审六项整改）、S3.3 提交事实/ledger 收紧/扩展失败隔离（2026-10-23 交付，2026-10-24 独立复审六项已整改）、S3.4 Session v1 事件与结构化诊断（2026-10-24）已完成。S3.5–S3.7 共 12 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
 
 ## 阶段与依赖
 
@@ -15,7 +15,7 @@
 | S0 文档与评审规范 | 已完成 | 产品方向、契约/结构/决策基线、SDK review 范围 |
 | S1 安全基线与业务中立 | 已验收 | 安全防护、显式装配、参考程序迁出、早期产物检查 |
 | S2 Catalog v2 与交互扩展 | 已验收 | 声明驱动交互、共享准入、固定运行结果与消费方迁移 |
-| S3 通用 server runtime | S3.1–S3.3 已完成，S3.4–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
+| S3 通用 server runtime | S3.1–S3.4 已完成，S3.5–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
 | S4 client 与可嵌入 React | 待实施 | 依赖 S2/S3；新 client、Provider/Surface、消费方迁移 |
 | S5 独立契约验收与发行 | 待实施 | 依赖 S1–S4；仓外安装、公开 API/兼容、浏览器和 CI 门禁 |
 
@@ -32,7 +32,21 @@
 
 ## S3 — 单一运行调度与 Session v1
 
-**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.3 已完成，其余 4 个单元 16 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
+**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.4 已完成，其余 3 个单元 12 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
+
+**S3.4 完成记录（2026-10-24）**：Session v1 事件唯一事实源与结构化诊断落地。
+
+- S3.4.1 core/session 事件面（`src/session/events.ts`，纯 wire 形状与规则，无 Node/React/server 依赖）：start/done/error/message 事件类型、`parseSessionEvent` 按 SSE 事件名解析单事件（未知版本/事件名/错误码/committed 状态显式拒绝，JSON 往返稳定）、`createSessionStreamCheck` 序列检查（start 首事件+排队取消例外、message 零或多、恰一终态、EOF 无终态不完整）；诊断条目 `{code, message, path?, dataPath?}` 与共享截断上限 `NEXUS_SESSION_DIAGNOSTIC_LIMIT`（512 字符）；core 公开入口导出并同步 API 面快照测试。
+- S3.4.2 runtime 事件对齐：`RuntimeRunEvent` error 携带 `sessionVersion/runId/surfaceId/code/commitState`（身份在 emitError 统一装配），diagnostics 归一为会话条目（边界码 Protocol/Profile/Catalog/Policy、组件 schema 诊断 path/dataPath、生命周期故障折叠进 message），文本统一截断；start 发射点改为调度内 `bindBaseline(identity, surfaceRevision)`——适配器 action 准备在快照读取后、准入裁决前绑定（恰一次），准备完成仍未绑定的由 `prepared.identity` 兜底补发（自定义 run 保持原时序）。
+- 契约澄清（S3.1 文字冲突裁决）：「start 在准入后发出」与同日锁定的 fixture oracle（`reject-admission-stale-revision` 预期 `[start, error]`、start 携带实际读取基准）及当时序列规则「start 是首事件（唯一例外排队取消）」互相矛盾；实施以 fixture oracle 与序列规则为准——准入拒绝流为 start→error，start 报告调度内实际基准而非客户端声明。SPEC §5.4 措辞已按实施更新；复审实际接入 fixture 后发现该旧 oracle 仍写客户端基准，已按 SPEC 校准为权威快照 revision（见下方整改）。
+- S3.4.3 唯一终态与消费迁移：SSE error 帧直接转发锁定载荷（移除 S2 过渡的 `code: AGENT_STREAM_ERROR` 覆盖与 `runCode`/顶层 `boundaryCode` 附加字段，边界分类改入 diagnostics；进程内判别字段不上 wire）；`sendMessages` 原始工具路径保持非运行错误形状不变；verifier 错误解析迁移到新载荷并从 diagnostics 提取边界码（policy 拒绝验收语义不变）；订阅更替（提前退出后再订阅）经缓冲接续同一条逻辑流，不产生第二个终态。
+- S3.4.4 测试：新增 `test/runtime/session-events.test.ts` 9 项——正常生成、action start 携带调度内基准、空输出 action 一次提交、HTTP/非 Koa 同输入对拍（事件名/载荷/终态一致）+ HTTP error 锁定形状回归（无 `runCode`/顶层 `boundaryCode`）、准入拒绝（start 带实际基准、handler 零调用、记录 409 语义）、store unknown、排队取消唯一 error、取消竞态 done 胜出、非法候选/缺 root 诊断分类、提前退出接续重放；事件逐条经 core `parseSessionEvent`+`createSessionStreamCheck` 对拍（fixtures/session-v1 结论）。core 新增 `test/session/events.test.ts`（解析/序列/往返/遗留过渡形状拒绝）。既有断言同组迁移：server 4 文件、playground 3 处、standalone 3 处（`runCode`→`code`；host-guard 改 diagnostics 形状）。
+
+S3.4 首轮门禁（2026-10-24，历史证据，Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、根 `pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0。测试合计 923 项（core 335、server 352、React 51、playground 38、standalone 45+11、参考服务 91）；变更 TS 文件 prettier 与 `git diff --check` 通过；本次构建 core/server ESM 根入口加载并核对新增导出（`parseSessionEvent` 等）通过。未运行真实浏览器、仓外安装或远端 CI；未推进 S3.5，未提交/推送。
+
+**S3.4 独立复审五项整改（2026-10-24）**：身份准备前失败显式 beforeStart/notCommitted（不伪造 start），generation 在 history 读取前绑定身份；core 保存 start 身份副本并核对 message/error/done 身份与 action revision 推进；迭代器退出同步移交未读缓存与终态；actionId 在入队时固定并覆盖 handler 失败及排队/运行取消；core/server 直接读取四份 Session oracle（生成、含输入 action、旧 revision、store unknown），server 同验直接事件与真实 SSE 目的流。旧 oracle 的 start 基准、输入基础模型+handler patch 条数、unknown 前消息漏项按 SPEC 与调用顺序校准，未替换产品保证。先补证伪：core 7 项与 server 7 项修复前均失败、修复后通过；四份共享 oracle 双端初测通过。本轮整改范围复核无遗留 actionable finding。其余 oracle 不在此记录冒充已验收；不推进 S3.5。
+
+本轮最终门禁（2026-10-24，Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、根 `pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0。新增 26 项（首批证伪 14 项、共享 oracle 12 项），合计 949 项（core 346、server 367、React 51、playground 38、standalone 45+11、参考服务 91）；变更 TS/fixture 定向 prettier、文档链接/围栏与 `git diff --check` 通过。原 review 探针逐项复验、当前构建 core/server ESM 根入口及 beforeStart 解析/序列规则通过；未验证真实浏览器、仓外安装或远端 CI，未提交/推送。
 
 **S3.2 完成记录（2026-10-23）**：传输无关入口与单一调度落地，旧测试按新契约迁移，未删测试消红。
 
@@ -97,12 +111,12 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | S3.1 | 运行、Session 与迁移契约锁定 | 4 | S2 | **已完成（2026-10-22）**：所有权、状态、提交事实、预算、准入、事件与版本决策写明，正常/失败 oracle 定稿 |
 | S3.2 | 传输无关运行入口与单一调度 | 4 | S3.1 | **已完成（2026-10-23）**：同实例同 surface 全链串行、不同 surface 可并发；HTTP 不另排队；实例隔离 |
 | S3.3 | 提交事实、ledger 与扩展失败隔离 | 4 | S3.2 | **已完成（2026-10-23）**：提交前/后/不确定结果可区分；失败不重放副作用；留存与 UI 事实不混淆 |
-| S3.4 | Session v1 事件与诊断 | 4 | S3.3 | start/message/唯一终态统一产生，HTTP/非 HTTP 共用；固定结果与 error commitState 可解析 |
+| S3.4 | Session v1 事件与诊断 | 4 | S3.3 | **已完成（2026-10-24）**：start/message/唯一终态统一产生，HTTP/非 HTTP 共用；固定结果与 error commitState 可解析 |
 | S3.5 | Koa/RPC 薄适配与访问准入 | 4 | S3.4 | Koa 只处理 HTTP/序列化/连接；同步占用及 await/void 保留；两种消费路径结果一致 |
 | S3.6 | 资源硬边界与取消收敛 | 4 | S3.2–S3.5 | 队列/活动/消息/字节/留存有界，慢消费停产，取消与 dispose 释放资源 |
 | S3.7 | 消费迁移、独立复核与阶段验收 | 4 | S3.1–S3.6 | 公开消费路径可用、反例矩阵与真实门禁成立，交接 S4 |
 
-**子任务执行口径**：每个单元下的 `.1`–`.4` 为可跟踪子任务，以下 28 项中 S3.1/S3.2 的 8 项已完成（见上方记录），其余 20 项待实施。每项明确交付物与完成判据；完成时就地记录状态、实际改动位置及验证证据。实现项同步补其正反例，不能等到单元末尾才验证；单元最后一项负责组合复核。子任务编号用于跟踪，不强制一项一个提交。
+**子任务执行口径**：每个单元下的 `.1`–`.4` 为可跟踪子任务，以下 28 项中 S3.1–S3.4 的 16 项已完成（见上方记录），其余 12 项待实施。每项明确交付物与完成判据；完成时就地记录状态、实际改动位置及验证证据。实现项同步补其正反例，不能等到单元末尾才验证；单元最后一项负责组合复核。子任务编号用于跟踪，不强制一项一个提交。
 
 预算和取消契约在 .1 定义、从 .2 起随职责落地；.6 是组合资源验收与缺口收口，不是允许前序引入无限队列/缓冲。建议串行 `.1 → .2 → .3 → .4 → .5 → .6 → .7`；依赖图不构成并行 agent 授权。
 
@@ -135,7 +149,7 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | S3.3.3 | 收紧 ledger 的重放与容量语义 | ledger 重复拒绝与容量预留实现、留存窗口说明及边界测试 | failed/canceled/unknown 不成为同一 actionId 重试许可，SDK 不自动重放。容量预留、终态与淘汰遵循 .1，全部活动时拒绝新条目且不执行 handler；留存窗口之外不承诺永久 exactly-once。释放失败不泄漏 surface 调度权，UI 提交事实不依赖 ledger complete 成功 |
 | S3.3.4 | 以副作用替身与故障 store 验证提交前/后事实 | 故障 store、业务副作用计数替身与提交竞态证伪测试集 | 覆盖写入前拒绝、写入后抛错/响应丢失、history/hook/manager/ledger 异常、提交中取消、二次终态/commit；宿主副作用计数已变后，patch 拒绝或传输失败不触发 SDK 重放/回滚。同一 actionId 再提交不能再次进入 handler；快照、固定结果与 commitState 分别核对 |
 
-#### S3.4 — Session v1 事件与结构化诊断（4 项）
+#### S3.4 — Session v1 事件与结构化诊断（4 项，已完成 2026-10-24）
 
 | ID | 子任务与主要位置 | 交付物 | 完成判据 |
 | --- | --- | --- | --- |

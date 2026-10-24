@@ -5,6 +5,14 @@ S3.1 定稿（2026-10-22）。本目录是 server 运行时（S3.2–S3.6）与 
 与非 Koa 消费和 Koa/SSE 消费无关（PRD R5/R6）。fixture 为纯数据与预期声明，
 全部业务中立，不等待任何宿主 Agent 或业务应用。
 
+2026-10-24 S3.4 复审接线：core `test/session/fixtures.test.ts` 与 server
+`test/runtime/session-fixtures.test.ts` 实际读取 accept-generation、
+accept-action-with-inputs、reject-admission-stale-revision、unknown-store-commit-throw
+四份 oracle；server 同时验证直接事件与实际 SSE 目的流。旧 stale oracle 的客户端
+基准误用、输入基础模型/handler patch 条数与 unknown 提交前消息漏项已按 SPEC
+§5.4 和真实调用顺序校准。其余取消/重放/资源 oracle 的直接数据接线仍由相应
+切片补齐，不能将本次四份对测视为整个 fixture 目录验收。
+
 ## 文件分类
 
 - `catalog.json`：本目录共享的中立 Catalog 声明夹具，形状与 `fixtures/catalog-v2` 的

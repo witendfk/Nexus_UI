@@ -71,6 +71,7 @@
   "expected": {
     "events": [
       { "event": "start", "surfaceRevision": 1 },
+      { "event": "message", "count": 1 },
       { "event": "error", "code": "RUN_COMMIT_UNKNOWN", "commitState": "unknown" }
     ],
     "terminal": "failed",

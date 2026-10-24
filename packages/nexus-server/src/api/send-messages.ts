@@ -329,28 +329,14 @@ async function sendScheduledRun(
         write(formatSseEvent('done', event.commit, `${handle.runId}:done`), false);
         drainThen(() => settle({ messages, ok: true }));
         break;
-      case 'error':
-        write(
-          formatSseEvent(
-            'error',
-            {
-              code: 'AGENT_STREAM_ERROR',
-              boundaryCode: event.boundaryCode as A2UIErrorCode | undefined,
-              message: event.message ?? 'Agent 流式输出失败',
-              ...(event.diagnostics ? { diagnostics: event.diagnostics } : {}),
-              // S3.2 additive fields; the locked session error shape lands in S3.5.
-              runCode: event.code,
-              commitState: event.commitState,
-              runId: handle.runId,
-              surfaceId: handle.surfaceId,
-              ...(event.actionId ? { actionId: event.actionId } : {}),
-            },
-            `${handle.runId}:error`,
-          ),
-          false,
-        );
+      case 'error': {
+        // S3.4：锁定 wire 形状（SPEC §5.4），直接转发 runtime 事件——发送层
+        // 不再改写 code 或拼装附加字段；进程内判别字段 type 不上 wire。
+        const { type: _discriminator, ...payload } = event;
+        write(formatSseEvent('error', payload, `${handle.runId}:error`), false);
         drainThen(() => settle({ messages, ok: false }));
         break;
+      }
     }
   });
 

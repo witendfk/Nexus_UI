@@ -173,7 +173,7 @@ describe('S3.3 自定义 run 提交事实', () => {
       assert.equal(result.ok, false);
       assert.equal((await store.get(surfaceId))?.version, 1);
       assert.match(output, /"commitState":"unknown"/);
-      assert.match(output, /"runCode":"RUN_COMMIT_UNKNOWN"/);
+      assert.match(output, /"code":"RUN_COMMIT_UNKNOWN"/);
       assert.doesNotMatch(output, /event: done/);
       assert.equal(manager.get(runId)?.commit, undefined);
       assert.ok(diagnostics.some((d) => d.stage === 'record-transition'));

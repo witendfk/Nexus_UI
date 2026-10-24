@@ -90,7 +90,11 @@ interface SseRun {
   /** 全部 SSE 事件 id（含 done），用于与本次 runId 的传输关联核对。 */
   eventIds: string[];
   error?: {
+    /** Session 错误码（SPEC §5.4 枚举；S2 过渡期恒为 AGENT_STREAM_ERROR 的形状已迁移）。 */
+    code?: string;
+    /** 兼容视图：首个结构化诊断条目的 code（边界分类归入 diagnostics）。 */
     boundaryCode?: A2UIErrorCode;
+    commitState?: string;
     message: string;
   };
 }
@@ -191,12 +195,25 @@ function parseSseRun(output: string): SseRun {
       // 成功 done 直接承载固定提交结果；verifier 消费它并与本次运行关联。
       run.commit = JSON.parse(data.join('\n')) as unknown;
     } else if (eventName === 'error') {
+      // S3.4 锁定形状（SPEC §5.4）：身份/code/commitState 在顶层，边界分类
+      // （POLICY_REJECTED 等）在结构化 diagnostics 条目中。
       const payload = JSON.parse(data.join('\n')) as {
-        boundaryCode?: A2UIErrorCode;
+        code?: string;
+        commitState?: string;
         message?: string;
+        diagnostics?: readonly { code?: unknown }[];
       };
+      const diagnosticCode = payload.diagnostics?.find(
+        (diagnostic) =>
+          typeof diagnostic === 'object' &&
+          diagnostic !== null &&
+          typeof diagnostic.code === 'string',
+      )?.code;
       run.error = {
-        boundaryCode: payload.boundaryCode,
+        code: payload.code,
+        commitState: payload.commitState,
+        boundaryCode:
+          typeof diagnosticCode === 'string' ? (diagnosticCode as A2UIErrorCode) : undefined,
         message: payload.message ?? 'Agent stream failed',
       };
     } else if (eventName === 'message') {

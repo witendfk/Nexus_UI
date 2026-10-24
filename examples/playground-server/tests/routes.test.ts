@@ -243,7 +243,7 @@ describe('Agent line routes', () => {
     assert.equal(response.status, 200);
     const rejectedText = await response.text();
     assert.match(rejectedText, /event: error/);
-    assert.match(rejectedText, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.match(rejectedText, /"code":"RUN_ADMISSION_REJECTED"/);
     assert.match(rejectedText, /Action surface 不存在或已过期/);
     assert.doesNotMatch(rejectedText, /event: done/);
   });

@@ -478,7 +478,7 @@ describe('S2.5.3 baseline 时序夹具经真实 HTTP 查询路由验证', () => 
       const staleError = parseSse(stale.text).find((frame) => frame.event === 'error');
       assert.ok(staleError, '旧 revision 拒绝必须以 error 事件终态');
       assert.equal(
-        (staleError.data as { runCode?: string }).runCode,
+        (staleError.data as { code?: string }).code,
         'RUN_ADMISSION_REJECTED',
         '旧 revision 准入拒绝的运行内错误码',
       );

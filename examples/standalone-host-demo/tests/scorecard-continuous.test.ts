@@ -181,7 +181,7 @@ describe('S2.6.4.3 scorecard 拒绝与双 surface 隔离', () => {
     const rejectedText = await rejected.text();
     assert.equal(rejected.status, 200, 'S3.2：入队成功的运行以 error 终态收场');
     assert.match(rejectedText, /event: error/);
-    assert.match(rejectedText, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.match(rejectedText, /"code":"RUN_ADMISSION_REJECTED"/);
     assert.doesNotMatch(rejectedText, /已记录/);
     assert.doesNotMatch(rejectedText, /event: done/);
 

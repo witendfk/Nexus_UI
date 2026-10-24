@@ -106,6 +106,24 @@ export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from '
 
 export { normalizeJsonPointer, getStrictPath, setStrictPath } from './dataModel/strict-path';
 export { parseSurfaceCommit } from './session';
+export {
+  NEXUS_SESSION_DIAGNOSTIC_LIMIT,
+  NEXUS_SESSION_ERROR_CODES,
+  createSessionStreamCheck,
+  parseSessionEvent,
+} from './session';
+export type {
+  NexusSessionDiagnostic,
+  NexusSessionDoneEvent,
+  NexusSessionErrorEvent,
+  NexusSessionErrorCode,
+  NexusSessionEvent,
+  NexusSessionEventName,
+  NexusSessionMessageEvent,
+  NexusSessionStartEvent,
+  ParseSessionResult,
+  SessionStreamCheck,
+} from './session';
 
 export { CATALOG_CONTRACT_VERSION } from './catalog';
 export {

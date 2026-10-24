@@ -70,3 +70,23 @@ export function parseSurfaceCommit(value: unknown): NexusSurfaceCommit | null {
     return null;
   return c as unknown as NexusSurfaceCommit;
 }
+
+// Session v1 流事件契约（SPEC §5.4，S3.4）：wire 形状、逐事件解析与流序列检查。
+export {
+  NEXUS_SESSION_DIAGNOSTIC_LIMIT,
+  NEXUS_SESSION_ERROR_CODES,
+  createSessionStreamCheck,
+  parseSessionEvent,
+} from './events';
+export type {
+  NexusSessionDiagnostic,
+  NexusSessionDoneEvent,
+  NexusSessionErrorEvent,
+  NexusSessionErrorCode,
+  NexusSessionEvent,
+  NexusSessionEventName,
+  NexusSessionMessageEvent,
+  NexusSessionStartEvent,
+  ParseSessionResult,
+  SessionStreamCheck,
+} from './events';

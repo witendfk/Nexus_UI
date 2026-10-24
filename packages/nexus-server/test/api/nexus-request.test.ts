@@ -69,7 +69,7 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   const generate = async () =>
     fixedCommit(await (await post('generate', { catalogId: catalog.catalogId })).text());
   // S3.2 迁移：调度内准入失败（旧 revision/重放/陈旧 actionId）从同步 400 变为
-  // HTTP 200 SSE + error 事件（runCode RUN_ADMISSION_REJECTED、commitState notCommitted），
+  // HTTP 200 SSE + error 事件（code RUN_ADMISSION_REJECTED、commitState notCommitted），
   // handler 不得调用；拒绝语义本身保持不变。
   const assertEventRejected = async (body: unknown, why: string) => {
     const response = await post('event', body);
@@ -82,8 +82,8 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
         .split('\n\n')
         .find((block) => block.includes('event: error'))!
         .match(/data: (.*)/)![1],
-    ) as { runCode?: string; commitState?: string };
-    assert.equal(payload.runCode, 'RUN_ADMISSION_REJECTED', `${why}：运行内准入拒绝码`);
+    ) as { code?: string; commitState?: string };
+    assert.equal(payload.code, 'RUN_ADMISSION_REJECTED', `${why}：运行内准入拒绝码`);
     assert.equal(payload.commitState, 'notCommitted');
   };
   const first = await generate();

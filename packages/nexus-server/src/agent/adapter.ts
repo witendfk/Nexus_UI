@@ -40,6 +40,7 @@ import {
   enqueueScheduledRun,
   type EnqueueOutcome,
   type PreparedRun,
+  type ScheduledRunPrepareContext,
 } from '../runtime/agent-runtime';
 import type { SurfaceScheduler } from '../runtime/surface-scheduler';
 import { schedulerForOwner } from '../runtime/scheduler-owner';
@@ -375,7 +376,7 @@ export class AgentAdapter {
         kind: 'generate',
         runId,
         surfaceId,
-        prepare: async ({ signal }) =>
+        prepare: async ({ signal, bindBaseline }) =>
           this.prepareGenerationInTask({
             catalogId,
             catalog,
@@ -384,6 +385,7 @@ export class AgentAdapter {
             runId,
             useLlm,
             signal,
+            bindBaseline,
           }),
       },
       options,
@@ -403,11 +405,13 @@ export class AgentAdapter {
     runId: string;
     useLlm: boolean;
     signal?: AbortSignal;
+    bindBaseline: ScheduledRunPrepareContext['bindBaseline'];
   }): Promise<PreparedRun> {
     const { catalogId, catalog, message, surfaceId, runId, useLlm, signal } = ctx;
     const supportedActions = catalog.actions.map((action) => action.name);
     const supportedComponents = Object.keys(catalog.components);
     const catalogContract = createCatalogContractReference(catalog);
+    ctx.bindBaseline({ catalogId, catalogHash: catalogContract.hash });
     const history = (await this.historyStore.getHistory(surfaceId)).map((turn) => ({ ...turn }));
     const sourceRequest: AgentGenerationSourceRequest = {
       kind: 'generate',
@@ -552,22 +556,24 @@ export class AgentAdapter {
         kind: 'action',
         runId,
         surfaceId: request.surfaceId,
-        prepare: async ({ signal }) => this.prepareActionInTask(request, runId, signal),
+        actionId: request.actionId,
+        prepare: async (ctx) => this.prepareActionInTask(request, runId, ctx),
       },
       options,
     );
   }
 
   /**
-   * 调度内 action 准入与执行准备：快照读取 → action/handler 查找 → ledger →
-   * 客户端 context/白名单/整批输入准入 → resolver → paramSchema → history。
-   * 任何拒绝都转换为运行失败终态（RUN_ADMISSION_REJECTED），handler 未调用、
-   * 快照与 revision 不变；ledger 由 onAbort 统一记 failed。
+   * 调度内 action 准入与执行准备：快照读取 → start（实际快照基准）→ action/
+   * handler 查找 → ledger → 客户端 context/白名单/整批输入准入 → resolver →
+   * paramSchema → history。任何拒绝都转换为运行失败终态（RUN_ADMISSION_
+   * REJECTED），handler 未调用、快照与 revision 不变；ledger 由 onAbort 统一记
+   * failed。
    */
   private async prepareActionInTask(
     action: AgentAction,
     runId: string,
-    signal?: AbortSignal,
+    ctx: ScheduledRunPrepareContext,
   ): Promise<PreparedRun> {
     const snapshot = await this.actionStateStore.get(action.surfaceId);
     if (!snapshot) {
@@ -583,6 +589,10 @@ export class AgentAdapter {
     // 宿主原地修改声明不能让同一 revision/hash/输入从拒绝翻转为接受
     const catalogId = snapshot.catalogId;
     const catalog = snapshot.contract.catalog;
+
+    // SPEC §5.4 与 fixtures/session-v1 oracle：start 先于准入裁决发出，基准是
+    // 本次调度内实际读取的快照——准入失败因此也是 start（带基准）→ error 序列。
+    ctx.bindBaseline({ catalogId, catalogHash: snapshot.contract.catalogHash }, snapshot.version);
 
     const surfaceAction = findSurfaceAction(snapshot, action.name, action.sourceComponentId);
     if (!surfaceAction) {
@@ -780,7 +790,7 @@ export class AgentAdapter {
         history,
         surfaceAction: structuredClone(surfaceAction),
         clientContext: structuredClone(clientContext),
-        ...(signal === undefined ? {} : { signal }),
+        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
       });
     })();
 

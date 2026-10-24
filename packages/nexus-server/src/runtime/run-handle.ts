@@ -1,16 +1,16 @@
 import type { NexusSurfaceCommit } from '@nexus-ui/core';
+import {
+  NEXUS_SESSION_DIAGNOSTIC_LIMIT,
+  NEXUS_SESSION_VERSION,
+  type NexusSessionDiagnostic,
+  type NexusSessionErrorCode,
+} from '@nexus-ui/core';
 import type { AgentSequenceOptions } from '../agent/agent-guard';
 import type { AgentRunManager } from '../agent/run-manager';
 import type { RunIdentity } from '../agent/run-lifecycle';
 
-/** Nexus session run-level error codes (SPEC §5.4); wire exposure lands with S3.4/S3.5. */
-export type RuntimeErrorCode =
-  | 'RUN_ADMISSION_REJECTED'
-  | 'RUN_FAILED'
-  | 'RUN_COMMIT_UNKNOWN'
-  | 'RUN_CANCELLED'
-  | 'RESOURCE_LIMIT_EXCEEDED'
-  | 'AGENT_STREAM_ERROR';
+/** Session 错误码枚举（SPEC §5.4）；枚举定义在 core，wire 与运行共用一份。 */
+export type RuntimeErrorCode = NexusSessionErrorCode;
 
 export type CommitState = 'committed' | 'notCommitted' | 'unknown';
 
@@ -30,12 +30,15 @@ export type RuntimeRunEvent =
   | { type: 'done'; commit: NexusSurfaceCommit }
   | {
       type: 'error';
+      sessionVersion: typeof NEXUS_SESSION_VERSION;
+      runId: string;
+      surfaceId: string;
       code: RuntimeErrorCode;
       commitState: 'notCommitted' | 'unknown';
       message?: string;
-      diagnostics?: readonly unknown[];
+      diagnostics?: readonly NexusSessionDiagnostic[];
       actionId?: string;
-      boundaryCode?: string;
+      beforeStart?: true;
     };
 
 export type RunOutcome =
@@ -82,6 +85,7 @@ export class RuntimeRunHandle {
   readonly runId: string;
   readonly surfaceId: string;
   readonly kind: 'generate' | 'action';
+  readonly actionId?: string;
   /** @internal Record owner; sendAgentRun verifies sender-provided managers against it. */
   readonly manager: AgentRunManager;
   readonly result: Promise<RunOutcome>;
@@ -100,6 +104,7 @@ export class RuntimeRunHandle {
   private errored = false;
   private sequenceValue?: AgentSequenceOptions;
   private terminalEmitted = false;
+  private startEmitted = false;
   private lifecycleDisposed = false;
   private detachSignal?: () => void;
 
@@ -122,6 +127,7 @@ export class RuntimeRunHandle {
       surfaceId: string;
       kind: 'generate' | 'action';
       manager: AgentRunManager;
+      actionId?: string;
     },
     lifecycle: RunLifecycle,
     options?: { signal?: AbortSignal },
@@ -129,6 +135,7 @@ export class RuntimeRunHandle {
     this.runId = spec.runId;
     this.surfaceId = spec.surfaceId;
     this.kind = spec.kind;
+    this.actionId = spec.actionId;
     this.manager = spec.manager;
     this.lifecycle = lifecycle;
     this.result = new Promise<RunOutcome>((resolve) => {
@@ -166,6 +173,8 @@ export class RuntimeRunHandle {
   }
 
   emitStart(event: Extract<RuntimeRunEvent, { type: 'start' }>): void {
+    if (this.startEmitted || this.terminalEmitted) return;
+    this.startEmitted = true;
     this.emit(event);
   }
 
@@ -185,7 +194,9 @@ export class RuntimeRunHandle {
       error instanceof RunTaskError && error.code === 'RUN_COMMIT_UNKNOWN'
         ? 'unknown'
         : 'notCommitted';
-    const diagnostics = error instanceof RunTaskError ? error.diagnostics : undefined;
+    const diagnostics = normalizeRunDiagnostics(error);
+    const message =
+      error instanceof Error && error.message ? truncateDiagnostic(error.message) : undefined;
     if (stage.canceled) {
       this.settleOutcome({
         terminal: 'canceled',
@@ -196,7 +207,7 @@ export class RuntimeRunHandle {
       this.emitError({
         code: 'RUN_CANCELLED',
         commitState,
-        ...(error instanceof Error && error.message ? { message: error.message } : {}),
+        ...(message ? { message } : {}),
         ...(diagnostics ? { diagnostics } : {}),
       });
       return;
@@ -206,23 +217,16 @@ export class RuntimeRunHandle {
       terminal: 'failed',
       commitState,
       code,
-      ...(error.message ? { message: error.message } : {}),
-      ...(error instanceof RunTaskError && error.diagnostics
-        ? { diagnostics: error.diagnostics }
-        : {}),
+      ...(message ? { message } : {}),
+      ...(diagnostics ? { diagnostics } : {}),
       messages: [...this.sent],
     });
     this.emitError({
       code,
       commitState,
-      ...(error.message ? { message: error.message } : {}),
-      ...(error instanceof RunTaskError && error.diagnostics
-        ? { diagnostics: error.diagnostics }
-        : {}),
+      ...(message ? { message } : {}),
+      ...(diagnostics ? { diagnostics } : {}),
       ...(error instanceof RunTaskError && error.actionId ? { actionId: error.actionId } : {}),
-      ...(error instanceof RunTaskError && error.boundaryCode
-        ? { boundaryCode: error.boundaryCode }
-        : {}),
     });
   }
 
@@ -269,10 +273,23 @@ export class RuntimeRunHandle {
     }
   }
 
-  private emitError(event: Omit<Extract<RuntimeRunEvent, { type: 'error' }>, 'type'>): void {
+  private emitError(
+    event: Omit<
+      Extract<RuntimeRunEvent, { type: 'error' }>,
+      'type' | 'sessionVersion' | 'runId' | 'surfaceId'
+    >,
+  ): void {
     if (this.errored) return;
     this.errored = true;
-    this.emit({ type: 'error', ...event });
+    this.emit({
+      type: 'error',
+      sessionVersion: NEXUS_SESSION_VERSION,
+      runId: this.runId,
+      surfaceId: this.surfaceId,
+      ...event,
+      ...(this.actionId ? { actionId: this.actionId } : {}),
+      ...(!this.startEmitted ? { beforeStart: true as const } : {}),
+    });
   }
 
   private settleOutcome(outcome: RunOutcome): void {
@@ -351,6 +368,12 @@ export class RuntimeRunHandle {
       if (!closed) {
         closed = true;
         unsubscribe();
+        // 未投递给调用者的事件仍属于同一条逻辑流。同步移交给句柄，供下个
+        // 订阅者接续；旧迭代器清空后不能再次消费它们。
+        this.backlog = [...queue.splice(0), ...this.backlog];
+        const wake = notify;
+        notify = undefined;
+        wake?.();
       }
       return { done: true, value: undefined };
     };
@@ -361,6 +384,7 @@ export class RuntimeRunHandle {
       [Symbol.asyncIterator]() {
         return {
           next: (): Promise<IteratorResult<RuntimeRunEvent>> => {
+            if (closed) return Promise.resolve({ done: true, value: undefined });
             if (queue.length > 0) return Promise.resolve(take());
             // Late subscribers (or iterators created after the run ended) must
             // not wait for events that can never come.
@@ -435,6 +459,51 @@ function lifecycleDiagnostic(phase: string, cause: unknown) {
     code: 'RUN_LIFECYCLE_ERROR',
     phase,
     message: (cause instanceof Error ? cause.message : String(cause)).slice(0, 512),
+  };
+}
+
+function truncateDiagnostic(text: string): string {
+  return text.length > NEXUS_SESSION_DIAGNOSTIC_LIMIT
+    ? text.slice(0, NEXUS_SESSION_DIAGNOSTIC_LIMIT)
+    : text;
+}
+
+/**
+ * 结构化诊断（SPEC §5.4）：边界码（Protocol/Profile/Catalog/Policy 分类）与
+ * guard/component 诊断合并为会话诊断条目，文本截断至共享上限；空集返回
+ * undefined，wire 上不出现空数组。
+ */
+function normalizeRunDiagnostics(
+  error: RunTaskError | Error,
+): readonly NexusSessionDiagnostic[] | undefined {
+  const boundaryCode = error instanceof RunTaskError ? error.boundaryCode : undefined;
+  const raw = error instanceof RunTaskError ? error.diagnostics : undefined;
+  if (boundaryCode === undefined && raw === undefined) return undefined;
+  const entries: NexusSessionDiagnostic[] = [];
+  if (boundaryCode !== undefined) {
+    entries.push({ code: boundaryCode, message: truncateDiagnostic(error.message) });
+  }
+  for (const entry of raw ?? []) {
+    entries.push(toSessionDiagnostic(entry, boundaryCode));
+  }
+  return entries.length > 0 ? entries : undefined;
+}
+
+function toSessionDiagnostic(
+  entry: unknown,
+  fallbackCode: string | undefined,
+): NexusSessionDiagnostic {
+  if (typeof entry !== 'object' || entry === null) {
+    return { code: fallbackCode ?? 'PROTOCOL_INVALID', message: truncateDiagnostic(String(entry)) };
+  }
+  const record = entry as Record<string, unknown>;
+  const message = typeof record.message === 'string' ? record.message : String(entry);
+  const phase = typeof record.phase === 'string' ? record.phase : undefined;
+  return {
+    code: typeof record.code === 'string' ? record.code : (fallbackCode ?? 'PROTOCOL_INVALID'),
+    message: truncateDiagnostic(phase !== undefined ? `${phase}: ${message}` : message),
+    ...(typeof record.path === 'string' ? { path: record.path } : {}),
+    ...(typeof record.dataPath === 'string' ? { dataPath: record.dataPath } : {}),
   };
 }
 

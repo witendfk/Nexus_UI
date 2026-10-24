@@ -186,7 +186,7 @@ describe('S2.6.4.3 拒绝不变式与双 surface 隔离（headless，真实 HTTP
     );
     assert.equal(staleRevision.status, 200);
     assert.match(staleRevision.text, /event: error/);
-    assert.match(staleRevision.text, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.match(staleRevision.text, /"code":"RUN_ADMISSION_REJECTED"/);
     assert.doesNotMatch(staleRevision.text, /已提交/);
 
     const wrongHash = await postRaw(
@@ -293,7 +293,7 @@ describe('S2.6.3.4 查询不恢复资格（真实路由）', () => {
     const stale = await postRaw(actionEnvelope(queried, []));
     assert.equal(stale.status, 200);
     assert.match(stale.text, /event: error/);
-    assert.match(stale.text, /"runCode":"RUN_ADMISSION_REJECTED"/);
+    assert.match(stale.text, /"code":"RUN_ADMISSION_REJECTED"/);
     assert.doesNotMatch(stale.text, /已提交/);
 
     // 未知 runId：404，不能构造任何基准。

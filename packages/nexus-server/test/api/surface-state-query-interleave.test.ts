@@ -513,14 +513,14 @@ describe('S2.5.7 重复标识与旧 envelope 混入查询关联的反例', () =>
     const commit = await runGeneration(baseUrl);
 
     // S3.2 迁移：envelope 准入移入调度任务，拒绝从同步 400 变为 200 SSE + error
-    // 事件（runCode RUN_ADMISSION_REJECTED / commitState notCommitted），且留下
+    // 事件（code RUN_ADMISSION_REJECTED / commitState notCommitted），且留下
     // failed 运行记录；actionId 仍不是运行标识（按 actionId 查询 404）。
     const stale = await postRate(baseUrl, 'stale-envelope-1', 2);
     assert.equal(stale.status, 200, '旧 revision envelope 仍必须被拒（S3.2 调度内失败）');
     assert.doesNotMatch(stale.text, /event: done/);
     const staleError = parseSse(stale.text).find((frame) => frame.event === 'error');
     assert.ok(staleError, '旧 revision envelope 以 error 事件终态');
-    assert.equal((staleError.data as { runCode?: string }).runCode, 'RUN_ADMISSION_REJECTED');
+    assert.equal((staleError.data as { code?: string }).code, 'RUN_ADMISSION_REJECTED');
     assert.equal((staleError.data as { commitState?: string }).commitState, 'notCommitted');
 
     const wrongHash = await postRate(baseUrl, 'wrong-hash-1', 1, `sha256:${'0'.repeat(64)}`);
@@ -528,7 +528,7 @@ describe('S2.5.7 重复标识与旧 envelope 混入查询关联的反例', () =>
     assert.doesNotMatch(wrongHash.text, /event: done/);
     const wrongHashError = parseSse(wrongHash.text).find((frame) => frame.event === 'error');
     assert.ok(wrongHashError, '错误 catalogHash envelope 以 error 事件终态');
-    assert.equal((wrongHashError.data as { runCode?: string }).runCode, 'RUN_ADMISSION_REJECTED');
+    assert.equal((wrongHashError.data as { code?: string }).code, 'RUN_ADMISSION_REJECTED');
     assert.equal(handlerCalls.rate, 0, '旧 envelope 拒绝时 handler 未调用');
 
     // 证伪锚点：查询键回退接受 actionId 的话，这里会查到可对账结果。

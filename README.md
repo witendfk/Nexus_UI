@@ -10,7 +10,7 @@ Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard →
 
 **S1/S2 已交付并验收**：安全基线与业务中立装配、Catalog Contract v2、声明式输入与 action、服务端权威准入、固定运行结果，以及参考消费方迁移。S2 于 2026-10-21 完成验收，随 `eb5f8cd` 于 2026-10-22 推送；验收证据与限制见 [S2 验收报告](docs/tasks/S2-ACCEPTANCE.md)。
 
-**当前 S3 实施中**：S3.1 契约锁定、S3.2 传输无关入口与单一调度、S3.3 提交事实与 ledger/扩展失败隔离已完成；S3.3 独立复审六项已整改（2026-10-24，门禁见 CURRENT）。S3.4–S3.7 覆盖完整 Session 事件、Koa/RPC 薄适配、资源边界和阶段验收，见 [当前计划](docs/tasks/CURRENT.md#s3--单一运行调度与-session-v1)。client/Provider/Surface 在 S4 实施，仓外产物与发行验收在 S5；目标四包，当前仍为三包。
+**当前 S3 实施中**：S3.1 契约锁定、S3.2 传输无关入口与单一调度、S3.3 提交事实与 ledger/扩展失败隔离、S3.4 Session v1 事件与结构化诊断已完成，五项复审整改已完成并通过门禁（2026-10-24，见 CURRENT）。S3.5–S3.7 覆盖 Koa/RPC 薄适配与访问准入、资源边界和阶段验收，见 [当前计划](docs/tasks/CURRENT.md#s3--单一运行调度与-session-v1)。client/Provider/Surface 在 S4 实施，仓外产物与发行验收在 S5；目标四包，当前仍为三包。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE

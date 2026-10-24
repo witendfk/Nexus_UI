@@ -88,7 +88,7 @@
   "expected": {
     "events": [
       { "event": "start", "surfaceRevision": 1 },
-      { "event": "message", "count": 1 },
+      { "event": "message", "count": 2 },
       { "event": "done", "surfaceRevision": 2 }
     ],
     "terminal": "succeeded",
@@ -96,6 +96,7 @@
     "sourceFactoryCalls": 0,
     "handlerCalls": 1,
     "handlerParamScore": 4,
-    "surfaceRevisionAfter": 2
+    "surfaceRevisionAfter": 2,
+    "note": "2026-10-24 校准：SDK 先发整批输入基础模型，再发 source.messages 的 handler patch，因此是两条 message，均参与同一次提交。"
   }
 }

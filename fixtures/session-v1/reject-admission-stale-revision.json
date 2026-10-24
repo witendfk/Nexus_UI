@@ -63,13 +63,12 @@
     }
   },
   "steps": [
-    { "enqueue": "action-A", "suspendUntil": "admission-started" },
     {
       "interleave": "generation-B",
       "note": "固定 surfaceId 工厂重建 s-fixed-1，revision 推进到 2；等价于流完成后查询前的其他提交",
       "awaitTerminal": "succeeded"
     },
-    { "resume": "action-A" }
+    { "enqueue": "action-A" }
   ],
   "source": {
     "messages": [
@@ -81,7 +80,7 @@
   },
   "expected": {
     "events": [
-      { "event": "start", "surfaceRevision": 1 },
+      { "event": "start", "surfaceRevision": 2 },
       { "event": "error", "code": "RUN_ADMISSION_REJECTED", "commitState": "notCommitted" }
     ],
     "terminal": "failed",
@@ -89,6 +88,6 @@
     "sourceFactoryCalls": 0,
     "handlerCalls": 0,
     "surfaceRevisionAfter": 2,
-    "note": "旧基准在调度内被拒：start 携带 action 声明的基准 revision 1，准入对照已推进的权威快照失败；不发布部分 UI，旧视图不得换基准"
+    "note": "generation-B 先完成，action-A 随后进入调度：start 携带实际读取的权威 revision 2；请求仍声明旧 revision 1，因此准入拒绝。不发布部分 UI，旧视图不得换基准。2026-10-24 按 SPEC §5.4 校准旧 oracle 的客户端基准误用。"
   }
 }
