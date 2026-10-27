@@ -15,6 +15,7 @@ import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { InMemorySurfaceActionStateStore } from '../../src/agent/surface-action-state';
 import { sendAgentRun } from '../../src/api/send-messages';
 import type { AgentAction } from '../../src/agent/adapter';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 interface Oracle {
   id: string;
@@ -75,6 +76,7 @@ describe('Session v1 shared fixture execution (direct/SSE)', () => {
           handlerCalls = 0;
         let params: Record<string, unknown> | undefined;
         const r = createAgentRuntime({
+          access: allowAllAccess,
           registry: new CatalogRegistry([catalog]),
           createSurfaceId: () => surfaceId,
           editablePaths: () => ['/score', '/note'],

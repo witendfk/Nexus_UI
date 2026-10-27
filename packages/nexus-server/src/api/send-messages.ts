@@ -12,10 +12,9 @@ import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
 import type { NexusRunDiagnostic } from '../agent/run-diagnostic';
 import type { AgentRunManager } from '../agent/run-manager';
-import { manageAgentRun, type ManagedAgentRun } from '../agent/run-lifecycle';
 import { RuntimeRunHandle } from '../runtime/run-handle';
-import { startManagedRunTask } from '../runtime/agent-runtime';
-import { schedulerForOwner } from '../runtime/scheduler-owner';
+import type { RunOutcome, RuntimeRunListener } from '../runtime/run-handle';
+import { startCustomRunTask } from '../runtime/agent-runtime';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
 import type { PrepareSseResponseOptions } from '../transport/sse';
 
@@ -211,12 +210,11 @@ export function sendMessages(
 /**
  * Stream one scheduled run (or a wrapped custom `AgentRun`) into `ctx`.
  *
- * S3.2: per-surface serialization belongs to the runtime scheduler, not to a
- * module-global queue. For scheduled handles the response is claimed and the
- * sender merely forwards the runtime's validated events — it owns no queue,
- * no guard state and no commit. A custom `AgentRun` is wrapped with the
- * explicitly supplied manager and consumes the same task machinery without an
- * implicit queue.
+ * S3.5 thin adapter (SPEC §6.7): the sender owns only the response claim, SSE
+ * serialization and connection teardown — no Catalog interpretation, no queue,
+ * no manager, no commit. Per-surface serialization belongs to the runtime
+ * scheduler; custom-run wrapping lives in `startCustomRunTask` (runtime module),
+ * so every run reaches the wire as a handle whose Session events are forwarded.
  *
  * Contract kept from S2 (DESIGN D3): the SSE response is claimed synchronously
  * before this function returns, `X-Nexus-Run-Id` is written before
@@ -225,6 +223,7 @@ export function sendMessages(
  * event has been written; it never rejects after a successful claim.
  */
 export interface SendAgentRunOptions {
+  /** 附加取消源；不替代 sender 自己的 req/res 断连监听。 */
   signal?: AbortSignal;
   streamDelayMs?: number;
   /** Defaults to the SDK run owner; custom runs require one. A different owner is rejected. */
@@ -232,6 +231,18 @@ export interface SendAgentRunOptions {
   /** 自定义 AgentRun 的扩展故障诊断；SDK 句柄使用 runtime 装配的诊断回调。 */
   onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void;
   dispose?: () => void;
+}
+
+/**
+ * 薄发送层依赖的句柄端口（S3.5.1 接口隔离）：发送只消费事件、终态与取消，
+ * 不触碰任务侧内部 API（lifecycle/abortSignal/emit*）。RuntimeRunHandle 结构
+ * 性满足该端口；测试替身亦按此最小面实现。
+ */
+interface SessionEventSource {
+  readonly runId: string;
+  readonly result: Promise<RunOutcome>;
+  subscribe(listener: RuntimeRunListener): () => void;
+  cancel(): void;
 }
 
 export function sendAgentRun(
@@ -259,36 +270,28 @@ export function sendAgentRun(
     }
     return sendScheduledRun(run, options, stream, ctx);
   }
-  let managed: ManagedAgentRun | undefined;
-  let stream: PassThrough | undefined;
+  // 自定义 run：托管/调度/容量组合属于运行模块（startCustomRunTask，含宿主
+  // run 的恰好一次清理）；传输层只负责占用响应与转发 Session 事件。
+  let handle: RuntimeRunHandle;
   try {
-    managed = manageAgentRun(run, options.manager, options.signal, options.onRunDiagnostic);
-    // Per-owner serialization (S3.2): custom runs queue on the scheduler bound
-    // to their record owner, so two runs of one surface stay serial without any
-    // module-global state. Rejection happens before the response is claimed.
-    const scheduler = schedulerForOwner(managed.manager);
-    if (!scheduler.hasCapacity(managed.sequence.surfaceId)) {
-      throw new Error('同 surface 排队运行已达上限，请稍后重试');
-    }
-    managed.reserve();
-    // S2 同步占用契约：预留容量之后、任务启动之前同步 claim（排队 run 由此
-    // 即刻带头），占用失败同步抛出并由下方清理。
-    stream = claimSseResponse(ctx, { runId: managed.runId });
-    const handle = startManagedRunTask(managed, options, scheduler);
-    return sendScheduledRun(handle, options, stream, ctx);
+    handle = startCustomRunTask(run, options);
   } catch (error) {
-    try {
-      if (managed) managed.fail(error);
-      else run.dispose?.();
-    } finally {
-      options.dispose?.();
-    }
+    options.dispose?.();
     throw error;
   }
+  let stream: PassThrough;
+  try {
+    stream = claimSseResponse(ctx, { runId: handle.runId });
+  } catch (error) {
+    handle.cancel();
+    options.dispose?.();
+    throw error;
+  }
+  return sendScheduledRun(handle, options, stream, ctx);
 }
 
 async function sendScheduledRun(
-  handle: RuntimeRunHandle,
+  handle: SessionEventSource,
   options: SendAgentRunOptions,
   stream: PassThrough,
   ctx: Koa.Context,
@@ -340,14 +343,9 @@ async function sendScheduledRun(
     }
   });
 
-  const abort = (): void => {
-    if (ctx.res?.writableEnded === false) handle.cancel();
-  };
-  const abortSignal = (): void => handle.cancel();
-  if (options.signal?.aborted) abortSignal();
-  else options.signal?.addEventListener('abort', abortSignal, { once: true });
-  if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', abort);
-  if (typeof ctx.res?.once === 'function') ctx.res.once('close', abort);
+  // sender 持有传输期间的连接监听，外部 signal 只是附加取消源。routes 在
+  // sendAgentRun 同步接入后释放入队阶段监听；直接调用同样具备断连保护。
+  const detachConnection = attachDisconnectTeardown(handle, options, ctx);
 
   void handle.result
     .catch(() => undefined)
@@ -357,12 +355,36 @@ async function sendScheduledRun(
           stream.end();
         } finally {
           unsubscribe();
-          options.signal?.removeEventListener('abort', abortSignal);
-          if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
-          if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
+          detachConnection();
           options.dispose?.();
         }
       });
     });
   return finished;
+}
+
+function attachDisconnectTeardown(
+  handle: SessionEventSource,
+  options: SendAgentRunOptions,
+  ctx: Koa.Context,
+): () => void {
+  let canceled = false;
+  const abortSignal = (): void => {
+    if (canceled) return;
+    canceled = true;
+    handle.cancel();
+  };
+  const abort = (): void => {
+    if (ctx.res?.writableEnded === false) abortSignal();
+  };
+  if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', abort);
+  if (typeof ctx.res?.once === 'function') ctx.res.once('close', abort);
+  options.signal?.addEventListener('abort', abortSignal, { once: true });
+  if (options.signal?.aborted || ctx.req?.aborted || (ctx.res?.destroyed && !ctx.res.writableEnded))
+    abortSignal();
+  return () => {
+    options.signal?.removeEventListener('abort', abortSignal);
+    if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', abort);
+    if (typeof ctx.res?.off === 'function') ctx.res.off('close', abort);
+  };
 }

@@ -36,8 +36,9 @@ const router = createAgentRouter({
   maxRequestBodyBytes,
   requestBodyTimeoutMs,
   healthAgentMode: isLlmAgentEnabled() ? 'llm' : 'fallback',
-  // 本地开发试验台显式放开 runs 查询；真实宿主必须换成基于可信请求上下文的准入。
-  runsAccess: () => true,
+  // 本地开发试验台显式放开运行查询（SPEC §6.5：runsAccess 已迁移为
+  // access.read）；真实宿主必须换成基于可信请求上下文的准入。
+  access: { read: () => true },
   // S2.6.1.1：实际入口发布参考服务执行中的三个 Catalog；发布列表取自
   // adapter 的固定执行声明，装配期与执行声明核对 hash，不一致即启动失败。
   catalogContracts: listReferencePublishedCatalogs(agentAdapter),

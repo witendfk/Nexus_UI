@@ -2,6 +2,12 @@ export { SERVER_API_VERSION, VERSION } from './version';
 
 export { AgentAdapter } from './agent/adapter';
 export type {
+  AgentAccessActionHook,
+  AgentAccessDecision,
+  AgentAccessGenerateHook,
+  AgentAccessHooks,
+  AgentAccessReadHook,
+  AgentAccessRejectionCode,
   AgentAction,
   AgentActionContext,
   AgentActionHandler,

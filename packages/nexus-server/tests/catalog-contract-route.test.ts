@@ -8,6 +8,7 @@ import { AgentAdapter, createAgentRouter } from '../src/index';
 import type { CatalogDefinition } from '@nexus-ui/core';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../src/agent/catalog-contract';
 import { CatalogRegistry } from '@nexus-ui/core';
+import { allowAllAccess } from './helpers/access';
 
 process.env.NODE_ENV = 'test';
 delete process.env.OPENAI_API_KEY;
@@ -164,6 +165,7 @@ describe('catalog contract route', () => {
     const app = new Koa();
     const router = createAgentRouter({
       adapter: new AgentAdapter({
+        access: allowAllAccess,
         registry: new CatalogRegistry([catalog]),
         useLlm: () => false,
       }),
@@ -218,6 +220,7 @@ describe('catalog contract route', () => {
       () =>
         createAgentRouter({
           adapter: new AgentAdapter({
+            access: allowAllAccess,
             registry: new CatalogRegistry([catalog]),
             useLlm: () => false,
           }),

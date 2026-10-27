@@ -11,6 +11,7 @@ import {
 import type { NexusRunDiagnostic } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { createTestRegistry, TEST_CATALOG_ID } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 const registry = createTestRegistry();
 const hash = createCatalogContractHash(registry.require(TEST_CATALOG_ID));
@@ -47,6 +48,7 @@ const action = (actionId: string) => ({
 });
 function runtime(options: Partial<AgentRuntimeOptions> = {}) {
   return createAgentRuntime({
+    access: allowAllAccess,
     registry,
     createSurfaceId: () => surfaceId,
     createGenerationSource: source,

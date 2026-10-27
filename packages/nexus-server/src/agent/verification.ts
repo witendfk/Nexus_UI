@@ -257,6 +257,9 @@ function createAdapter(options: ExternalAgentVerificationOptions, policy: AgentP
     historyStore: new InMemorySurfaceHistoryStore(),
     useLlm: () => false,
     createGenerationSource: createExternalAgentGenerationSource(options),
+    // verifier 是可信宿主校验夹具：显式放行 generate/action（SPEC §6.5 缺省
+    // 拒绝不适用于 SDK 自带的校验流程）。
+    access: { generate: () => true, action: () => true },
     // 可编辑白名单是可信宿主夹具配置；缺省为空＝拒绝一切输入写回。
     ...(options.editablePaths === undefined ? {} : { editablePaths: options.editablePaths }),
     policy,

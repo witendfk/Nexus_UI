@@ -2,6 +2,7 @@ import type Koa from 'koa';
 import type Router from '@koa/router';
 import type { NexusSurfaceCommit } from '@nexus-ui/core';
 
+import type { AgentAccessHooks, AgentAccessReadHook } from '../agent/adapter';
 import type { AgentRunManager } from '../agent/run-manager';
 
 /**
@@ -12,16 +13,17 @@ import type { AgentRunManager } from '../agent/run-manager';
  */
 export type SurfaceStateBaseline = NexusSurfaceCommit;
 
-/** 查询准入沿用宿主 `runsAccess`（S1 口径）：未配置一律 403，不新造权限模型。 */
+/** 查询准入沿用宿主 `access.read`（SPEC §6.5）：未配置一律 403，不新造权限模型。 */
 export interface SurfaceStateQueryOptions {
   runManager: AgentRunManager;
-  runsAccess?: (surfaceId: string, ctx: Koa.Context) => boolean | Promise<boolean>;
+  /** 宿主 read 准入钩子（S3.5 起 runsAccess 迁移为 access.read）。 */
+  access?: Pick<AgentAccessHooks, 'read'>;
 }
 
 /**
  * S2.5.3 查询判定顺序（SPEC §5.1）：
  * 1. 缺失/空 surfaceId 或 runId → 400；
- * 2. 合法参数先执行宿主 `runsAccess`，未配置/拒绝均为 403（先鉴权后查记录，
+ * 2. 合法参数先执行宿主 `access.read`，未配置/拒绝均为 403（先鉴权后查记录，
  *    存在性不泄露给无权限调用方）；
  * 3. 记录不存在、surface 不匹配或已淘汰 → 404（同一响应体，不区分原因）；
  * 4. 记录存在但没有可确认提交（含排队/执行中与失败/取消终态）→ 409；
@@ -33,6 +35,7 @@ export function registerSurfaceStateQueryRoute(
   router: Router,
   options: SurfaceStateQueryOptions,
 ): void {
+  const readAccess: AgentAccessReadHook | undefined = options.access?.read;
   router.get('/api/a2ui/surface-state', async (ctx: Koa.Context) => {
     const surfaceId = ctx.query.surfaceId;
     const runId = ctx.query.runId;
@@ -52,15 +55,15 @@ export function registerSurfaceStateQueryRoute(
 
     // Runs pin a fixed committed baseline: access is deny-by-default, and the
     // host decides from its trusted request context before any record lookup.
-    if (!options.runsAccess) {
+    if (!readAccess) {
       ctx.status = 403;
       ctx.body = {
         error: 'RUNS_ACCESS_NOT_CONFIGURED',
-        message: '宿主必须配置 runsAccess 准入回调后，才能查询运行提交结果',
+        message: '宿主必须配置 access.read 准入回调后，才能查询运行提交结果',
       };
       return;
     }
-    const allowed = await options.runsAccess(surfaceId, ctx);
+    const allowed = await readAccess(surfaceId, ctx);
     if (allowed !== true) {
       ctx.status = 403;
       ctx.body = {

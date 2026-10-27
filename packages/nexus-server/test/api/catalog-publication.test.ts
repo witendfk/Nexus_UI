@@ -12,6 +12,7 @@ import { AgentAdapter } from '../../src/agent/adapter';
 import { createAgentRouter } from '../../src/api/routes';
 import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.5 发布内容与执行契约一致：
@@ -34,7 +35,7 @@ function loadFixtureCatalog(name: string): CatalogDefinition {
 const catalogA = loadFixtureCatalog('catalog-accept-interactive-form.json');
 const catalogB = loadFixtureCatalog('catalog-accept-display-only.json');
 
-const adapter = new AgentAdapter({ registry: new CatalogRegistry([]) });
+const adapter = new AgentAdapter({ access: allowAllAccess, registry: new CatalogRegistry([]) });
 
 const servers: Server[] = [];
 
@@ -82,7 +83,10 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
 
     const baseUrl = await listen(
       createAgentRouter({
-        adapter: new AgentAdapter({ registry: new CatalogRegistry([published]) }),
+        adapter: new AgentAdapter({
+          access: allowAllAccess,
+          registry: new CatalogRegistry([published]),
+        }),
         catalogContracts: [published],
       }),
     );
@@ -129,7 +133,10 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
   it('发布 payload 与 onboarding 内嵌 catalogContract 完全一致', async () => {
     const baseUrl = await listen(
       createAgentRouter({
-        adapter: new AgentAdapter({ registry: new CatalogRegistry([structuredClone(catalogA)]) }),
+        adapter: new AgentAdapter({
+          access: allowAllAccess,
+          registry: new CatalogRegistry([structuredClone(catalogA)]),
+        }),
         catalogContracts: [structuredClone(catalogA)],
       }),
     );
@@ -154,7 +161,10 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
     assert.throws(
       () =>
         createAgentRouter({
-          adapter: new AgentAdapter({ registry: new CatalogRegistry([drifted]) }),
+          adapter: new AgentAdapter({
+            access: allowAllAccess,
+            registry: new CatalogRegistry([drifted]),
+          }),
           catalogContracts: [structuredClone(catalogA)],
         }),
       /实际执行契约/,
@@ -176,6 +186,7 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
     const baseUrl = await listen(
       createAgentRouter({
         adapter: new AgentAdapter({
+          access: allowAllAccess,
           registry: new CatalogRegistry([structuredClone(catalogA), structuredClone(catalogB)]),
         }),
         catalogContracts: [structuredClone(catalogA)],
@@ -231,7 +242,7 @@ describe('S2.5.5 发布内容与执行契约一致', () => {
 
 describe('发布契约绑定真实 adapter', () => {
   it('router 拒绝独立的记录所有者，显式相同实例可装配', () => {
-    const actual = new AgentAdapter({ registry: new CatalogRegistry([]) });
+    const actual = new AgentAdapter({ access: allowAllAccess, registry: new CatalogRegistry([]) });
     assert.throws(
       () =>
         createAgentRouter({
@@ -263,7 +274,10 @@ describe('发布契约绑定真实 adapter', () => {
     assert.throws(
       () =>
         createAgentRouter({
-          adapter: new AgentAdapter({ registry: new CatalogRegistry([drifted]) }),
+          adapter: new AgentAdapter({
+            access: allowAllAccess,
+            registry: new CatalogRegistry([drifted]),
+          }),
           catalogContracts: [catalogA],
         }),
       /执行|adapter/,
@@ -272,7 +286,11 @@ describe('发布契约绑定真实 adapter', () => {
   it('装配后修改同一 registry 不改变发布与后续执行的固定声明', async () => {
     const definition = structuredClone(catalogA);
     const registry = new CatalogRegistry([definition]);
-    const actual = new AgentAdapter({ registry, createGenerationSource: () => [] });
+    const actual = new AgentAdapter({
+      access: allowAllAccess,
+      registry,
+      createGenerationSource: () => [],
+    });
     const router = createAgentRouter({ adapter: actual, catalogContracts: [definition] });
     const hash = createCatalogContractHash(definition);
     (definition.actions as CatalogActionDeclaration[]).push({
@@ -299,7 +317,10 @@ it('可选 undefined 的执行声明经真实 HTTP 发布后 hash/prompt 仍与�
     components: { Label: { schema: { type: 'object' }, origin: undefined, inputs: undefined } },
     actions: [],
   };
-  const owner = new AgentAdapter({ registry: new CatalogRegistry([catalog]) });
+  const owner = new AgentAdapter({
+    access: allowAllAccess,
+    registry: new CatalogRegistry([catalog]),
+  });
   const base = await listen(createAgentRouter({ adapter: owner, catalogContracts: [catalog] }));
   const { status, body } = await getJson(
     `${base}/api/a2ui/catalog-contract?catalogId=${encodeURIComponent(catalog.catalogId)}`,

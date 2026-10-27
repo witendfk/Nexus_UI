@@ -13,6 +13,7 @@ import {
 } from '../../src/agent/surface-action-state';
 import { createAgentRuntime } from '../../src/runtime/runtime-facade';
 import { TEST_CATALOG_ID, createTestRegistry } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 const registry = createTestRegistry();
 const HASHED = createCatalogContractHash(registry.get(TEST_CATALOG_ID)!);
@@ -91,6 +92,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     // 两个 runtime 共享同一 store：调度互不可见，但权威状态同源。
     const build = (handlers: Map<string, unknown>) =>
       createAgentRuntime({
+        access: allowAllAccess,
         registry,
         actionStateStore: shared,
         createSurfaceId: () => surfaceId,
@@ -161,6 +163,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
       removeSnapshot: (id: string) => inner.removeSnapshot(id),
     };
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionStateStore: throwingStore,
       createSurfaceId: () => surfaceId,
@@ -170,6 +173,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     } as never);
     // 面先用正常 store 建立 surface，再换抛错 store 提交 action。
     const normal = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionStateStore: inner,
       createSurfaceId: () => surfaceId,
@@ -207,6 +211,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
       removeSnapshot: (id: string) => inner.removeSnapshot(id),
     };
     const normal = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionStateStore: inner,
       createSurfaceId: () => surfaceId,
@@ -218,6 +223,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     ).commit;
 
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionStateStore: rejectingStore,
       createSurfaceId: () => surfaceId,
@@ -240,6 +246,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     const surfaceId = 'cf-observer-hook';
     const diagnostics: NexusRunDiagnostic[] = [];
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => surfaceId,
       createGenerationSource: (request: AgentGenerationSourceRequest) =>
@@ -280,6 +287,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
       listBySurface: (id) => inner.listBySurface(id),
     };
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       runManager: failingManager,
       createSurfaceId: () => surfaceId,
@@ -318,6 +326,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
       },
     };
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionLedger: throwingLedger,
       createSurfaceId: () => surfaceId,
@@ -357,6 +366,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     let handlerCalls = 0;
     let firstCall = true;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => surfaceId,
       createGenerationSource: (request: AgentGenerationSourceRequest) =>
@@ -405,6 +415,7 @@ describe('S3.3.4 提交事实证伪：副作用替身与故障 store', () => {
     });
     const baselines = new Map<string, number>();
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionLedger: new InMemorySurfaceActionLedger({ maxRecords: 1 }),
       createSurfaceId: () => surfaceIds[surfaceCursor++ % surfaceIds.length]!,

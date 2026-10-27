@@ -13,11 +13,12 @@ import type { AgentMessageSource } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { InMemoryAgentRunManager, type AgentRunRecord } from '../../src/agent/run-manager';
 import { createAgentRouter } from '../../src/api/routes';
+import { generateActionAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.3 按 run 查询与访问控制（GET /api/a2ui/surface-state）：
  * - 缺失/空 surfaceId 或 runId → 400；合法参数先鉴权后查记录：
- *   runsAccess 未配置/拒绝均为 403，不泄露记录存在性；
+ *   access.read 未配置/拒绝均为 403，不泄露记录存在性；
  * - 记录不存在、surface 不匹配或已淘汰 → 404（不回退最新快照）；
  * - 存在但没有可确认提交 → 409；200 只返回该记录的固定结果。
  * 全部经真实 Koa HTTP 服务与 fetch 验证。
@@ -50,7 +51,7 @@ const SURFACE = 's-fix-1';
 
 interface HarnessOptions {
   maxRecords?: number;
-  runsAccess?: (surfaceId: string) => boolean | Promise<boolean>;
+  readAccess?: (surfaceId: string) => boolean | Promise<boolean>;
   failGenerationAfterMessages?: boolean;
 }
 
@@ -92,6 +93,7 @@ async function buildHarness(options: HarnessOptions = {}): Promise<Harness> {
   const manager = new RecordingRunManager({ maxRecords: options.maxRecords });
   let surfaceCounter = 0;
   const adapter = new AgentAdapter({
+    access: generateActionAccess,
     registry: new CatalogRegistry([structuredClone(CATALOG)]),
     runManager: manager,
     editablePaths: () => requestFixture.editablePaths,
@@ -121,9 +123,9 @@ async function buildHarness(options: HarnessOptions = {}): Promise<Harness> {
   );
   const router = createAgentRouter({
     adapter,
-    ...(options.runsAccess === undefined
+    ...(options.readAccess === undefined
       ? {}
-      : { runsAccess: (surfaceId) => options.runsAccess!(surfaceId) }),
+      : { access: { read: (surfaceId) => options.readAccess!(surfaceId) } }),
     streamDelayMs: 0,
   });
   const app = new Koa();
@@ -239,7 +241,7 @@ describe('S2.5.3 查询参数校验（400）', () => {
     ['空 surfaceId', 'surfaceId=&runId=r-1'],
     ['空 runId', 'surfaceId=s-1&runId='],
   ] as readonly [string, string][]) {
-    it(`${label} 返回 400，且参数校验先于准入（未配置 runsAccess 也是 400）`, async () => {
+    it(`${label} 返回 400，且参数校验先于准入（未配置 access.read 也是 400）`, async () => {
       const { baseUrl } = await buildHarness();
       const response = await fetch(`${baseUrl}/api/a2ui/surface-state?${search}`);
       assert.equal(response.status, 400);
@@ -251,8 +253,8 @@ describe('S2.5.3 查询参数校验（400）', () => {
   }
 });
 
-describe('S2.5.3 宿主 runsAccess 准入（403）', () => {
-  it('未配置 runsAccess 一律 403，且不泄露记录存在性', async () => {
+describe('S2.5.3 宿主 access.read 准入（403，S3.5 迁移）', () => {
+  it('未配置 access.read 一律 403，且不泄露记录存在性', async () => {
     const { baseUrl } = await buildHarness();
     const commit = await runGeneration(baseUrl);
     for (const runId of [commit.runId, 'never-created-run']) {
@@ -260,16 +262,16 @@ describe('S2.5.3 宿主 runsAccess 准入（403）', () => {
       assert.equal(status, 403);
       assert.deepEqual(body, {
         error: 'RUNS_ACCESS_NOT_CONFIGURED',
-        message: '宿主必须配置 runsAccess 准入回调后，才能查询运行提交结果',
+        message: '宿主必须配置 access.read 准入回调后，才能查询运行提交结果',
       });
     }
   });
 
-  it('runsAccess 拒绝时 403（同步/异步一致），且先鉴权后查记录', async () => {
+  it('access.read 拒绝时 403（同步/异步一致），且先鉴权后查记录', async () => {
     for (const access of [() => false, () => Promise.resolve(false)] as readonly (() =>
       | boolean
       | Promise<boolean>)[]) {
-      const { baseUrl, manager } = await buildHarness({ runsAccess: access });
+      const { baseUrl, manager } = await buildHarness({ readAccess: access });
       const commit = await runGeneration(baseUrl);
       for (const runId of [commit.runId, 'never-created-run']) {
         const { status, body } = await queryBaseline(baseUrl, SURFACE, runId);
@@ -290,7 +292,7 @@ describe('S2.5.3 宿主 runsAccess 准入（403）', () => {
 
 describe('S2.5.3 记录不可用（404/409）', () => {
   it('不存在的 runId 与跨 surface 的既有 runId 返回相同 404（不泄露存在性）', async () => {
-    const { baseUrl } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl } = await buildHarness({ readAccess: () => true });
     const commit = await runGeneration(baseUrl);
     const missing = await queryBaseline(baseUrl, SURFACE, 'never-created-run');
     const crossSurface = await queryBaseline(baseUrl, 's-other-surface', commit.runId);
@@ -304,7 +306,7 @@ describe('S2.5.3 记录不可用（404/409）', () => {
   });
 
   it('记录容量淘汰后明确不可用：404，不回退该 surface 的最新快照', async () => {
-    const { baseUrl, manager } = await buildHarness({ runsAccess: () => true, maxRecords: 2 });
+    const { baseUrl, manager } = await buildHarness({ readAccess: () => true, maxRecords: 2 });
     const first = await runGeneration(baseUrl); // s-fix-1 revision 1
     await runGeneration(baseUrl); // second surface，占位
     // 第三个生成触发淘汰最旧终态记录（first）
@@ -339,7 +341,7 @@ describe('S2.5.3 记录不可用（404/409）', () => {
 
   it('运行失败没有可确认提交 → 409；排队中尚未提交 → 409', async () => {
     const { baseUrl, manager } = await buildHarness({
-      runsAccess: () => true,
+      readAccess: () => true,
       failGenerationAfterMessages: true,
     });
     const frames = await postGenerate(baseUrl);
@@ -360,7 +362,7 @@ describe('S2.5.3 记录不可用（404/409）', () => {
 
 describe('S2.5.3 查询返回固定提交结果（200）', () => {
   it('200 只读该记录的固定结果，与成功 done 载荷一致', async () => {
-    const { baseUrl } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl } = await buildHarness({ readAccess: () => true });
     const commit = await runGeneration(baseUrl);
     const { status, body } = await queryBaseline(baseUrl, SURFACE, commit.runId);
     assert.equal(status, 200);
@@ -406,7 +408,7 @@ describe('S2.5.3 baseline 时序夹具经真实 HTTP 查询路由验证', () => 
   ]) {
     it(`查询 A 恒返 A 的固定旧 revision：${filename}`, async () => {
       const fixture = loadFixture(filename) as BaselineFixture;
-      const { baseUrl, adapter, handlerCalls } = await buildHarness({ runsAccess: () => true });
+      const { baseUrl, adapter, handlerCalls } = await buildHarness({ readAccess: () => true });
 
       // run A（渲染运行）：真实 HTTP 生成，提交 revision 1
       const rendered = await runGeneration(baseUrl);

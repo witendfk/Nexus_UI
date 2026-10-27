@@ -5,6 +5,7 @@ import type { CatalogDefinition } from '@nexus-ui/core';
 import { AgentAdapter } from '../../src/agent/adapter';
 import type { AgentMessageSource } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.1 统一运行标识：一次 run 只分配一个不可变 ID，由运行创建方（adapter）
@@ -63,6 +64,7 @@ function generationStream(): AgentMessageSource {
 
 function createAdapter(): AgentAdapter {
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry,
     createSurfaceId: () => SURFACE,
     createGenerationSource: () => generationStream(),

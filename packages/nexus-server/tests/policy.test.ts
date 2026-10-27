@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { AgentAdapter } from '../src/agent/adapter';
 import { resolveAgentPolicy } from '../src/agent/policy';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import { allowAllAccess } from './helpers/access';
 
 describe('neutral SDK policy layer', () => {
   it('resolveAgentPolicy fills unset host hooks with no-op defaults', () => {
@@ -38,6 +39,7 @@ describe('neutral SDK policy layer', () => {
 
   it('attaches an adapter-level policy to generation runs', async () => {
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry: createTestRegistry(),
       useLlm: () => false,
       policy: {

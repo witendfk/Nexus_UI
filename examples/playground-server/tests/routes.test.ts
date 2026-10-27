@@ -259,7 +259,7 @@ describe('Agent line routes', () => {
     assert.match(await response.text(), /catalogId/);
   });
 
-  it('参考服务显式配置 runsAccess 后开放 runs 查询', async () => {
+  it('参考服务显式配置 access.read 后开放运行查询（S3.5 迁移）', async () => {
     const response = await fetch(`${baseUrl}/api/a2ui/runs?surfaceId=not-created-yet`);
 
     assert.equal(response.status, 200);

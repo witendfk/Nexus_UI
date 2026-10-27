@@ -5,6 +5,7 @@ import {
   InMemorySurfaceHistoryStore,
 } from '@nexus-ui/server';
 import type {
+  AgentAccessHooks,
   AgentActionHandler,
   AgentGenerationSource,
   AgentPolicy,
@@ -22,6 +23,8 @@ export interface StandaloneHostAdapterOptions extends ExternalAgentRpcConfig {
   createSurfaceId?: () => string;
   actionHandler?: AgentActionHandler;
   policy?: AgentPolicy;
+  /** 宿主可注入更严的访问准入；缺省为本地 demo 的显式放行。 */
+  access?: AgentAccessHooks;
 }
 
 /** S2.6.2.2 可信白名单：审批面无输入组件；反馈面只开放 score/pinned 两个绑定。 */
@@ -78,6 +81,9 @@ export function createStandaloneHostAdapter(options: StandaloneHostAdapterOption
     createSurfaceId: options.createSurfaceId,
     createGenerationSource: generationSource,
     policy: options.policy,
+    // 本地 demo 显式放行生成与 action（SPEC §6.5：SDK 缺省拒绝，demo 自行
+    // 放行）；运行查询保持缺省拒绝，不在本示例开放。
+    access: options.access ?? { generate: () => true, action: () => true },
     editablePaths: (surfaceId) => {
       const catalogId = surfaceCatalogIndex.catalogOf(surfaceId);
       return catalogId === undefined ? [] : (HOST_EDITABLE_PATHS.get(catalogId) ?? []);

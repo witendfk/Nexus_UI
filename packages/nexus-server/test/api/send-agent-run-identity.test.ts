@@ -13,6 +13,7 @@ import type { AgentMessageSource, AgentRun } from '../../src/agent/adapter';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { sendAgentRun, sendMessages } from '../../src/api/send-messages';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.1 发送层身份收口：sendAgentRun 以 AgentRun.runId 为唯一运行标识——
@@ -75,6 +76,7 @@ function createAdapter(
   onEmptyAction?: () => void,
 ): AgentAdapter {
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry,
     runManager,
     createSurfaceId: () => SURFACE,

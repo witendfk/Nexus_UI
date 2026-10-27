@@ -14,6 +14,7 @@ import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import type { AgentRunManager } from '../../src/agent/run-manager';
 import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { sendAgentRun } from '../../src/api/send-messages';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.2 共用运行所有者的留存接线与拒绝路径（S3.2 迁移后语义；留存语义以 S3.3.2 为准）：
@@ -83,6 +84,7 @@ function createAdapter(
   onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void,
 ): AgentAdapter {
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry,
     runManager,
     ...(onRunDiagnostic ? { onRunDiagnostic } : {}),
@@ -374,6 +376,7 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     manager.create({ id: 'occupied', surfaceId: 'occupied-surface', kind: 'generate' });
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       createSurfaceId: () => SURFACE,
@@ -391,6 +394,7 @@ describe('运行留存不依赖 HTTP，初始化失败完整清理', () => {
   it('响应占用抛错时取消运行、回调宿主 dispose，容量可再次使用', async () => {
     const manager = new InMemoryAgentRunManager({ maxRecords: 1 });
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       createSurfaceId: () => SURFACE,

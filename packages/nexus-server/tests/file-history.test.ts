@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import { AgentAdapter } from '../src/agent/adapter';
 import { FileSurfaceHistoryStore } from '../src/agent/file-history';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import { allowAllAccess } from './helpers/access';
 
 const registry = createTestRegistry();
 
@@ -40,6 +41,7 @@ describe('FileSurfaceHistoryStore', () => {
     const surfaceId = 'surface-file-history';
     const firstStore = new FileSurfaceHistoryStore(historyFile);
     const firstAdapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       historyStore: firstStore,
@@ -55,6 +57,7 @@ describe('FileSurfaceHistoryStore', () => {
 
     const secondStore = new FileSurfaceHistoryStore(historyFile);
     const secondAdapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       historyStore: secondStore,

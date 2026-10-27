@@ -10,6 +10,7 @@ import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { createAgentRuntime } from '../../src/runtime/runtime-facade';
 import { sendAgentRun } from '../../src/api/send-messages';
 import { TEST_CATALOG_ID, createTestRegistry } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 function deferred() {
   let resolve!: () => void;
@@ -44,9 +45,75 @@ const messages = (surfaceId: string, text: string) => [
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('sendAgentRun S3.2 独立复审回归', () => {
+  for (const event of ['close', 'aborted'] as const) {
+    it(`独立 signal 不屏蔽连接 ${event}，重复关闭/abort 只取消与清理一次`, async () => {
+      const entered = deferred(),
+        release = deferred();
+      let sourceClosed = false;
+      let disposed = 0;
+      const runtime = createAgentRuntime({
+        access: allowAllAccess,
+        registry,
+        createSurfaceId: () => `disconnect-${event}`,
+        createGenerationSource: (request) =>
+          (async function* () {
+            try {
+              entered.resolve();
+              await release.promise;
+              yield* messages(request.surfaceId, 'must not commit');
+            } finally {
+              sourceClosed = true;
+            }
+          })(),
+      });
+      const enqueued = await runtime.generate({ catalogId: TEST_CATALOG_ID });
+      assert.ok(enqueued.accepted);
+      let cancelCalls = 0;
+      const cancel = enqueued.run.cancel.bind(enqueued.run);
+      enqueued.run.cancel = () => {
+        cancelCalls++;
+        cancel();
+      };
+      const dest = capture();
+      // 真实消费目的流；close 分支销毁 writable，aborted 分支保留目的流以核对 error。
+      const req = new PassThrough();
+      const controller = new AbortController();
+      const sent = sendAgentRun({ ...dest.ctx, req } as unknown as Koa.Context, enqueued.run, {
+        signal: controller.signal,
+        streamDelayMs: 0,
+        dispose: () => disposed++,
+      });
+      await entered.promise;
+      if (event === 'close') {
+        const closed = new Promise<void>((resolve) => dest.ctx.res.once('close', resolve));
+        dest.ctx.res.destroy();
+        await closed;
+      } else req.emit('aborted');
+      release.resolve();
+      assert.equal((await enqueued.run.result).terminal, 'canceled');
+      controller.abort();
+      req.emit('aborted');
+      assert.equal((await sent).ok, false);
+      await nextTurn();
+      assert.equal(cancelCalls, 1);
+      assert.equal(disposed, 1);
+      assert.ok(sourceClosed);
+      assert.equal(await runtime.adapter.describeSurfaceContract(`disconnect-${event}`), undefined);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+      assert.equal(req.listenerCount('aborted'), 0);
+      assert.equal(dest.ctx.res.listenerCount('close'), 0);
+      if (event === 'aborted') {
+        await dest.ended;
+        assert.match(dest.output(), /event: error/);
+        assert.doesNotMatch(dest.output(), /event: done/);
+      }
+    });
+  }
+
   it('仅 sender 的已取消 signal 也在工厂调用前取消 SDK 句柄', async () => {
     let calls = 0;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'abort-before',
       createGenerationSource: (r) => {
@@ -79,6 +146,7 @@ describe('sendAgentRun S3.2 独立复审回归', () => {
       release = deferred();
     let closed = false;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'abort-later',
       createGenerationSource: (r) =>
@@ -113,6 +181,36 @@ describe('sendAgentRun S3.2 独立复审回归', () => {
     assert.doesNotMatch(dest.output(), /event: done/);
   });
 
+  it('响应占用失败（flushHeaders 抛错）同步抛出并回收运行与宿主资源', async () => {
+    let calls = 0;
+    let hostDisposed = 0;
+    const runtime = createAgentRuntime({
+      access: allowAllAccess,
+      registry,
+      createSurfaceId: () => 'claim-failure',
+      createGenerationSource: (r) => {
+        calls++;
+        return messages(r.surfaceId, 'never');
+      },
+    });
+    const enqueued = await runtime.generate({ catalogId: TEST_CATALOG_ID });
+    assert.ok(enqueued.accepted);
+    const res = new PassThrough();
+    (res as PassThrough & { flushHeaders: () => void }).flushHeaders = () => {
+      throw new Error('socket unavailable');
+    };
+    const ctx = { res, set: () => undefined } as unknown as Koa.Context;
+    assert.throws(
+      () => sendAgentRun(ctx, enqueued.run, { streamDelayMs: 0, dispose: () => hostDisposed++ }),
+      /socket unavailable/,
+      '占用失败同步抛给调用方，不留半占用响应',
+    );
+    assert.equal(calls, 0, '占用失败不得启动生成源工厂');
+    assert.equal(hostDisposed, 1, '宿主 dispose 恰好回收一次');
+    assert.equal((await enqueued.run.result).terminal, 'canceled', '运行收敛为 canceled');
+    assert.equal(res.writableEnded, false, '失败路径不产出半占用流');
+  });
+
   for (const first of ['runtime', 'custom'] as const) {
     it(`${first} 先启动：自定义 run 与 runtime 共用同一 surface 调度并实际串行提交`, async () => {
       const manager = new InMemoryAgentRunManager();
@@ -123,6 +221,7 @@ describe('sendAgentRun S3.2 独立复审回归', () => {
       const surfaceId = `mixed-${first}`;
       const createRuntime = () =>
         createAgentRuntime({
+          access: allowAllAccess,
           registry,
           runManager: manager,
           actionStateStore: store,

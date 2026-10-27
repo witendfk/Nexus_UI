@@ -1,4 +1,5 @@
 import { AgentAdapter } from '../agent/adapter';
+import type { AgentPrepareOptions } from '../agent/adapter';
 import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
 import { SurfaceScheduler } from './surface-scheduler';
 import type { AgentRuntimeOptions } from './agent-runtime';
@@ -17,11 +18,11 @@ export interface AgentRuntime {
   readonly runManager: AgentRunManager;
   generate(
     request: Parameters<AgentAdapter['prepareGeneration']>[0],
-    options?: { signal?: AbortSignal },
+    options?: AgentPrepareOptions,
   ): Promise<EnqueueOutcome>;
   action(
     action: Parameters<AgentAdapter['prepareAction']>[0],
-    options?: { signal?: AbortSignal },
+    options?: AgentPrepareOptions,
   ): Promise<EnqueueOutcome>;
   queryRun(surfaceId: string, runId: string): AgentRunRecord | undefined;
   listRuns(surfaceId: string): readonly AgentRunRecord[];
@@ -40,16 +41,16 @@ export class AgentRuntimeImpl implements AgentRuntime {
 
   async generate(
     request: Parameters<AgentAdapter['prepareGeneration']>[0],
-    options?: { signal?: AbortSignal },
+    options: AgentPrepareOptions = {},
   ): Promise<EnqueueOutcome> {
-    return this.adapter.enqueueGeneration(request, options ?? {});
+    return this.adapter.enqueueGeneration(request, options);
   }
 
   async action(
     action: Parameters<AgentAdapter['prepareAction']>[0],
-    options?: { signal?: AbortSignal },
+    options: AgentPrepareOptions = {},
   ): Promise<EnqueueOutcome> {
-    return this.adapter.enqueueAction(action, options ?? {});
+    return this.adapter.enqueueAction(action, options);
   }
 
   queryRun(surfaceId: string, runId: string): AgentRunRecord | undefined {

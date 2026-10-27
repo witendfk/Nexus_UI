@@ -177,6 +177,9 @@ export function createReferenceAgentAdapter(
     ...options,
     registry: options.registry ?? agentCatalogRegistry,
     policy: resolveAgentPolicy(options.policy),
+    // 本地试验台显式放行生成与 action（SPEC §6.5：SDK 缺省拒绝，demo 自行
+    // 放行）；真实宿主必须换成基于可信请求上下文的准入。
+    access: options.access ?? { generate: () => true, action: () => true },
     actionHandlers,
     useLlm: options.useLlm ?? isLlmAgentEnabled,
     streamLlm: options.streamLlm ?? streamLlmMessages,

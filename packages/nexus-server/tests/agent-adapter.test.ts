@@ -21,6 +21,7 @@ import { InMemorySurfaceActionStateStore } from '../src/agent/surface-action-sta
 import type { SurfaceActionStateStore } from '../src/agent/surface-action-state';
 import { sendAgentRun } from '../src/api/send-messages';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import { allowAllAccess } from './helpers/access';
 
 const registry = createTestRegistry();
 
@@ -134,6 +135,7 @@ describe('AgentAdapter 显式装配', () => {
 
   it('generate 请求缺 catalogId 必须显式报错，不回落示例 Catalog', async () => {
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createGenerationSource: () => [
@@ -149,7 +151,7 @@ describe('AgentAdapter 显式装配', () => {
   });
 
   it('useLlm=true 而 streamLlm 缺失必须在 prepare 时显式报错', async () => {
-    const adapter = new AgentAdapter({ registry, useLlm: () => true });
+    const adapter = new AgentAdapter({ access: allowAllAccess, registry, useLlm: () => true });
     await assert.rejects(
       () => adapter.prepareGeneration({ message: '无 streamLlm', catalogId: TEST_CATALOG_ID }),
       /streamLlm/,
@@ -173,6 +175,7 @@ describe('AgentAdapter 显式装配', () => {
       },
     ];
     const first = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -182,6 +185,7 @@ describe('AgentAdapter 显式装配', () => {
       },
     });
     const second = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -209,7 +213,7 @@ describe('AgentAdapter 显式装配', () => {
   });
 
   it('keeps deterministic fallback and example actions out of the generic adapter', async () => {
-    const generic = new AgentAdapter({ registry, useLlm: () => false });
+    const generic = new AgentAdapter({ access: allowAllAccess, registry, useLlm: () => false });
     const missingSource = await generic.prepareGeneration({
       message: '创建任务面',
       catalogId: TEST_CATALOG_ID,
@@ -219,6 +223,7 @@ describe('AgentAdapter 显式装配', () => {
 
     const surfaceId = 'surface-no-reference-defaults';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       useLlm: () => false,
@@ -274,6 +279,7 @@ describe('AgentAdapter 显式装配', () => {
     const actionContexts: Array<{ action: AgentAction; context: AgentActionContext }> = [];
     const surfaceId = 'surface-host-generation';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       createSurfaceId: () => surfaceId,
@@ -354,6 +360,7 @@ describe('AgentAdapter 显式装配', () => {
 
   it('自定义生成源的非法输出仍被 SSE guard 拒绝且不提交 history', async () => {
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'surface-host-invalid',
       createGenerationSource: (request) => [
@@ -384,6 +391,7 @@ describe('AgentAdapter 显式装配', () => {
   it('Catalog 诊断会随 SSE error 契约透出', async () => {
     const customCatalogId = 'https://example.com/catalogs/task/v3';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry: new CatalogRegistry([
         {
           catalogId: customCatalogId,
@@ -480,6 +488,7 @@ describe('AgentAdapter 显式装配', () => {
     const historyStore = new InMemorySurfaceHistoryStore();
     const actionContexts: AgentActionContext[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       historyStore,
@@ -549,6 +558,7 @@ describe('AgentAdapter 显式装配', () => {
     const requests: AgentLlmStreamRequest[] = [];
     const llmCatalogId = 'https://example.com/catalogs/llm-probe/v1';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry: new CatalogRegistry([
         {
           catalogId: llmCatalogId,
@@ -603,6 +613,7 @@ describe('AgentAdapter 显式装配', () => {
   it('支持异步业务 action handler 并拒绝未注册 action', async () => {
     const surfaceId = 'surface-custom';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       useLlm: () => false,
@@ -671,7 +682,7 @@ describe('AgentAdapter 显式装配', () => {
   });
 
   it('keeps the official Basic Catalog identity unregistered', async () => {
-    const adapter = new AgentAdapter({ registry, useLlm: () => false });
+    const adapter = new AgentAdapter({ access: allowAllAccess, registry, useLlm: () => false });
     const plan = await adapter.prepareGeneration({ catalogId: OFFICIAL_BASIC_CATALOG });
 
     assert.ok(!plan.ok);
@@ -682,6 +693,7 @@ describe('AgentAdapter 显式装配', () => {
     const surfaceId = 'surface-serial-action';
     const executionOrder: string[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -771,6 +783,7 @@ describe('AgentAdapter 显式装配', () => {
     const surfaceId = 'surface-rollback-generation';
     const diagnostics: NexusRunDiagnostic[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -853,6 +866,7 @@ describe('AgentAdapter 显式装配', () => {
     const surfaceId = 'surface-ledger-fail';
     let handlerCalls = 0;
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -931,6 +945,7 @@ describe('AgentAdapter 显式装配', () => {
   it('rejects action context fields not declared on the surface', async () => {
     const surfaceId = 'surface-undeclared-fields';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -1033,6 +1048,7 @@ describe('AgentAdapter 显式装配', () => {
     };
 
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       useLlm: () => false,
       createSurfaceId: () => surfaceId,
@@ -1146,6 +1162,7 @@ describe('AgentAdapter 显式装配', () => {
 
     const historyStore = new FlakyHistoryStore();
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       historyStore,
       useLlm: () => false,

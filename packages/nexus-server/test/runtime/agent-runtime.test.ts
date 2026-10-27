@@ -10,6 +10,7 @@ import {
   createCatalogContractHash,
 } from '../../src/agent/catalog-contract';
 import { TEST_CATALOG_ID, createTestRegistry } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 const registry = createTestRegistry();
 const HASH = createCatalogContractHash(registry.get(TEST_CATALOG_ID)!);
@@ -56,6 +57,7 @@ function actionRequest(surfaceId: string, surfaceRevision: number, actionId: str
 describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
   it('非 Koa 消费：generate 产出 start/message*/done 事件并自动提交', async () => {
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-gen-1',
       createGenerationSource: (request) => generationSource(request.surfaceId, { title: 't' }),
@@ -93,6 +95,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
   it('action 同入口：start 绑定调度内基准 revision，空参数提交合法', async () => {
     let handlerCalls = 0;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-action-1',
       createGenerationSource: (request) => generationSource(request.surfaceId, { score: 3 }),
@@ -148,11 +151,13 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
         yield* generationSource(request.surfaceId, {});
       })();
     const first = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'shared-surface',
       createGenerationSource: heldSource,
     });
     const second = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'shared-surface',
       createGenerationSource: freeSource,
@@ -186,6 +191,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
       release = resolve;
     });
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       scheduler: { maxQueuedPerSurface: 1 },
       createSurfaceId: () => 'rt-capacity',
@@ -224,6 +230,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
   it('排队取消先于生成源工厂：canceled 终态、排队运行工厂零调用', async () => {
     let factoryCalls = 0;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-cancel-queued',
       createGenerationSource: (request) => {
@@ -249,6 +256,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
 
   it('prepare* 兼容外壳与 runtime 入口共享同一调度（同 surface 串行）', async () => {
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-shell',
       createGenerationSource: (request) => generationSource(request.surfaceId, {}),
@@ -289,6 +297,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
       removeSnapshot: (id: string) => inner.removeSnapshot(id),
     };
     const racing = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       createSurfaceId: () => 'rt-dispose-race',
@@ -324,6 +333,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
       releaseSource = resolve;
     });
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-post-terminal',
       createGenerationSource: (request) =>
@@ -350,6 +360,7 @@ describe('createAgentRuntime 传输无关入口（S3.2.1）', () => {
   it('候选被拒时宿主生成器 finally 必须执行（source return）', async () => {
     let sourceClosed = false;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'rt-source-return',
       createGenerationSource: (request) =>
@@ -405,6 +416,7 @@ describe('S3.2 独立复审回归', () => {
   it('同一记录所有者不能装配冲突调度器，拒绝后原 runtime 仍可用', async () => {
     const manager = new InMemoryAgentRunManager();
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       scheduler: { maxQueuedPerSurface: 1 },
@@ -413,6 +425,7 @@ describe('S3.2 独立复审回归', () => {
     assert.throws(
       () =>
         createAgentRuntime({
+          access: allowAllAccess,
           registry,
           runManager: manager,
           scheduler: { maxQueuedPerSurface: 2 },
@@ -433,6 +446,7 @@ describe('S3.2 独立复审回归', () => {
     let activeB = 0,
       peakB = 0;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => nextSurface,
       createGenerationSource: (request) => generationSource(request.surfaceId, {}),
@@ -496,6 +510,7 @@ describe('S3.2 独立复审回归', () => {
     const gate = deferred(),
       entered = deferred();
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       createSurfaceId: () => 'request-copy',
       createGenerationSource: (r) => generationSource(r.surfaceId, {}),
@@ -543,6 +558,7 @@ describe('S3.2 独立复审回归', () => {
     }
     let failSource = true;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       runManager: new ThrowingManager(),
       createSurfaceId: () => 'record-fault',
@@ -583,6 +599,7 @@ describe('S3.2 独立复审回归', () => {
       entered = deferred();
     let factories = 0;
     const runtime = createAgentRuntime({
+      access: allowAllAccess,
       registry,
       runManager: new ThrowingManager(),
       scheduler: { maxQueuedPerSurface: 1 },

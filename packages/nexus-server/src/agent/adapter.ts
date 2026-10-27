@@ -71,6 +71,65 @@ export interface AgentGenerateRequest {
 
 export interface AgentPrepareOptions {
   signal?: AbortSignal;
+  /**
+   * 传输适配传入的可信上下文（HTTP 为 Koa Context，非 HTTP 为宿主自定义值）；
+   * 仅透传给宿主 access 钩子，运行模块不解释其内容（SPEC §6.5）。
+   */
+  context?: unknown;
+}
+
+/** 宿主访问钩子的返回；只有显式 `true` 放行，其余值一律拒绝（缺省拒绝原则）。 */
+export type AgentAccessDecision = boolean | Promise<boolean>;
+
+export type AgentAccessReadHook = (surfaceId: string, context?: unknown) => AgentAccessDecision;
+export type AgentAccessGenerateHook = (
+  request: Readonly<AgentGenerateRequest>,
+  context?: unknown,
+) => AgentAccessDecision;
+export type AgentAccessActionHook = (
+  request: Readonly<AgentAction>,
+  context?: unknown,
+) => AgentAccessDecision;
+
+/**
+ * 宿主访问准入钩子（SPEC §6.5，DESIGN D9）：read/generate/action 缺省一律
+ * 拒绝；拒绝发生在入队前，不启动 source/resolver/handler、不创建运行记录。
+ * request 是隔离且递归冻结的 JSON 请求快照，不是可修改的参数解析入口。
+ * 可信身份由宿主闭包从自己的上下文提取，surfaceId/catalogHash/context 都不是凭据。
+ */
+export interface AgentAccessHooks {
+  read?: AgentAccessReadHook;
+  generate?: AgentAccessGenerateHook;
+  action?: AgentAccessActionHook;
+}
+
+/** 入队前访问准入的拒绝码；HTTP 路由映射为 403（SPEC §5.4 状态码表）。 */
+export type AgentAccessRejectionCode =
+  | 'GENERATE_ACCESS_NOT_CONFIGURED'
+  | 'GENERATE_ACCESS_DENIED'
+  | 'ACTION_ACCESS_NOT_CONFIGURED'
+  | 'ACTION_ACCESS_DENIED';
+
+/** access 钩子评估：未配置与拒绝分别报告，由调用方映射为不同错误码。 */
+async function evaluateAccessHook<T>(
+  hook: ((request: T, context?: unknown) => AgentAccessDecision) | undefined,
+  request: T,
+  context: unknown,
+): Promise<{ configured: boolean; allowed: boolean }> {
+  if (!hook) return { configured: false, allowed: false };
+  // 鉴权与执行基于同一入口快照；不给钩子持有任务引用或改写判定对象的能力。
+  const snapshot = structuredClone(request);
+  freezeAccessRequest(snapshot);
+  // 钩子是宿主可信代码：抛错按装配/编程错误向上传播，不静默改为拒绝。
+  return { configured: true, allowed: (await hook(snapshot, context)) === true };
+}
+
+/** JSON 请求可包含嵌套数组/对象；循环防护避免非法非 HTTP 输入使冻结递归失控。 */
+function freezeAccessRequest(value: unknown, seen = new WeakSet<object>()): void {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  for (const child of Object.values(value)) freezeAccessRequest(child, seen);
+  Object.freeze(value);
 }
 
 export type AgentMessageSource = AsyncIterable<unknown> | Iterable<unknown>;
@@ -107,7 +166,11 @@ export interface AgentRun {
  */
 export type AgentPlan =
   | { ok: true; run: RuntimeRunHandle }
-  | { ok: false; message: string; code?: ActionAdmissionCode | 'capacity-limit' };
+  | {
+      ok: false;
+      message: string;
+      code?: ActionAdmissionCode | 'capacity-limit' | AgentAccessRejectionCode;
+    };
 
 export interface AgentGenerationSourceRequest {
   kind: 'generate';
@@ -196,6 +259,11 @@ export interface AgentAdapterOptions {
    */
   editablePaths?: (surfaceId: string) => readonly string[];
   defaultGenerationMessage?: string;
+  /**
+   * 宿主访问准入钩子（SPEC §6.5）：generate/action 在入队前强制评估，未配置
+   * 即拒绝；read 由查询路由评估。缺省（未配置）无任何放行路径。
+   */
+  access?: AgentAccessHooks;
   onGenerationCommitted?: (event: AgentGenerationCommitEvent) => void | Promise<void>;
   /**
    * 宿主观测回调（S3.3.2，ARCHITECTURE §8）：发布点之后的扩展面失败
@@ -246,6 +314,7 @@ export class AgentAdapter {
   private readonly resolveActionContext?: AgentActionContextResolver;
   private readonly editablePaths?: (surfaceId: string) => readonly string[];
   private readonly defaultGenerationMessage: string;
+  private readonly accessHooks?: AgentAccessHooks;
   private readonly onGenerationCommitted?: (
     event: AgentGenerationCommitEvent,
   ) => void | Promise<void>;
@@ -274,6 +343,7 @@ export class AgentAdapter {
     this.fallbackGeneration = options.fallbackGeneration;
     this.createSurfaceId = options.createSurfaceId ?? (() => `surface-${randomUUID()}`);
     this.defaultGenerationMessage = options.defaultGenerationMessage ?? '';
+    this.accessHooks = options.access;
     this.onGenerationCommitted = options.onGenerationCommitted;
     this.onRunDiagnostic = options.onRunDiagnostic;
     this.scheduler = schedulerForOwner(this.runManager, options.scheduler);
@@ -282,6 +352,11 @@ export class AgentAdapter {
   /** The per-adapter (or injected runtime) scheduler; single dispatch owner. */
   get dispatchScheduler(): SurfaceScheduler {
     return this.scheduler;
+  }
+
+  /** 宿主访问准入钩子；查询路由以其 read 钩子为缺省准入（未配置即 403）。 */
+  get access(): AgentAccessHooks | undefined {
+    return this.accessHooks;
   }
 
   /** Capture the actual execution definition on first use; later host mutations cannot change it. */
@@ -339,7 +414,30 @@ export class AgentAdapter {
         message: '生成请求必须显式提供 catalogId；SDK 不回落任何默认 Catalog',
       };
     }
+    // 请求原语在任何 await 之前捕获：调用方在入队等待期修改引用不能改写本次
+    // 请求的 Catalog 与消息（入队入口隔离，SPEC §6.1）。
     const catalogId = request.catalogId;
+    const accessRequest = { catalogId, message: request.message };
+    const message =
+      typeof accessRequest.message === 'string' && accessRequest.message.trim()
+        ? accessRequest.message
+        : this.defaultGenerationMessage;
+    // 访问准入先于 Catalog 解析：未授权调用方不能借 catalogId 探测注册状态。
+    const access = await evaluateAccessHook(
+      this.accessHooks?.generate,
+      accessRequest,
+      options.context,
+    );
+    if (!access.allowed) {
+      return {
+        accepted: false,
+        stage: 'request',
+        code: access.configured ? 'GENERATE_ACCESS_DENIED' : 'GENERATE_ACCESS_NOT_CONFIGURED',
+        message: access.configured
+          ? '生成请求被宿主 access.generate 准入策略拒绝'
+          : '宿主未配置 access.generate 准入回调；SDK 缺省拒绝生成请求',
+      };
+    }
     if (isOfficialBasicCatalog(catalogId)) {
       return {
         accepted: false,
@@ -352,10 +450,6 @@ export class AgentAdapter {
     if (!catalog) {
       return { accepted: false, stage: 'request', message: `Agent catalog 未注册: ${catalogId}` };
     }
-    const message =
-      typeof request.message === 'string' && request.message.trim()
-        ? request.message
-        : this.defaultGenerationMessage;
     const useLlm = this.useLlm();
     if (useLlm && !this.createGenerationSource && !this.streamLlm) {
       throw new Error('useLlm 启用时必须显式注入 streamLlm 生成源；SDK 不再默认绑定模型 SDK');
@@ -548,7 +642,21 @@ export class AgentAdapter {
     }
     // Capture before enqueue: caller mutation must never redirect the task to
     // another surface or alter the inputs/context while it waits for its slot.
+    // 克隆在任何 await 之前完成（入队入口隔离，SPEC §6.1）。
     const request = structuredClone(action);
+    // 访问准入先于快照读取与记录建立：拒绝不泄露 surface 存在性（SPEC §6.5）；
+    // 钩子收到同一入口快照的只读副本，不能受调用方修改影响或改写任务请求。
+    const access = await evaluateAccessHook(this.accessHooks?.action, request, options.context);
+    if (!access.allowed) {
+      return {
+        accepted: false,
+        stage: 'request',
+        code: access.configured ? 'ACTION_ACCESS_DENIED' : 'ACTION_ACCESS_NOT_CONFIGURED',
+        message: access.configured
+          ? 'Action 请求被宿主 access.action 准入策略拒绝'
+          : '宿主未配置 access.action 准入回调；SDK 缺省拒绝 action 请求',
+      };
+    }
     const runId = randomUUID();
     return enqueueScheduledRun(
       { runManager: this.runManager, scheduler: this.scheduler },
@@ -851,10 +959,15 @@ export class AgentAdapter {
 
   private toPlan(outcome: EnqueueOutcome): AgentPlan {
     if (outcome.accepted) return { ok: true, run: outcome.run };
+    if (outcome.stage === 'capacity') {
+      return { ok: false, message: outcome.message, code: 'capacity-limit' };
+    }
+    // request 阶段的 code 只会是访问准入拒绝码（RUN_CAPACITY_REJECTED 仅随
+    // capacity 阶段出现）。
     return {
       ok: false,
       message: outcome.message,
-      ...(outcome.stage === 'capacity' ? { code: 'capacity-limit' as const } : {}),
+      ...(outcome.code ? { code: outcome.code as AgentAccessRejectionCode } : {}),
     };
   }
 }

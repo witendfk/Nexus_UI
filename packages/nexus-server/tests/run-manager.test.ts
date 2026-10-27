@@ -7,6 +7,7 @@ import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { createCatalogContractHash } from '../src/agent/catalog-contract';
 import { sendAgentRun, type SendAgentRunOptions } from '../src/api/send-messages';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
+import { allowAllAccess } from './helpers/access';
 
 const registry = createTestRegistry();
 
@@ -34,6 +35,7 @@ describe('agent run manager', () => {
   it('records queued, running, and completed states', async () => {
     const manager = new InMemoryAgentRunManager();
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       createSurfaceId: () => 'surface-run-success',
@@ -78,6 +80,7 @@ describe('agent run manager', () => {
     const events: string[] = [];
     const surfaceId = 'surface-run-serial';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       createSurfaceId: () => surfaceId,
@@ -163,6 +166,7 @@ describe('agent run manager', () => {
     const controller = new AbortController();
     const surfaceId = 'surface-run-cancel';
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       runManager: manager,
       createSurfaceId: () => surfaceId,

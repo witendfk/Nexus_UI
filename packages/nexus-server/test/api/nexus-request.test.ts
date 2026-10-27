@@ -7,6 +7,7 @@ import { CatalogRegistry, parseSurfaceCommit } from '@nexus-ui/core';
 import { AgentAdapter } from '../../src/agent/adapter';
 import { createAgentRouter } from '../../src/api/routes';
 import { parseNexusActionRequest } from '../../src/api/nexus-request';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 const fixtureRoot = new URL('../../../../fixtures/catalog-v2/', import.meta.url);
 const fixture = JSON.parse(
@@ -37,6 +38,7 @@ test('HTTP uses the rendered run commit and original actionId; rejects old, stal
   let calls = 0;
   const surfaceId = fixture.request.message.action.surfaceId;
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry: new CatalogRegistry([catalog]),
     createSurfaceId: () => surfaceId,
     createGenerationSource: () => fixture.surface.messages,

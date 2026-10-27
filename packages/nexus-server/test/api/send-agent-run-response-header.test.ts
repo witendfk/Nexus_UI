@@ -19,6 +19,7 @@ import {
 } from '../../src/agent/catalog-contract';
 import { InMemoryAgentRunManager } from '../../src/agent/run-manager';
 import { sendAgentRun } from '../../src/api/send-messages';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.4 响应头与传输关联（真实 HTTP 断言）：
@@ -80,6 +81,7 @@ function generationMessages(): unknown[] {
 function createAdapter(): AgentAdapter {
   let handlerCalls = 0;
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry,
     createSurfaceId: () => SURFACE,
     createGenerationSource: () => generationMessages()[Symbol.iterator](),

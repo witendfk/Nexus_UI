@@ -1,6 +1,6 @@
 # DESIGN — SDK 设计决策
 
-更新：2026-10-24。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
+更新：2026-10-27。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
 
 ## 决策索引
 
@@ -14,7 +14,7 @@
 | D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
-| D9   | 单一运行调度与有界资源                          | S3.1 定型；单一调度/提交事实/ledger 收紧已实施（S3.2–S3.3），取消与资源收敛归 S3.6 |
+| D9   | 单一运行调度与有界资源                          | S3.1 定型；单一调度/提交事实/ledger 收紧已实施（S3.2–S3.3）；访问准入已实施（S3.5）；取消与资源收敛归 S3.6 |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
 | D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
 | D12  | 按职责分包，通过层内高层 API 聚合接入能力       | 已决策，暂不新增总门面包                |
@@ -43,7 +43,7 @@
 
 ## D4. SDK 默认行为保持业务中立
 
-**选择**：生成源、Catalog、Host Policy 和 handler 显式注入。缺少必需依赖显式报错；未声明 action 不继承示例白名单；未声明业务 Policy 不继承搜索、表单或客户跟进规则。模型 key 不改变通用 runtime 的生成源选择。runs 查询访问控制默认拒绝：宿主未配置 `runsAccess` 时 `GET /api/a2ui/runs` 一律 403，`surfaceId` 不作为凭据。
+**选择**：生成源、Catalog、Host Policy 和 handler 显式注入。缺少必需依赖显式报错；未声明 action 不继承示例白名单；未声明业务 Policy 不继承搜索、表单或客户跟进规则。模型 key 不改变通用 runtime 的生成源选择。runs 查询访问控制默认拒绝：宿主未配置 `access.read` 时（S3.5 前为 `runsAccess`） `GET /api/a2ui/runs` 一律 403，`surfaceId` 不作为凭据。
 
 **实施状态（2026-10-16，server 侧）**：`AgentAdapterOptions.registry` 必填；`historyStore` 缺省为每实例隔离新建，模块级全局单例已删除；`useLlm` 默认 false，启用必须显式注入 `streamLlm`；generate 请求 `catalogId` 必填，legacy URL 不再静默归一；guard 序列选项 `catalogId`/`registry`/`supportedActions` 必填，Button/TaskButton 挂载特判删除（归 Catalog v2 声明能力）；当时 `sendAgentRun` 必须显式传 `manager`（由下述 S2.5 决策取代）；参考 Catalog/LLM/prompt/演示 handler/环境读取/listener 迁至 `examples/playground-server/`。上述行为均有先失败后通过的证伪测试。
 
@@ -96,7 +96,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 - `inputs` 声明可写绑定属性 → 值 schema，键必须是 `dynamic` 非 `forbidden` 的已声明字段；值 schema 只描述浏览器提交的字面值，不含 `dynamic`。字段绑定能力唯一权威是 schema 节点的 `dynamic`（缺省即 `forbidden`），`fields` 收窄为 origin/componentRef 元数据、不再声明 `binding`，v1 风格双源声明按未知键注册拒绝。浏览器只提交 `{ componentId, property, value }`，目标路径由服务端从已提交声明解析，客户端永不提交写路径。
 - 可编辑白名单为宿主按 surface 提供的精确 JSON Pointer 集合：绝对指针、规范化后判重、默认拒绝、无通配与前缀继承；白名单自身允许嵌套重叠。同批 inputs 写入与数组顺序无关：重复、同目标路径、解析路径互为祖先/后代（按段比较）均判冲突拒绝；未变化输入合法，按普通输入幂等写回。
 - resolver 扩展点后置：共享准入（revision/hash 核对、声明、白名单、值 schema、重复冲突）先执行，resolver 输出仍须通过未声明字段拒绝与 `paramSchema`；`paramSchema` 缺省即参数必须为空对象。
-- nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `runsAccess`，未配置 403），成功 done 已随 S2.4 复审提前携带该结果，S3 接续完整 Session 生命周期。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；原始 A2UI message 形状不变，SDK 提交结果放在 done data。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
+- nexus 元数据类型定在 core `session` 模块（`NEXUS_SESSION_VERSION`、`NexusActionInput`、`NexusActionMetadata`），server 组合 `{ message, nexus }` 请求 envelope。固定提交结果 `NexusSurfaceCommit` 同样由 core 定义，server 的 `SurfaceStateBaseline` 为其别名；S2 通过 `GET /api/a2ui/surface-state?surfaceId=&runId=` 查询指定运行在提交边界保存的不可变结果（宿主准入沿用 `access.read`，S3.5 起由 `runsAccess` 迁移，未配置 403），成功 done 已随 S2.4 复审提前携带该结果，S3 接续完整 Session 生命周期。S2.5 由生成/action 响应头 `X-Nexus-Run-Id` 关联本地流，跨源时显式暴露；原始 A2UI message 形状不变，SDK 提交结果放在 done data。记录缺失/淘汰拒绝，绝不回退为最新快照；浏览器只能给同一成功且已校验的运行视图附上该结果。其他运行更新 surface 时，旧视图仍携带旧 revision 并被拒，必须恢复视图，不能仅查询元数据解除失同步。surface 快照固定 contractVersion/hash；`pattern` 注册口径与有界求值引擎一致。
 - 共享正常/非法 fixture 定稿于 `fixtures/catalog-v2/`，core 注册与 server 准入对同一数据必须给出一致结论。
 
 **实施状态（S2.2 已完成，2026-10-17 收尾）**：`CatalogDefinition` 已切换为 v2 形状（V2 后缀移除）；注册闸门实施 §4.2 全部拒绝规则（含 enabled/componentRef 布尔、安全整数预算等类型校验）；`standardCatalogComponentDeclarations()` 提供 17 个标准组件声明且每次调用返回深拷贝；checks 能力、函数子集与预算统一由当前 Catalog 决定（Profile 只校验结构与安全基线，不读取 SDK 固定标准声明；DateTimeInput/媒体组件的 checks 名字禁令删除）；FunctionCall 仅在已校验的组件 checks.condition 位置豁免，参数内部仍递归检查；字段结构契约与 URL/正则/原型/预算基线保留；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告；成员判断只读自有属性。conformance 基线经分类决策更新为 36/13/23/5/3（ChoicePicker/CheckBox 共 3 条 checks 用例转为 pass，DateTimeInput 仍由字段约束拒绝；详见 SPEC §1）。该时点待接线的浏览器/server 输入准入，现已由下述 S2.3/S2.4 完成。
@@ -129,9 +129,9 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 - 提交事实三分：store 提交方法返回 `committed | notCommitted | unknown` 结果契约——确定性拒绝（revision/epoch 比较、结构校验）返回 notCommitted；无法证明未写入的异常一律映射 unknown；确认提交后取消/失败/传输异常不得倒写。发布点之后的 history/hook/recordCommit/传输失败按诊断面报告，不删除快照、不改写留存（替代 S2 的 hook/history 异常回滚快照方案）。
 - ledger 重放：留存窗口内任意已知记录（含 failed/canceled）拒绝重入，`failed` 不是重试许可；SDK 不自动重放，业务重试归宿主。备选方案「failed 重入=业务重试入口」被拒：SDK 无法证明 failed 记录的 handler 未执行，把重试许可建在不可证明的事实上会把重复副作用伪装成安全行为。
 - 资源预算：默认值定稿于 `fixtures/session-v1/budgets.json`（SPEC §6.6 同源）——run 512、ledger 1024、surface 256、history 64×20 沿 S2 并补活动/排队保护；每 surface 排队 32、每 run 消息与字节上限、SSE 高水位与慢消费硬上限为新增；执行/排队超时默认不启用、显式配置。非法配置装配抛错，超限显式拒绝，全部活动时拒绝新建而不淘汰活动记录。
-- 访问准入：`access.read/generate/action` 钩子缺省一律拒绝（D4 默认拒绝原则扩展到写入路径），拒绝在入队前、不建记录不泄露存在性；`runsAccess` 迁移为 `access.read`，可信身份由宿主闭包从自己的上下文提取，SDK 不解释 context。
+- 访问准入：`access.read/generate/action` 钩子缺省一律拒绝（D4 默认拒绝原则扩展到写入路径），拒绝在入队前、不建记录不泄露存在性；`runsAccess` 迁移为 `access.read`，可信身份由宿主闭包从自己的上下文提取，SDK 不解释 context。（已实施，S3.5，2026-10-27：generate/action 配置于 adapter，钩子接收入口快照的冻结隔离副本，异步鉴权与执行使用同一入口值；HTTP 路由透传 Context；读取路由保持既有 403 码，generate/action 拒绝映射 403、容量拒绝映射 503。）
 - Session 准备失败（S3.4 复审，2026-10-24）：身份尚不可得时不造 start，以 `beforeStart:true/notCommitted` 的唯一 error 收敛；generation 固定身份后即 start，history 读取失败仍是 start→error。core 检查跨事件身份与 action revision 推进；句柄在入队固定 actionId，提前退出归还未读缓存（含终态），接续消费不依赖生产速度。已存在的无标记排队取消形状继续可解析；不允许 beforeStart 声称 unknown。
-- 取消语义：排队取消先于工厂/handler，无 start 事件、唯一 error 终态；store 确认提交后的迟到取消不倒写终态；宿主不理会 signal 时不假装已杀死业务代码，超时按取消收敛并丢弃晚到的 handler 返回（提交由 SDK 介导，悬挂 handler 无法自行提交）。
+- 取消语义：sender 始终组合连接断开与外部 signal，不以存在 signal 推断连接监听所有权；routes 入队阶段的监听在 sender 同步接入后释放，重复关闭/abort 幂等。自定义 run 初始化失败统一释放宿主资源，清理异常仅诊断并保留原错误。排队取消先于工厂/handler，无 start 事件、唯一 error 终态；store 确认提交后的迟到取消不倒写终态；宿主不理会 signal 时不假装已杀死业务代码，超时按取消收敛并丢弃晚到的 handler 返回（提交由 SDK 介导，悬挂 handler 无法自行提交）。
 
 **S3.2 所有权落实（2026-10-23）**：调度关联放在运行模块，adapter/runtime/自定义 run 按 runManager 身份取得同一 scheduler；传输层不另建平行队列。显式共用记录所有者就共用调度；对同一所有者装配冲突 scheduler 直接报错，避免静默覆盖预算或串行边界。入队时隔离 action 请求，取消排队即释放额度；记录终态写入失败作为诊断报告，不能阻断句柄本地终态，也不假装外部记录已修复。
 

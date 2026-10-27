@@ -19,6 +19,7 @@ import {
 } from '../../src/agent/run-manager';
 import { NEXUS_RUN_ID_HEADER } from '../../src/transport/sse';
 import { createAgentRouter } from '../../src/api/routes';
+import { generateActionAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.7 入口与并发关联复核（全部经真实 HTTP 路由/真实 adapter，非存储层比较）：
@@ -61,7 +62,7 @@ const SURFACE = 's-fix-1';
 
 interface HarnessOptions {
   maxRecords?: number;
-  runsAccess?: (surfaceId: string) => boolean | Promise<boolean>;
+  readAccess?: (surfaceId: string) => boolean | Promise<boolean>;
   failGenerationAfterMessages?: boolean;
 }
 
@@ -150,6 +151,7 @@ async function buildHarness(options: HarnessOptions = {}): Promise<Harness> {
   const manager = new WindowedRunManager({ maxRecords: options.maxRecords });
   let surfaceCounter = 0;
   const adapter = new AgentAdapter({
+    access: generateActionAccess,
     registry: new CatalogRegistry([structuredClone(CATALOG)]),
     runManager: manager,
     editablePaths: () => requestFixture.editablePaths,
@@ -178,9 +180,9 @@ async function buildHarness(options: HarnessOptions = {}): Promise<Harness> {
   );
   const router = createAgentRouter({
     adapter,
-    ...(options.runsAccess === undefined
+    ...(options.readAccess === undefined
       ? {}
-      : { runsAccess: (surfaceId) => options.runsAccess!(surfaceId) }),
+      : { access: { read: (surfaceId) => options.readAccess!(surfaceId) } }),
     streamDelayMs: 0,
   });
   const app = new Koa();
@@ -298,7 +300,7 @@ async function runGeneration(baseUrl: string): Promise<NexusSurfaceCommit> {
 
 describe('S2.5.7 非 HTTP 与 HTTP 固定结果同源（真实入口对照）', () => {
   it('HTTP done、真实查询与非 HTTP commit 三方同值；非 HTTP 运行纳入同一记录所有者', async () => {
-    const { baseUrl, adapter, manager } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl, adapter, manager } = await buildHarness({ readAccess: () => true });
 
     // HTTP 路径：真实生成流 + 真实查询路由。
     const httpCommit = await runGeneration(baseUrl);
@@ -353,7 +355,7 @@ describe('S2.5.7 非 HTTP 与 HTTP 固定结果同源（真实入口对照）', 
   });
 
   it('源 EOF 但未显式提交：真实查询 409（正常 EOF 不是终态），显式 commit 后同 run 200', async () => {
-    const { baseUrl, adapter, manager } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl, adapter, manager } = await buildHarness({ readAccess: () => true });
 
     // S3.2 迁移：调度任务自动消费 source 并自动提交，「EOF 后未提交」改由排队中
     // 无提交边界的记录承载同一证伪点——若无提交边界也返回 200 即为缺陷。
@@ -384,7 +386,7 @@ describe('S2.5.7 非 HTTP 与 HTTP 固定结果同源（真实入口对照）', 
 
 describe('S2.5.7 查询与容量淘汰的窗口期交错', () => {
   it('读取先于淘汰（evict-after-get）：返回被查运行自己的固定结果，不返回同 surface 更新提交', async () => {
-    const { baseUrl, manager } = await buildHarness({ runsAccess: () => true, maxRecords: 3 });
+    const { baseUrl, manager } = await buildHarness({ readAccess: () => true, maxRecords: 3 });
     const first = await runGeneration(baseUrl); // A：最旧终态记录
     manager.create({ id: 'window-placeholder', surfaceId: first.surfaceId, kind: 'generate' });
     manager.transition('window-placeholder', 'succeeded');
@@ -412,7 +414,7 @@ describe('S2.5.7 查询与容量淘汰的窗口期交错', () => {
   });
 
   it('查询到达前已淘汰（evict-before-get）：404，不回退同 surface 更新提交', async () => {
-    const { baseUrl, manager } = await buildHarness({ runsAccess: () => true, maxRecords: 3 });
+    const { baseUrl, manager } = await buildHarness({ readAccess: () => true, maxRecords: 3 });
     const first = await runGeneration(baseUrl);
     manager.create({ id: 'window-placeholder-2', surfaceId: first.surfaceId, kind: 'generate' });
     manager.transition('window-placeholder-2', 'succeeded');
@@ -436,7 +438,7 @@ describe('S2.5.7 查询与容量淘汰的窗口期交错', () => {
 
 describe('S2.5.7 查询路由与 verifier 对账口径的端到端交错', () => {
   it('成功流全链关联：X-Nexus-Run-Id ≡ event id 前缀 ≡ done.runId ≡ 查询 200 固定结果', async () => {
-    const { baseUrl } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl } = await buildHarness({ readAccess: () => true });
     const { frames, runIdHeader } = await postGenerate(baseUrl);
     assert.ok(runIdHeader, 'SSE 响应被占用即带运行标识头');
     for (const frame of frames) {
@@ -456,7 +458,7 @@ describe('S2.5.7 查询路由与 verifier 对账口径的端到端交错', () =>
 
   it('失败流（error 无 done）：对账链无固定结果，查询 409 明确不可用，报告不得虚报通过', async () => {
     const { baseUrl, manager } = await buildHarness({
-      runsAccess: () => true,
+      readAccess: () => true,
       failGenerationAfterMessages: true,
     });
     const { frames, runIdHeader } = await postGenerate(baseUrl);
@@ -485,7 +487,7 @@ describe('S2.5.7 查询路由与 verifier 对账口径的端到端交错', () =>
 
 describe('S2.5.7 重复标识与旧 envelope 混入查询关联的反例', () => {
   it('事件 id 全值不是查询键：以 <runId>:<seq> 查询 404，裸 runId 查询 200', async () => {
-    const { baseUrl } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl } = await buildHarness({ readAccess: () => true });
     const { frames, runIdHeader } = await postGenerate(baseUrl);
     const done = doneFrame(frames);
     assert.ok(runIdHeader);
@@ -509,7 +511,7 @@ describe('S2.5.7 重复标识与旧 envelope 混入查询关联的反例', () =>
   });
 
   it('旧 envelope（旧 revision/错 catalogHash）被拒后无查询记录，先前固定结果不受影响', async () => {
-    const { baseUrl, handlerCalls } = await buildHarness({ runsAccess: () => true });
+    const { baseUrl, handlerCalls } = await buildHarness({ readAccess: () => true });
     const commit = await runGeneration(baseUrl);
 
     // S3.2 迁移：envelope 准入移入调度任务，拒绝从同步 400 变为 200 SSE + error

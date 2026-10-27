@@ -15,6 +15,7 @@ import { sendAgentRun } from '../../src/api/send-messages';
 import { InMemorySurfaceActionStateStore } from '../../src/agent/surface-action-state';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { createTestRegistry, TEST_CATALOG_ID } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S3.4：Session v1 事件与结构化诊断。
@@ -77,6 +78,7 @@ function actionRequest(surfaceId: string, surfaceRevision: number, actionId: str
 
 function runtime(options: Partial<AgentRuntimeOptions> = {}) {
   return createAgentRuntime({
+    access: allowAllAccess,
     registry,
     createGenerationSource: (request) => generationSource(request.surfaceId),
     actionHandlers: new Map([[`${TEST_CATALOG_ID}:submit`, () => []]]),

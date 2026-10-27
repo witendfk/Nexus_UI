@@ -3,8 +3,16 @@ import { NEXUS_SESSION_VERSION } from '@nexus-ui/core';
 import type { RunDiagnosticReporter } from '../agent/run-diagnostic';
 import { CATALOG_CONTRACT_VERSION, createCatalogContractHash } from '../agent/catalog-contract';
 import type { AgentRunManager } from '../agent/run-manager';
-import type { AgentAdapterOptions } from '../agent/adapter';
-import { RunRecordHandle, type ManagedAgentRun, type RunIdentity } from '../agent/run-lifecycle';
+import type { AgentAdapterOptions, AgentAccessRejectionCode, AgentRun } from '../agent/adapter';
+import {
+  RunRecordHandle,
+  manageAgentRun,
+  type ManagedAgentRun,
+  type RunIdentity,
+} from '../agent/run-lifecycle';
+import type { NexusRunDiagnostic } from '../agent/run-diagnostic';
+import { reportRunDiagnostic } from '../agent/run-diagnostic';
+import { schedulerForOwner } from './scheduler-owner';
 import { RunTaskError, RuntimeRunHandle, type RunLifecycle } from './run-handle';
 import type { SurfaceScheduler } from './surface-scheduler';
 import { createAgentStreamState, type AgentSequenceOptions } from '../agent/agent-guard';
@@ -31,7 +39,7 @@ export type EnqueueOutcome =
   | {
       accepted: false;
       stage: 'request' | 'capacity';
-      code?: 'RUN_CAPACITY_REJECTED';
+      code?: 'RUN_CAPACITY_REJECTED' | AgentAccessRejectionCode;
       message: string;
     };
 
@@ -165,8 +173,7 @@ export function enqueueScheduledRun(
 }
 
 /**
- * Wrap a custom/legacy `ManagedAgentRun` (raw `AgentRun` plus explicit manager)
- * into the same scheduled task machinery. The managed run stays the record
+ * Wrap a raw custom `AgentRun` into the same scheduled task machinery. The managed run stays the record
  * owner. Without a scheduler the task starts on the next microtask; with one
  * (per-owner serialization for the send layer) it queues like any other run.
  */
@@ -211,6 +218,55 @@ export function startManagedRunTask(
     queueMicrotask(task);
   }
   return handle;
+}
+
+/**
+ * Custom-run entry for the transport layer (S3.5.1): wrapping, owner-bound
+ * scheduling and capacity admission live with the runtime, so the SSE sender
+ * only claims the response and forwards Session events. Capacity rejection
+ * throws before any response claim; the managed run is finalized exactly once
+ * (`fail` converges record, host onError and host dispose).
+ */
+export function startCustomRunTask(
+  run: AgentRun,
+  options: {
+    manager?: AgentRunManager;
+    signal?: AbortSignal;
+    onRunDiagnostic?: (diagnostic: NexusRunDiagnostic) => void;
+  } = {},
+): RuntimeRunHandle {
+  let managed: ManagedAgentRun | undefined;
+  try {
+    managed = manageAgentRun(run, options.manager, options.signal, options.onRunDiagnostic);
+    const scheduler = schedulerForOwner(managed.manager);
+    if (!scheduler.hasCapacity(managed.sequence.surfaceId)) {
+      throw new Error('同 surface 排队运行已达上限，请稍后重试');
+    }
+    managed.reserve();
+    return startManagedRunTask(managed, { signal: options.signal }, scheduler);
+  } catch (error) {
+    try {
+      if (managed) {
+        try {
+          managed.fail(error);
+        } finally {
+          // reserve 失败可能已终结 record；fail 的终态短路不能跳过宿主清理。
+          managed.dispose();
+        }
+      } else {
+        run.dispose?.();
+      }
+    } catch (cause) {
+      reportRunDiagnostic(options.onRunDiagnostic, {
+        runId: run.runId,
+        surfaceId: run.sequence.surfaceId,
+        stage: 'run-dispose',
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+    // 清理失败仅诊断，不覆盖容量/装配/准备阶段的原始错误。
+    throw error;
+  }
 }
 
 /** Uniform async iteration over sync or async message sources. */

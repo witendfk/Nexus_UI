@@ -1,12 +1,12 @@
 # CURRENT — 唯一任务与进度源
 
-更新：2026-10-24。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
+更新：2026-10-27。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
 
 ## 当前结论
 
 **产品方向：宿主约束的 Agent UI Runtime SDK。** SDK 提供协议、Catalog、绑定、渲染、运行与交互基建；业务 prompt、模型/工具编排、业务权限与副作用由宿主负责。评审覆盖 SDK 与公开接入契约，不评审接入方业务工程；验证宿主与 Agent 尚未选定，不阻塞确定性夹具验收。
 
-**当前任务：S3 通用 server runtime。** S3.1 契约锁定（2026-10-22）、S3.2 传输无关入口与单一调度（2026-10-23，随 `565415f` 提交，含独立复审六项整改）、S3.3 提交事实/ledger 收紧/扩展失败隔离（2026-10-23 交付，2026-10-24 独立复审六项已整改）、S3.4 Session v1 事件与结构化诊断（2026-10-24）已完成。S3.5–S3.7 共 12 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
+**当前任务：S3 通用 server runtime。** S3.1 契约锁定（2026-10-22）、S3.2 传输无关入口与单一调度（2026-10-23，随 `565415f` 提交，含独立复审六项整改）、S3.3 提交事实/ledger 收紧/扩展失败隔离（2026-10-23 交付，2026-10-24 独立复审六项已整改）、S3.4 Session v1 事件与结构化诊断（2026-10-24）、S3.5 Koa/RPC 薄适配与访问准入（2026-10-27）已完成。S3.6–S3.7 共 8 个子任务待实施。S1/S2 已验收，S2.7 于 2026-10-22 随 `eb5f8cd` 推送。当前只有 core/react/server 三包；client 在 S4 新增。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
 
 ## 阶段与依赖
 
@@ -15,7 +15,7 @@
 | S0 文档与评审规范 | 已完成 | 产品方向、契约/结构/决策基线、SDK review 范围 |
 | S1 安全基线与业务中立 | 已验收 | 安全防护、显式装配、参考程序迁出、早期产物检查 |
 | S2 Catalog v2 与交互扩展 | 已验收 | 声明驱动交互、共享准入、固定运行结果与消费方迁移 |
-| S3 通用 server runtime | S3.1–S3.4 已完成，S3.5–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
+| S3 通用 server runtime | S3.1–S3.5 已完成，S3.6–S3.7 待实施 | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
 | S4 client 与可嵌入 React | 待实施 | 依赖 S2/S3；新 client、Provider/Surface、消费方迁移 |
 | S5 独立契约验收与发行 | 待实施 | 依赖 S1–S4；仓外安装、公开 API/兼容、浏览器和 CI 门禁 |
 
@@ -32,7 +32,20 @@
 
 ## S3 — 单一运行调度与 Session v1
 
-**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.4 已完成，其余 3 个单元 12 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
+**拆分基线（2026-10-22）**：S2.7 随 `eb5f8cd` 已推送，工作区在本轮计划修改前干净。851 项、conformance 36 pass / 44 已决策偏差 / 0 fail 是 S2 历史证据，不替代 S3 门禁。7 个交付单元中 S3.1–S3.5 已完成，其余 2 个单元 8 个子任务待实施；拆分轮不新增运行 API 或执行改造的约束随 S3.1 实施解除。
+
+**S3.5 完成记录（2026-10-27）**：Koa/RPC 薄适配与访问准入落地。
+
+- S3.5.1 Session→SSE 薄适配：`sendAgentRun` 收口为「解析句柄 → 同步占用响应 → 转发 Session 事件」——不再解释 Catalog、不自建 queue/manager、不自行提交；自定义 run 的托管/调度/容量组合移入 runtime 模块 `startCustomRunTask`（`src/runtime/agent-runtime.ts`，含宿主 run 的恰好一次清理），传输层删除对 `manageAgentRun`/`schedulerForOwner`/`startManagedRunTask` 的直接依赖；`sendScheduledRun` 收窄为最小句柄端口 `SessionEventSource`（runId/result/subscribe/cancel，接口隔离）；sender 始终组合 req/res 断连与外部 signal，重复关闭/abort 幂等；routes 在 sender 同步接入后释放入队阶段监听（占用失败同样释放），直接消费也保持断连保护。响应占用失败（flushHeaders/pipe 抛错）同步抛出并回收运行与宿主资源（新增证伪测试）。routes 容量拒绝 400→503（`RUN_CAPACITY_REJECTED`），S3.2 挂账的 routes 状态码与句柄任务侧接口隔离在本单元收口。
+- S3.5.2 访问准入：`AgentAdapterOptions.access: { read?, generate?, action? }`（SPEC §6.5），generate/action 在 `enqueueGeneration/enqueueAction` 入队前强制评估，缺省拒绝（`GENERATE_ACCESS_*`/`ACTION_ACCESS_*` 四码），拒绝不启动 source/resolver/handler、不建记录；generate 准入先于 Catalog 解析（不泄露注册状态），action 准入先于快照读取（不泄露 surface 存在性）。请求原语捕获/深拷贝先于任何 await；访问钩子获得入口快照的冻结隔离副本，准入与执行绑定同一入口值，调用方或钩子不能改写本次判定目标（SOP 17/20）。钩子抛错按装配错误传播，不静默改拒绝；`context` 由传输透传（HTTP 传 Koa Context），运行模块不解释。routes `runsAccess` 迁移为 `access.read`（读取 403 码保持），路由未配置时回落 `adapter.access.read`；`prepare*` 兼容外壳同样被准入拦截。`AgentPrepareOptions` 新增 `context?`。
+- S3.5.3 消费迁移：两个参考服务适配新装配——playground adapter `access: { generate/action: () => true }`（本地 demo 显式放行）、router `access: { read: () => true }`；standalone adapter 同样显式放行 generate/action（可注入收窄），运行查询保持缺省拒绝。verifier 内部装配的 adapter 显式放行（可信校验夹具）。RPC 请求载荷不变（RPC 保持 1）；verifier 错误形状已随 S3.4 迁移；两个浏览器必要解析已兼容（start 事件忽略、error 读新形状 message；403/503 以 fetch 错误透出）。server 根入口新增 `AgentAccessHooks` 等 6 个类型导出（API 快照测试同步）。
+- S3.5.4 真实 HTTP 与非 Koa 对测：新增 `test/api/http-parity.test.ts` 10 项（真实 Koa listen + fetch 读取实际响应至终态）——正常生成（事件形状/message 载荷/done 固定提交/查询 200 对拍）、带输入 action（session-v1 共享 fixture Catalog、start 实际基准、revision 前进）、准入拒绝旧 revision（双生成制造 revision 2 后提交 revision 1；handler 零调用、查询 409）、提交失败（非法候选 RUN_FAILED）与 store unknown（RUN_COMMIT_UNKNOWN）parity、空输出 action、排队 HTTP 不回落 404（响应占用即 200+头、先于前序完成）、排队容量 503（无运行头）、access 403 双码（钩子收到 Koa Context）、查询 400/403/404/409、void 风格逐条增量到达。新增 `test/agent/access.test.ts` 13 项（未配置/拒绝/非 true 值/先于 Catalog 解析/钩子抛错传播/兼容外壳/action 不泄露存在性/入口隔离/放行对照）。既有测试迁移：约 80 处 adapter/runtime 构造注入显式放行（`tests/helpers/access.ts` 共享 `allowAllAccess`/`generateActionAccess`），surface-state 查询测试改用只放行写入路径的装配保持 403 反例，routes 测试改为 access.read 装配并把「未注册 catalog」断言更新为 403（准入先于 Catalog 解析的新语义）。
+
+S3.5 首轮门禁（2026-10-27，历史证据，复审整改门禁见下；Node v24.16.0）：`pnpm build:packages`、根 `pnpm build`、根 `pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0；测试合计 973 项（core 346、server 391、React 51、playground 38、standalone 45+11、参考服务 91）；变更 TS 文件 prettier 与 `git diff --check` 通过；本次构建 server ESM 根入口加载并核对新增导出通过。未运行真实浏览器、仓外安装或远端 CI；未推进 S3.6，未提交/推送。
+
+**S3.5 复审整改（2026-10-27）**：三项 P1 已落实。① generate/action 的访问钩子收到入口快照的冻结隔离副本，异步鉴权与调度/执行目标一致；新增 6 项测试覆盖调用方切换允许/受限 Catalog/surface 的正反对照及钩子修改嵌套 context/inputs。② `startCustomRunTask` 统一兜底托管建立前、记录预留和后续任务初始化失败，宿主清理恰好一次、清理失败仅诊断并保留原始错误；新增 6 项初始化/预留/清理组合测试。③ sender 始终组合外部 signal 与连接断连；routes 同步交接入队监听，重复取消幂等；新增 close/aborted 两项组合测试和一项真实 HTTP 断连、晚到提交阻断与同 surface 恢复测试。新增 12 项基础证伪在修复前全部失败，修复后新增回归共 15 项通过。复核范围内三项 P1 已关闭，无新增 actionable finding。
+
+S3.5 整改门禁（2026-10-27，Node v24.16.0，本轮实测）：`pnpm build:packages`、根 `pnpm build`、构建完成后单独运行的根 `pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test` 均 exit 0；测试合计 988 项（core 346、server 406、React 51、playground 38、standalone 45+11、参考服务 91）。定向测试、变更 TS 文件 prettier、文档相对链接、`git diff --check` 与本次构建 server ESM 根入口加载通过。真实 HTTP 断连已验证；未运行真实浏览器、仓外安装或远端 CI，未推进 S3.6，未提交/推送。
 
 **S3.4 完成记录（2026-10-24）**：Session v1 事件唯一事实源与结构化诊断落地。
 
@@ -112,11 +125,11 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | S3.2 | 传输无关运行入口与单一调度 | 4 | S3.1 | **已完成（2026-10-23）**：同实例同 surface 全链串行、不同 surface 可并发；HTTP 不另排队；实例隔离 |
 | S3.3 | 提交事实、ledger 与扩展失败隔离 | 4 | S3.2 | **已完成（2026-10-23）**：提交前/后/不确定结果可区分；失败不重放副作用；留存与 UI 事实不混淆 |
 | S3.4 | Session v1 事件与诊断 | 4 | S3.3 | **已完成（2026-10-24）**：start/message/唯一终态统一产生，HTTP/非 HTTP 共用；固定结果与 error commitState 可解析 |
-| S3.5 | Koa/RPC 薄适配与访问准入 | 4 | S3.4 | Koa 只处理 HTTP/序列化/连接；同步占用及 await/void 保留；两种消费路径结果一致 |
+| S3.5 | Koa/RPC 薄适配与访问准入 | 4 | S3.4 | **已完成（2026-10-27）**：SSE 薄适配与访问准入、真实 HTTP 对测成立 |
 | S3.6 | 资源硬边界与取消收敛 | 4 | S3.2–S3.5 | 队列/活动/消息/字节/留存有界，慢消费停产，取消与 dispose 释放资源 |
 | S3.7 | 消费迁移、独立复核与阶段验收 | 4 | S3.1–S3.6 | 公开消费路径可用、反例矩阵与真实门禁成立，交接 S4 |
 
-**子任务执行口径**：每个单元下的 `.1`–`.4` 为可跟踪子任务，以下 28 项中 S3.1–S3.4 的 16 项已完成（见上方记录），其余 12 项待实施。每项明确交付物与完成判据；完成时就地记录状态、实际改动位置及验证证据。实现项同步补其正反例，不能等到单元末尾才验证；单元最后一项负责组合复核。子任务编号用于跟踪，不强制一项一个提交。
+**子任务执行口径**：每个单元下的 `.1`–`.4` 为可跟踪子任务，以下 28 项中 S3.1–S3.5 的 20 项已完成（见上方记录），其余 8 项待实施。每项明确交付物与完成判据；完成时就地记录状态、实际改动位置及验证证据。实现项同步补其正反例，不能等到单元末尾才验证；单元最后一项负责组合复核。子任务编号用于跟踪，不强制一项一个提交。
 
 预算和取消契约在 .1 定义、从 .2 起随职责落地；.6 是组合资源验收与缺口收口，不是允许前序引入无限队列/缓冲。建议串行 `.1 → .2 → .3 → .4 → .5 → .6 → .7`；依赖图不构成并行 agent 授权。
 
@@ -158,7 +171,7 @@ S3.1 退出核对：决策无含混字段/状态（错误事件 commitState 只�
 | S3.4.3 | 收敛终态、查询与 diagnostics | 唯一终态控制、结构化 diagnostics 与查询一致性实现 | 可交付事件流只产生一个终态，终态后无消息；EOF/iterator return 不伪造成功，消费方提前退出需取消/dispose。定义连接已断而无法发终态的本地记录结果；错误区分 Protocol/Profile/Catalog/Policy、准入、资源、传输与运行，携带可获得的 run/surface/action 关联并截断 raw |
 | S3.4.4 | 补事件协议和跨入口反例 | HTTP/非 HTTP 事件对测与非法流、取消竞态测试集 | 正常生成/空输出 action、准入拒绝、非法候选、缺 root、错身份/hash、重复终态、终态后消息、提前 EOF、取消与终态竞态对拍。非 HTTP generation 也必须拒绝非法完整结果；core/server 共用 fixture，记录/事件/done/查询值一致 |
 
-#### S3.5 — Koa/RPC 薄适配与访问准入（4 项）
+#### S3.5 — Koa/RPC 薄适配与访问准入（4 项，已完成 2026-10-27）
 
 | ID | 子任务与主要位置 | 交付物 | 完成判据 |
 | --- | --- | --- | --- |
@@ -213,7 +226,6 @@ S3.1 已按上述完成记录交付契约与 oracle；S3.2 起执行代码改造
 
 | 待办 | 归属与处置 |
 | --- | --- |
-| 旧入口进一步收口、访问钩子 | S3.5；提交事实/ledger 重放与扩展失败隔离已在 S3.3 落实 |
 | 背压/字节硬预算、数组路径越界风险 | S3.6；路径风险先核实可达性，再决定修复范围 |
 | S2 残余草稿恢复与 checks 语义问题 | S3.7.2 核实并明确归属；完整视图恢复由 S4 承接，不借调度重构改业务规则 |
 | Provider 固定布局/runtime 重建、两处 SSE 消费、预览隔离/恢复、草稿读取入口收敛 | S4；同时核对 S1 留下的 React 重复 key 警告与渲染稳定性 |

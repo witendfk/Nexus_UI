@@ -25,6 +25,7 @@ import {
 } from '../../src/agent/external-agent';
 import { sendAgentRun } from '../../src/api/send-messages';
 import { TEST_CATALOG_ID, createTestRegistry } from '../../tests/helpers/test-catalog';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /**
  * S2.5.6 RPC 与 verifier 贯通：
@@ -551,6 +552,7 @@ describe('verification RPC 贯通（S2.5.6）', () => {
     });
 
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       useLlm: () => false,

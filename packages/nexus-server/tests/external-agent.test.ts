@@ -17,6 +17,7 @@ import {
 import { createCatalogContractReference } from '../src/agent/catalog-contract';
 import { CATALOG_CONTRACT_VERSION } from '../src/agent/catalog-contract';
 import { sendAgentRun } from '../src/api/send-messages';
+import { allowAllAccess } from './helpers/access';
 
 interface CapturedRequest {
   method?: string;
@@ -168,6 +169,7 @@ describe('external agent RPC', () => {
       );
     });
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionHandlers: new Map(),
       useLlm: () => false,

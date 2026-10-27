@@ -4,15 +4,20 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import Koa from 'koa';
 import { AgentAdapter, createAgentRouter } from '../src/index';
+import type { AgentAccessHooks } from '../src/index';
 import { InMemoryAgentRunManager } from '../src/agent/run-manager';
 import { TEST_CATALOG_ID, createTestRegistry } from './helpers/test-catalog';
 
 const registry = createTestRegistry();
 
-function createAdapter(runManager?: InMemoryAgentRunManager): AgentAdapter {
+function createAdapter(
+  runManager?: InMemoryAgentRunManager,
+  access?: AgentAccessHooks,
+): AgentAdapter {
   return new AgentAdapter({
     registry,
     runManager,
+    access,
     useLlm: () => false,
     createGenerationSource: (request) => [
       {
@@ -30,23 +35,24 @@ function createAdapter(runManager?: InMemoryAgentRunManager): AgentAdapter {
   });
 }
 
-// 无 runsAccess：SDK 默认拒绝一切 runs 查询。
+// 无 access：SDK 缺省拒绝生成与一切 runs 查询。
 const defaultApp = new Koa();
 defaultApp.use(createAgentRouter({ adapter: createAdapter() }).routes());
 const defaultServer = defaultApp.listen(0, '127.0.0.1') as Server;
 await new Promise<void>((resolve) => defaultServer.once('listening', resolve));
 const defaultPort = (defaultServer.address() as AddressInfo).port;
 
-// 有 runsAccess：宿主按可信上下文决定放行范围。
+// 有 access：宿主按可信上下文决定 read 放行范围；generate/action 由宿主显式放行。
 const gatedRunManager = new InMemoryAgentRunManager();
 const gatedApp = new Koa();
 gatedApp.use(
   createAgentRouter({
-    adapter: createAdapter(gatedRunManager),
+    adapter: createAdapter(gatedRunManager, { generate: () => true, action: () => true }),
     runManager: gatedRunManager,
     streamDelayMs: 0,
-    runsAccess: (surfaceId) =>
-      surfaceId.startsWith('surface-open') || !surfaceId.includes('secret'),
+    access: {
+      read: (surfaceId) => surfaceId.startsWith('surface-open') || !surfaceId.includes('secret'),
+    },
   }).routes(),
 );
 const gatedServer = gatedApp.listen(0, '127.0.0.1') as Server;
@@ -83,7 +89,7 @@ describe('createAgentRouter（通用装配）', () => {
     assert.match(await response.text(), /catalogId/);
   });
 
-  it('generate 拒绝未知字段与未注册 catalog', async () => {
+  it('generate 拒绝未知字段；未注册 catalog 在缺省拒绝下为 403（access 先于 Catalog 解析）', async () => {
     const extra = await fetch(`http://127.0.0.1:${defaultPort}/api/a2ui/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -96,11 +102,13 @@ describe('createAgentRouter（通用装配）', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ catalogId: 'unknown-catalog' }),
     });
-    assert.equal(unknown.status, 400);
-    assert.match(await unknown.text(), /Agent catalog 未注册/);
+    // 未配置 access.generate 时缺省拒绝，且不得借 catalogId 探测注册状态。
+    assert.equal(unknown.status, 403);
+    const body = (await unknown.json()) as { error?: string };
+    assert.equal(body.error, 'GENERATE_ACCESS_NOT_CONFIGURED');
   });
 
-  it('未配置 runsAccess 时 runs 查询 403 并说明需宿主配置', async () => {
+  it('未配置 access.read 时 runs 查询 403 并说明需宿主配置', async () => {
     const response = await fetch(
       `http://127.0.0.1:${defaultPort}/api/a2ui/runs?surfaceId=surface-any`,
     );
@@ -115,7 +123,7 @@ describe('createAgentRouter（通用装配）', () => {
     assert.equal(response.status, 400);
   });
 
-  it('配置 runsAccess 后按回调拒绝', async () => {
+  it('配置 access.read 后按回调拒绝', async () => {
     const response = await fetch(
       `http://127.0.0.1:${gatedPort}/api/a2ui/runs?surfaceId=surface-secret-1`,
     );
@@ -125,7 +133,7 @@ describe('createAgentRouter（通用装配）', () => {
     assert.equal(body.error, 'RUNS_ACCESS_DENIED');
   });
 
-  it('配置 runsAccess 放行后可查询本实例 run 记录', async () => {
+  it('配置 access.read 放行后可查询本实例 run 记录', async () => {
     const generated = await (
       await fetch(`http://127.0.0.1:${gatedPort}/api/a2ui/generate`, {
         method: 'POST',

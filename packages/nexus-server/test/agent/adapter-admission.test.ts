@@ -9,6 +9,7 @@ import {
   InMemorySurfaceActionLedger,
   InMemorySurfaceActionStateStore,
 } from '../../src/agent/surface-action-state';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 /** 自洽夹具 Catalog：标准声明组合 + 显式 paramSchema（S2.4 参数准入）。 */
 const ADMISSION_CATALOG_ID = 'https://example.com/catalogs/adapter-admission/v1';
@@ -80,6 +81,7 @@ async function createHarness(
   const store = new InMemorySurfaceActionStateStore();
   const handlerCalls: { context: Record<string, unknown> }[] = [];
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry,
     ...(options.editablePaths === undefined ? {} : { editablePaths: options.editablePaths }),
     actionStateStore: store,
@@ -245,6 +247,7 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     const store = new InMemorySurfaceActionStateStore();
     const handlerCalls: unknown[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -294,6 +297,7 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     const store2 = new InMemorySurfaceActionStateStore();
     const handlerCalls2: unknown[] = [];
     const adapter2 = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store2,
       editablePaths: () => ['/note'],
@@ -345,6 +349,7 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     const store = new InMemorySurfaceActionStateStore();
     const handlerCalls: unknown[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry: new CatalogRegistry([mismatched]),
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -405,6 +410,7 @@ describe('AgentAdapter × 权威准入（S2.4 不变式）', () => {
     const store = new FlakyStore();
     const handlerCalls: unknown[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -479,6 +485,7 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
   it('P1-2：resolver 修改快照嵌套引用后返回非法参数，权威状态不受污染', async () => {
     const store = new InMemorySurfaceActionStateStore();
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -541,6 +548,7 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
 
     // 旧视图（revision 1）的请求被拒
     const staleAdapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -587,6 +595,7 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     const store = new InMemorySurfaceActionStateStore();
     const handlerCalls: unknown[] = [];
     const adapter = new AgentAdapter({
+      access: allowAllAccess,
       registry,
       actionStateStore: store,
       editablePaths: () => ['/note'],
@@ -657,6 +666,7 @@ describe('S2.4 评审 P1 反例（组合提交 / 隔离 / 固定契约 / 单调�
     const liveRegistry = new CatalogRegistry([liveCatalog]);
     const store = new InMemorySurfaceActionStateStore();
     const liveAdapter = new AgentAdapter({
+      access: allowAllAccess,
       registry: liveRegistry,
       actionStateStore: store,
       editablePaths: () => ['/note'],

@@ -15,6 +15,7 @@ import {
   createAgentStreamState,
   validateAgentStreamMessageDetailed,
 } from '../../src/agent/agent-guard';
+import { allowAllAccess } from '../../tests/helpers/access';
 
 function catalogOf(): CatalogDefinition {
   return {
@@ -79,6 +80,7 @@ async function harness(options: Partial<AgentAdapterOptions> = {}, catalog = cat
   const store = new InMemorySurfaceActionStateStore({ maxSurfaces: 1 });
   const stream = streamOf(catalog);
   const adapter = new AgentAdapter({
+    access: allowAllAccess,
     registry: new CatalogRegistry([catalog]),
     actionStateStore: store,
     createSurfaceId: () => 's',
