@@ -169,7 +169,7 @@ S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id
 ```text
 宿主 API：认证、可信请求上下文、surface 访问准入
   → Koa / 自定义 HTTP 适配：解析 envelope、及时占用响应、访问钩子接线
-  → AgentRuntime（S3 目标，公开工厂 createAgentRuntime）：
+  → AgentRuntime（已实施，公开工厂 createAgentRuntime）：
       单一调度（每 surface 队列）、快照、输入/action 准入、候选 guard、
       UI 提交、Session 事件源、预算与取消收敛
   → 宿主注入的生成源 / handler
@@ -177,11 +177,11 @@ S2.5 在完整 session 抽取前，通过生成/action 响应头 `X-Nexus-Run-Id
   → HTTP 适配：SSE 序列化、背压、断开与收尾
 ```
 
-**目标结构（S3.1 锁定，2026-10-22；实施随 S3.2–S3.6）**：server 新增运行模块承载 `AgentRuntime` 工厂、每 surface 调度器与 Session 事件源；adapter 保持 Catalog 固定副本、handler 表、Policy 与 store/ledger/manager 的单一所有者身份，`prepareGeneration/prepareAction` 降级为委托同一调度的兼容外壳。调度覆盖 generation 与 action 全链（快照读取 → 准入 → resolver → handler → 提交），提交事实三态（committed/notCommitted/unknown）由 store 结果契约驱动（SPEC §6.3）。Koa 适配退为薄 sender：响应占用、SSE 序列化、背压与连接清理，不自建队列、不解释 Catalog、不自行提交。
+**当前结构（S3 已实施，2026-10-28 验收）**：`runtime/` 承载高层工厂、唯一 surface scheduler、运行句柄、候选校验、提交确认和预算；adapter 持有固定 Catalog、Policy、handler 与状态依赖。HTTP sender 只接线响应、Session 事件、背压和连接，不解释业务或另建队列。adapter/runtime/自定义 run 按 runManager 身份共用调度与记录所有者。公开签名及迁移见 SPEC §6 和 server README。
 
-**当前实施（S3.2–S3.6，2026-10-27）**：`src/runtime/` 承载传输无关运行工厂、surface 调度、句柄与统一候选校验。adapter 兼容 prepare 外壳和高层 runtime 共用调度，SDK 句柄由任务消费并自动提交；原始自定义 run 经 runtime 模块 `startCustomRunTask` 包装后复用运行模块，发送层只做响应占用与 Session 事件转发（薄适配收口，S3.5）。旧 HTTP 全局队列与 adapter action 私有锁已删除；调度以记录所有者身份关联，显式共用 runManager 的入口不能另建第二个 scheduler，默认不同实例仍隔离。action 入队请求深拷贝且先于任何 await；排队取消立即释放额度；manager 的提交前失败记录异常不阻断句柄终态，诊断与实际持久记录分开。sender 始终组合连接断开与调用方 signal，routes 在同步接入后释放入队阶段监听；请求鉴权与执行绑定同一入口快照，访问钩子只持有冻结的隔离副本；自定义 run 初始化失败覆盖记录与宿主清理，清理异常仅诊断且不覆盖原错误；adapter 与自定义 run 共用提交身份、留存和终态收敛，store 确认结果在运行模块核对结构、身份/契约和版本；取消与明确拒绝仍是 notCommitted。提交后的 history/hook/留存/终态记录与清理失败经诊断报告，UI 事实与实际外部记录分开。ledger 拒绝留存窗口内所有重复，活动容量满时不执行 handler，提交步内校验失败也执行幂等清理。S3.4 落地 Session v1 事件唯一事实源：core `session` 持有 start/done/error wire 类型、逐事件解析与流序列检查，runtime 句柄按锁定形状产生事件（start 绑定调度内实际快照、先于准入裁决；error 携带身份/code/commitState/结构化诊断并截断），SSE error 帧直接转发该形状、不再自建字段。复审补齐身份准备失败的 beforeStart 唯一 error、跨事件身份/revision 检查、固定 actionId 与迭代器未读缓存移交；core/server 直接读取四份共享 Session oracle，server 同验直接事件与 SSE。S3.5 落地访问准入与薄适配：`access.read/generate/action` 缺省一律拒绝、拒绝在入队前（generate 先于 Catalog 解析、action 先于快照读取），HTTP 路由透传 Koa Context 并映射 403/503 状态码；`runsAccess` 迁移为 `access.read`（路由未配置回落 adapter 装配）；真实 HTTP 与非 Koa 同输入对测覆盖生成/准入拒绝/空 action/提交前后失败/查询状态码/排队不回落 404/容量 503/void 增量投递。S3.6 落地资源硬边界与取消收敛：`budgets` 单一装配入口（非法值工厂抛错，默认值与 fixtures/session-v1/budgets.json 同源测试钉住）；run 级消息数/单条/累计字节在调度任务内计量，超限 `RESOURCE_LIMIT_EXCEEDED` 结构化失败不发布部分 UI；SSE 发送层 write false → 句柄 emit 闸门 → 任务侧读取暂停的有界背压，慢消费 30 s 硬上限断流（AGENT_STREAM_ERROR），取消/断连/终态同步打断等待；执行/排队超时默认不启用，启用后按取消收敛并释放槽位，晚到 handler 输出被丢弃（提交闸门阻止晚到 UI 提交，不假装已杀死业务代码）；活动 run 的 surface 经可选 retainSurface 免于快照容量淘汰。非 HTTP events() 直接消费无独立背压闸门，缓冲上限由 run 级字节预算兜底。
+运行事件使用 core Session v1 的类型、解析与序列检查：start 绑定调度内实际基准，候选经 guard 后发出，最终完整校验与 store 确认后才发 done；身份准备失败以 beforeStart error 收敛。提交事实为 notCommitted/committed/unknown，history/hook/记录/传输失败不能倒写已确认提交，ledger 在留存窗口内拒绝所有重复 action。
 
-S3.6 复审收口（2026-10-27）：运行句柄终态与宿主退出分别跟踪；取消/超时后未退出操作保留受总量限制的 surface 所有权并拒绝重叠。运行模块直接持有宿主 iterator 并请求关闭；事件迭代水位在源拉取前等待，HTTP sender 的 write/drain 与响应 finish/close 各自受期限保护。默认 snapshot/history 在各自写入边界计量，完整快照超限原子拒绝；所有公开入口沿唯一记录所有者装配同一队列预算，详见 SPEC §6.6。
+资源与取消（SPEC §6.6）：run 消息、完整 snapshot、history 分别有字节预算；容量全部保护时拒绝新工作，不临时越界。`events()` 的消息/字节水位在拉源前等待；SSE write/drain 与响应结束各有期限。取消/超时立即发出 abort，提交前句柄及时收敛；宿主或源关闭尚未退出时，surface 保持受总量限制的隔离并拒绝重叠，真实退出后才释放。提交已在飞时等待 store 确认。阶段证据与 S4/S5 边界见 [S3 验收报告](tasks/S3-ACCEPTANCE.md)。
 
 发布路由强制读取实际 adapter 的 Catalog 并核对声明 hash；adapter 每个 Catalog 首次发布/执行时固定副本，外部修改不能造成发布/执行分裂。onboarding 发布与消费共用内部完整校验（注册闸门、版本、hash、标准 prompt），无独立 executionRegistry 权威。按 surfaceId/runId 查询只读同一 runManager 中的固定结果；响应头在占用响应时写入。verifier 消费实际响应目的流并等待收完，使用成功 done 固定基准；报告 actionContext 是 handler 实际收到的权威参数隔离副本。RPC 完整序列化与并发关联复核已完成。**消费方迁移（S2.6，2026-10-20）**：两个参考服务经实际入口发布执行 Catalog（发布列表取自 adapter 固定声明）、宿主侧 surface→Catalog 映射提供精确可编辑白名单；两个参考浏览器在挂载前校验契约（版本/身份/Web Crypto 复算 hash/标准 prompt/注册闸门）、以 `X-Nexus-Run-Id` 响应头关联成功 done 并核对 catalog/hash、请求代次在逐帧写入前核对，取消/切换 Catalog/卸载立即失效、在途重复 action 忽略、生成只接受本次创建且含 root 的请求 Catalog 视图（拒绝 done-only 贴旧视图）、按发送快照确认草稿并恢复请求期间的新编辑为可见本地草稿（core `extractLatestInputDrafts`/`confirmInputDrafts`）；两组无关 Catalog（Basic 表单、中立 scorecard）完成连续两次 action 与双 surface 隔离 headless 对测。hash 以 JSON 传输形状规范化后计算，省略字段与显式 undefined 等价。上述消费方边界于 2026-10-21 复审修正；完整调度/背压/commitState 归 S3，Session 与 client 包归 S3/S4。
 
@@ -197,11 +197,11 @@ handler 在排队准入完成后调用。输入只形成临时模型；未经接
 
 ### 6.3 调度、存储与所有权
 
-当前 S3.2 实现（2026-10-23）：每 surface 调度覆盖读取快照、准入、handler、候选与提交；正常 source EOF 后由调度任务做完整校验再提交，不提前释放调度权。store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增；准入与 guard 使用固定 Catalog，输入基础模型先于 handler patch 应用。HTTP 不补当前基准、不换 actionId，done 返回本次固定结果；运行结果留存与查询延续 S2 语义。自定义原始 run 的手动非 HTTP 消费仍需显式 commit/onError/dispose；完整 Session 与 client 生命周期由 S3/S4 后续切片收口。
+当前实现（S3，2026-10-28 验收）：每 surface 调度覆盖读取快照、准入、handler、候选与提交；正常 source EOF 后由调度任务做完整校验再提交，不提前释放调度权。store 比较读取时 revision + epoch，实例级单调计数器在删除/淘汰后继续递增；准入与 guard 使用固定 Catalog，输入基础模型先于 handler patch 应用。HTTP 不补当前基准、不换 actionId，done 返回本次固定结果；运行结果留存与查询延续 S2 语义。自定义原始 run 的手动非 HTTP 消费仍需显式 commit/onError/dispose；高层 runtime 句柄自动完成校验、提交与 Session 终态；client 生命周期归 S4。
 
-同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。所有监听器、源迭代器和锁都在终态或 dispose 路径释放。
+同一 server runtime 每个 surface 一个调度所有者，覆盖 handler 和最终提交，不由 transport 再建队列。跨 surface 可并行，但活动 run、排队长度、消息量和内存有明确预算。终态或 dispose 请求释放监听器与源；不协作宿主尚未退出时保留有界隔离，不将句柄终态当成业务退出。
 
-S3.1 锁定（2026-10-22）：调度队列按 runtime 实例隔离、generation 与 action 同队列 FIFO；提交事实由 store 结果契约三分（committed/notCommitted/unknown，SPEC §6.3），发布后观察者/传输失败不改写 UI 事实；ledger 留存窗口内任意已知记录拒绝重入；资源预算与活动保护定稿于 `fixtures/session-v1/budgets.json`。取消收敛、背压与字节预算的落地归 S3.6。
+S3.1 锁定（2026-10-22）：调度队列按 runtime 实例隔离、generation 与 action 同队列 FIFO；提交事实由 store 结果契约三分（committed/notCommitted/unknown，SPEC §6.3），发布后观察者/传输失败不改写 UI 事实；ledger 留存窗口内任意已知记录拒绝重入；资源预算与活动保护定稿于 `fixtures/session-v1/budgets.json`。取消收敛、背压与字节预算已随 S3.6 落地。
 
 默认状态、ledger 和调度按实例隔离，禁止模块全局 store 把无关宿主绑在一起。UI revision 的发布点明确；已发布后连接或 history/观测失败，不得伪报未提交。默认内存重启后旧 surface 失效；可注入持久化存储，但首发不宣称多实例调度或业务幂等。
 

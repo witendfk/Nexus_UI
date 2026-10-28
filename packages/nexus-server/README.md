@@ -9,6 +9,7 @@ src/
   index.ts          服务组合根：宿主装配 API（不启动 listener、不读取项目环境）
   api/              请求解析、client action 解析、路由与 SSE 响应流
   agent/            Agent Adapter、guard、catalog contract、RPC helper、history/run 实现、policy 类型
+  runtime/          单一调度、运行句柄、候选校验、提交确认、预算与取消收敛
   transport/        SSE event 序列化与响应头
 ```
 
@@ -17,16 +18,17 @@ src/
 - `GET /health`：健康检查；`agentMode`/`actionMode` 来自宿主显式配置，默认值不读取环境或模型 key。
 - `POST /api/a2ui/generate`：接收 `{ message?, catalogId }`；`catalogId` 必填，缺失即 400，不回落默认 Catalog。
 - `POST /api/a2ui/event`：仅接收 `{ message, nexus }`；message 为 v0.9 action，nexus 含 sessionVersion/actionId/surfaceRevision/catalogHash/inputs，流式返回同 surface 更新。
-- `GET /api/a2ui/runs?surfaceId=`：运行记录查询；必须配置 `runsAccess` 宿主准入回调，未配置时一律 403（`RUNS_ACCESS_NOT_CONFIGURED`），回调拒绝为 403（`RUNS_ACCESS_DENIED`）。
-- `GET /api/a2ui/surface-state?surfaceId=&runId=`：返回指定运行的固定 `NexusSurfaceCommit`；缺参 400，`runsAccess` 未配置/拒绝 403，记录缺失/错 surface/淘汰 404，尚无提交结果 409。仅查固定留存，不回退最新快照。
+- `GET /api/a2ui/runs?surfaceId=`：运行记录查询；必须配置宿主 `access.read` 准入钩子（路由级 `access` 或 adapter 装配的 `access.read`），未配置一律 403（`RUNS_ACCESS_NOT_CONFIGURED`），拒绝为 403（`RUNS_ACCESS_DENIED`）。
+- `GET /api/a2ui/surface-state?surfaceId=&runId=`：返回指定运行的固定 `NexusSurfaceCommit`；缺参 400，`access.read` 未配置/拒绝 403，记录缺失/错 surface/淘汰 404，尚无提交结果 409。仅查固定留存，不回退最新快照。
 
 生成/action SSE 在占用响应时即携带 `X-Nexus-Run-Id`（公开常量 `NEXUS_RUN_ID_HEADER`），与成功 done.runId、运行记录 ID 和事件 ID 前缀同值。跨源读取需由宿主 CORS 配置暴露该头；查询必须使用裸 runId，不能解析事件 ID 猜测。原始 `sendMessages` 不提供运行标识头或固定提交结果。
 
-SSE 事件：
+SSE 事件（Session v1，SPEC §5.4；消费方按事件名分派）：
 
-- `message`：`data` 是一个已校验的 A2UI 消息。
-- `error`：Agent、模型或协议校验失败。
-- `done`：SDK 运行成功提交 UI 后，data 直接承载本次固定 `NexusSurfaceCommit`；不代表宿主业务副作用的事务结果。
+- `start`：运行身份与基准（sessionVersion/runId/surfaceId/catalogId/contractVersion/catalogHash；action 运行携带调度内实际快照的 `surfaceRevision`）。
+- `message`：`data` 是一个已校验的 A2UI 消息，不掺任何运行元数据。
+- `done`：data 直接承载本次固定 `NexusSurfaceCommit`，语义是 UI 提交成功；不代表宿主业务副作用的事务结果。
+- `error`：运行失败终态，携带 runId/surfaceId/code（RUN_ADMISSION_REJECTED 等 Session 错误码枚举）/commitState（notCommitted|unknown）与截断的结构化 diagnostics；每次流恰一个终态，EOF 不是终态。
 
 ## 显式装配契约
 
@@ -40,6 +42,32 @@ SSE 事件：
 - `AgentAdapter` 持有每实例隔离的 `runManager`，宿主可在构造时注入；router 与 `sendAgentRun(ctx, run, options)` 自动复用。显式 manager 必须是同一实例；原始自定义 `AgentRun` 必须向 sender 显式提供 manager。`sendAgentRun` 只有三参签名；旧的 idPrefix 四参槽位已删除（S2.6.5），运行标识只来自 `run.runId`。
 - `AgentAdapterOptions.editablePaths(surfaceId)` 由宿主可信装配按 surface 提供精确 JSON Pointer 白名单；缺省即全部拒绝非空 `inputs`（`inputs: []` 的 action 不受影响）。surface→Catalog 的映射由宿主自己维护（参考示例在 `onGenerationCommitted` 记录、有界容量、未记录即返回空数组，fail-closed），不从模型或浏览器推断可编辑路径。
 - `external-agent.ts` 提供最小 HTTP JSONL RPC helper，可把初始生成与业务 action 转发给宿主自有 Agent；输出仍必须通过同一 Agent guard。
+
+## S3 高层运行入口与访问准入（2026-10-27 已实施）
+
+- `createAgentRuntime(options): AgentRuntime` 是传输无关的高层工厂：默认每实例独立 adapter/scheduler/记录所有者；显式共用 runManager 的入口复用同一 scheduler。`generate(request, options?)` / `action(request, options?)` 返回入队结果 `{ accepted: true, run } | { accepted: false, stage, code?, message }`；预期拒绝以结果报告，装配/编程错误（含 access 钩子抛错）仍抛出。`queryRun(surfaceId, runId)` / `listRuns(surfaceId)` 是可信宿主本地只读接口，不自行执行 read 钩子；对外查询须经带 `access.read` 的 router 或宿主等价授权。运行句柄暴露 `runId/surfaceId/kind`、`events()`、`result`、`cancel(reason?)` 与幂等 `dispose()`。非 Koa 消费不构造任何 HTTP 对象。
+- **访问准入缺省拒绝**（SPEC §6.5）：`access: { read?, generate?, action? }`，签名 `(request, context?) => boolean | Promise<boolean>`。generate/action 在入队前评估，未配置即拒绝（HTTP 403 `GENERATE_ACCESS_NOT_CONFIGURED`/`GENERATE_ACCESS_DENIED`/`ACTION_ACCESS_NOT_CONFIGURED`/`ACTION_ACCESS_DENIED`）；`context` 由传输透传（HTTP 传 Koa Context），SDK 不解释其内容。查询路由的 read 钩子可配在 router `access` 或 adapter `access.read`（前者优先）。本地 demo 必须显式放行（参考服务即此口径）。
+- **资源预算**：`budgets` 装配项（默认值见 SPEC §6.6 与 [共享预算表](../../fixtures/session-v1/budgets.json)）——每 surface 排队 32、活动/排队/隔离 surface 合计 512、每 run 2000 条/单条 1 MB/累计 8 MB；完整快照 8 MB/10000 组件，history 每 turn 8 MB/每 surface 16 MB。SSE 与 `events()` 均有 1 MiB 高水位和 30 s 慢消费期限，后者另限 32 条缓冲；非法值装配抛错。超限原子拒绝或结构化失败，不发布部分 UI；已确认提交后的传输/history 故障不改写提交。取消/执行超时发出 abort 并及时收敛句柄；宿主及源关闭尚未退出时隔离 surface，拒绝业务重叠，计入总容量。提交已在飞仍等待 store 确认。执行/排队超时默认不启用，生产宿主按任务设置。
+- 迁移：`runsAccess` → `access: { read }`（S3.5）；`prepareGeneration/prepareAction` 保留为兼容外壳，内部委托同一调度；HTTP 全局队列与 adapter 私有锁已删除。完整迁移表见 SPEC §6.7。
+
+非 HTTP 消费直接调用高层入口（下方 HTTP 样例中同样显式装配 Catalog/source/handler）：
+
+```ts
+const queued = await runtime.generate({ catalogId });
+if (!queued.accepted) throw new Error(queued.message);
+try {
+  for await (const event of queued.run.events()) {
+    // message 是候选预览，done.commit 才是本次固定 UI 提交；error 不代表业务失败。
+    onSessionEvent(event);
+  }
+  const outcome = await queued.run.result;
+  if (outcome.terminal === 'succeeded') saveBaseline(outcome.commit);
+} finally {
+  queued.run.dispose();
+}
+```
+
+`events()` 只有一个活动迭代器；提前 `break` 只归还未读缓存以便接续，不取消运行，放弃消费时须 `cancel`/`dispose`。只需最终结果可直接 await `run.result`，调度任务自动校验并提交；不能把原始 source EOF 当作成功。只读同步 `subscribe` 用于观察，异步消费用 `events()`。本地可执行的公开入口夹具见 [public-entry.mjs](test/runtime/fixtures/public-entry.mjs)，使用普通 Node 加载本次 dist，不走源码或 tsx。
 
 ## 最小接入样例
 
@@ -77,6 +105,8 @@ const handlers = new Map([[`${catalog.catalogId}:record`, (action) => [
 const surfaceCatalog = new Map<string, string>();
 const adapter = new AgentAdapter({
   registry: new CatalogRegistry([catalog]),
+  // 示例显式放行；实际应用从 context 的可信宿主身份判断权限。
+  access: { generate: () => true, action: () => true },
   actionHandlers: handlers,
   fallbackGeneration: (request) => myDeterministicFixture(request.surfaceId),
   onGenerationCommitted: (event) => void surfaceCatalog.set(event.surfaceId, event.catalogId),
@@ -88,7 +118,7 @@ const adapter = new AgentAdapter({
 const router = createAgentRouter({
   adapter,
   catalogContracts: [adapter.describeCatalog(catalog.catalogId)!],
-  runsAccess: (surfaceId, ctx) => myTrustedAccessCheck(surfaceId, ctx),
+  access: { read: (surfaceId, ctx) => myTrustedAccessCheck(surfaceId, ctx) },
 });
 ```
 
@@ -96,15 +126,15 @@ const router = createAgentRouter({
 
 口径提醒：`GET /api/a2ui/surface-state` 查询返回某次运行的固定结果，**不是视图恢复**——旧视图不能借查询换 revision；成功 `done` 表示 UI 已提交，**不表示宿主业务事务成功**。
 
-未注册 action 在进入 SSE 前返回 400，避免半流失败。每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard；生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`；action 响应只能 `updateComponents` / `updateDataModel`。失败输出或 history 提交失败都不会以 `done` 结束；提交失败会转换为 SSE `error`。
+action 与生成的请求级校验（envelope、catalogId、access）在入队前返回 400/403/503；已接受运行的调度内失败经 SSE `error` 收场。每条消息下发前经过 `@nexus-ui/core` 结构校验和 Agent guard；生成流必须先 `createSurface`，后续只能更新同一 surface，且必须包含 `root`；action 响应只能 `updateComponents` / `updateDataModel`。提交前拒绝经 error 报告 notCommitted，store 确认丢失报告 unknown；已确认提交后的 history/hook 失败经 `onRunDiagnostic` 报告，仍保留 done 与提交事实。
 
 HTTP action 仅接收 `{ message, nexus }`：message 是 v0.9 action，nexus 必含 sessionVersion/actionId/surfaceRevision/catalogHash/inputs。旧格式显式拒绝；服务端不查询最新快照补基准，也不重建 actionId。成功 `done` data 为该次提交固定的 `NexusSurfaceCommit`，其 runId 与本次 SSE ID 前缀一致，供消费方关联其实际视图。失败或缺 done 的视图不能继续 action。
 
-HTTP 与非 HTTP 使用同一传输无关的运行生命周期，非 HTTP 首次消费 source 或 commit 时预留记录容量，commit 验证结果结构及本次 run/surface/catalog/hash 后留存，返回独立的固定结果；成功 done 之前结果已可读。直接消费者必须在读取消息源后显式调用 commit，或 onError/dispose；正常 EOF 不释放 action 锁。输入模型先于 handler patch 发布并提交，handler 的同路径归一化值/根替换优先。自定义 `SurfaceActionStateStore` 需实现 revision + epoch 原子比较，commitGeneration/commitAction 返回本次提交的独立快照。
+HTTP 与非 HTTP 使用同一传输无关的运行生命周期。runtime/adapter 在入队时预留队列与记录容量，调度任务自动校验并提交；结果验证本次 run/surface/catalog/hash 后留存，成功 done 之前可读。宿主自行创建的原始 `AgentRun` 手动消费仍须显式 commit/onError/dispose，使用 `sendAgentRun` 时由运行模块托管；这与高层句柄的自动提交不同。输入模型先于 handler patch 发布并提交，handler 的同路径归一化值/根替换优先。自定义 `SurfaceActionStateStore` 需实现 revision + epoch 原子比较，返回 `SurfaceCommitResult`（committed 携带独立快照；确定未写为 notCommitted；无法确认则 unknown），普通异常按 unknown 处理。
 
-生成源工厂与 action handler 仅在消息源消费且容量准入成功后调用；它们抛错会使运行失败，HTTP 中通过 SSE error 返回。prepare 的准入错误仍发生在流前。容量拒绝/响应占用异常会释放运行、action 锁与宿主 dispose 资源，不遗留活动记录。
+生成源工厂与 action handler 仅在调度任务内、排队容量与记录预留成功后调用（同 surface 严格串行）；它们抛错使运行失败，HTTP 中以 SSE error 收场。准入与参数重算都在调度任务内完成。入队拒绝（access 未配置/拒绝 403、排队容量 503、请求级错误 400）发生在响应占用前，无 SSE 头、无运行记录；响应占用异常同步抛出并回收运行与宿主 dispose 资源，不遗留活动记录。
 
-发布 Catalog 时自动与实际 adapter 的执行声明核对；首次发布/执行会固定该 Catalog 副本，之后修改外部 registry 不影响当前 adapter。更新固定声明需重建 adapter 与发布路由。onboarding 发布与消费共用完整 Catalog、版本、hash 与 prompt 一致性校验。verifier 完整消费响应流，以成功 done 固定结果为 action 基准；报告 actionContext 为实际交给 handler 的权威参数隔离副本。消费方完整关联门控已在两个参考浏览器实施（S2.6.3，2026-10-20：契约 hash/prompt/版本校验后挂载、响应头 runId 关联、请求代次保护、草稿确认）；完整调度/背压/commitState 归 S3，Session 归 S3/S4。
+发布 Catalog 时自动与实际 adapter 的执行声明核对；首次发布/执行会固定该 Catalog 副本，之后修改外部 registry 不影响当前 adapter。更新固定声明需重建 adapter 与发布路由。onboarding 发布与消费共用完整 Catalog、版本、hash 与 prompt 一致性校验。verifier 完整消费响应流，以成功 done 固定结果为 action 基准；报告 actionContext 为实际交给 handler 的权威参数隔离副本。消费方完整关联门控已在两个参考浏览器实施（S2.6.3，2026-10-20：契约 hash/prompt/版本校验后挂载、响应头 runId 关联、请求代次保护、草稿确认）。单一调度、Session v1 事件、访问准入、有界背压与资源预算已随 S3 实施（2026-10-27）；完整 client 会话状态机与视图恢复归 S4。
 
 外部 Agent RPC 支持 endpoint、自定义 headers、timeout 和响应字节上限；不提供自动重试、远程凭证托管、租户隔离或审计。
 
@@ -116,9 +146,9 @@ SDK 根入口不读取项目环境。请求边界由 router options 显式配置
 | ---------------------- | --------- | --------------------------------------------------------------------- |
 | `maxRequestBodyBytes`  | `1048576` | JSON 请求体字节上限；超限 Content-Length 会先拒绝，流式字节也持续计数 |
 | `requestBodyTimeoutMs` | `10000`   | JSON 请求体读取超时                                                   |
-| `streamDelayMs`        | `200`     | 演示 pacing；生产装配应省略                                           |
+| `streamDelayMs`        | `0`       | 演示用逐条间隔；真实背压由高水位/慢消费预算承担，生产装配应省略         |
 
-通过 `new AgentAdapter({ registry, runManager, ... })` 注入自定义运行记录存储（实现 `AgentRunManager`，含 `recordCommit`）；router 可省略 runManager，显式提供时必须与 adapter 的同一实例一致；runs 查询的访问控制由 `runsAccess` 决定，`surfaceId` 不是凭据，认证主体必须来自宿主可信请求上下文。
+通过 `new AgentAdapter({ registry, runManager, ... })` 注入自定义运行记录存储（实现 `AgentRunManager`，含 `recordCommit`）；router 可省略 runManager，显式提供时必须与 adapter 的同一实例一致；runs 查询的访问控制由 `access.read` 决定，`surfaceId` 不是凭据，认证主体必须来自宿主可信请求上下文。
 
 ## 命令
 

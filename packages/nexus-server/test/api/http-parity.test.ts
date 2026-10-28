@@ -15,6 +15,7 @@ import { createAgentRuntime } from '../../src/runtime/runtime-facade';
 import type { AgentRuntimeOptions } from '../../src/runtime/agent-runtime';
 import type { RuntimeRunEvent, RuntimeRunHandle } from '../../src/runtime/run-handle';
 import { createAgentRouter } from '../../src/api/routes';
+import { sendAgentRun } from '../../src/api/send-messages';
 import { createCatalogContractHash } from '../../src/agent/catalog-contract';
 import { InMemorySurfaceActionStateStore } from '../../src/agent/surface-action-state';
 import type { AgentAction } from '../../src/agent/adapter';
@@ -939,6 +940,50 @@ describe('S3.5.4 真实 HTTP 与非 Koa 同输入对测', () => {
       const spread = arrivals.at(-1)! - arrivals[0];
       assert.ok(spread >= 100, `message 帧应逐条到达（间隔 ≥100ms），实际首末差 ${spread}ms`);
     } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('占用失败交回 Koa 错误处理：真实响应不是伪 SSE，源工厂不执行', async () => {
+    let calls = 0;
+    let flushCalls = 0;
+    const { runtime } = makeRuntime({
+      options: {
+        createGenerationSource: (request) => {
+          calls++;
+          return surfaceMessages(request.surfaceId);
+        },
+      },
+    });
+    let handle: RuntimeRunHandle | undefined;
+    const app = new Koa();
+    app.on('error', () => undefined); // Expected injected transport failure.
+    app.use(async (ctx) => {
+      const queued = await runtime.generate({ catalogId: TEST_CATALOG_ID });
+      assert.ok(queued.accepted);
+      handle = queued.run;
+      ctx.res.flushHeaders = () => {
+        flushCalls++;
+        throw new Error('injected response claim failure');
+      };
+      await sendAgentRun(ctx, queued.run);
+    });
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const { port } = server.address() as AddressInfo;
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      assert.equal(response.status, 500);
+      assert.doesNotMatch(response.headers.get('content-type') ?? '', /text\/event-stream/);
+      assert.equal(response.headers.get('X-Nexus-Run-Id'), null);
+      assert.equal(await response.text(), 'Internal Server Error');
+      assert.equal(flushCalls, 1, 'failure must reach the injected response claim boundary');
+      assert.ok(handle);
+      assert.equal((await handle.result).terminal, 'canceled');
+      assert.equal(calls, 0);
+      assert.equal(await runtime.adapter.describeSurfaceContract(handle.surfaceId), undefined);
+    } finally {
+      handle?.dispose();
       await closeServer(server);
     }
   });

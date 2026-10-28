@@ -10,11 +10,11 @@
 | D2   | 以独立接入和 SDK 门禁验收                       | 更新；业务应用不再是发行前置            |
 | D3   | Koa 适配器调用时同步占用 SSE 响应               | 保留已有修复，限定在 Koa 适配层         |
 | D4   | SDK 中立默认值与显式宿主装配                    | server 侧已实施（含 runs 准入默认拒绝） |
-| D5   | 区分消息状态、运行提交与业务结果                | 已决策，待改造                          |
+| D5   | 区分消息状态、运行提交与业务结果                | server 已实施；client 视图隔离与恢复归 S4 |
 | D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
-| D9   | 单一运行调度与有界资源                          | S3.1 定型；单一调度/提交事实/ledger 收紧已实施（S3.2–S3.3）；访问准入已实施（S3.5）；资源预算与取消收敛已实施（S3.6，2026-10-27） |
+| D9   | 单一运行调度与有界资源                          | S3 已实施并验收（2026-10-28），证据见 S3-ACCEPTANCE |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
 | D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
 | D12  | 按职责分包，通过层内高层 API 聚合接入能力       | 已决策，暂不新增总门面包                |
@@ -37,7 +37,7 @@
 
 **已有证据**：2026-10-15 修复 `105ee34`，`sendAgentRun` 调用时同步 `ctx.respond = false`、`flushHeaders`、`pipe`，让排队 run 不回落 404，宿主 `void`/`await` 均保持流式下发。
 
-**限定范围**：这是 Koa 适配器的实现决策。后续运行模块负责调度、准入、提交、取消与释放；Koa 适配器负责响应占用、序列化、背压和连接生命周期。运行模块不接受 Koa Context，不用 `streamClaimed` 一类由 HTTP 层回写的标志决定锁所有权。
+**限定范围**：这是 Koa 适配器的实现决策。运行模块负责调度、准入、提交、取消与释放；Koa 适配器负责响应占用、序列化、背压和连接生命周期。运行模块不接受 Koa Context，不用 `streamClaimed` 一类由 HTTP 层回写的标志决定锁所有权。
 
 **代价与回归要求**：保留两种调用写法、排队响应和错误转发反例；移出参考服务时不得破坏已有时序。SDK 通用契约不要求其他框架复制 Koa socket 操作。
 
@@ -51,7 +51,7 @@
 
 **代价**：默认行为变更属于破坏性迁移，须同步示例、API 契约和迁移说明；不以删除 demo 能力替代依赖隔离。
 
-**S2.5 所有权修正（2026-10-20）**：runManager 在 adapter 注入或默认隔离新建，HTTP 与非 HTTP 共用 managed run 的生命周期；router/sender 不另建记录所有者，显式 manager 不一致即拒绝。容量准入先于生成源工厂/handler 调用及 SSE 占用，工厂/handler 异常属于运行失败。发布绑定实际 adapter 的首次固定 Catalog，拒绝独立的第二份执行 registry；这样直接消费与 HTTP 具有同一结果事实，不将 Koa 当运行事实所有者。完整 scheduler 抽取仍归 S3。
+**S2.5 所有权修正（2026-10-20）**：runManager 在 adapter 注入或默认隔离新建，HTTP 与非 HTTP 共用 managed run 的生命周期；router/sender 不另建记录所有者，显式 manager 不一致即拒绝。容量准入先于生成源工厂/handler 调用及 SSE 占用，工厂/handler 异常属于运行失败。发布绑定实际 adapter 的首次固定 Catalog，拒绝独立的第二份执行 registry；这样直接消费与 HTTP 具有同一结果事实，不将 Koa 当运行事实所有者。完整 scheduler 已随 S3.2 抽取。
 
 ## D5. 三种状态与预览隔离
 
@@ -69,7 +69,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **选择**：目标为 core/client/react/server。core 负责协议与状态；client 依赖 core，提供无 React 依赖的浏览器会话和 fetch/SSE 适配；React 依赖 core，接收稳定 runtime/视图状态，不强制使用 client；server 依赖 core，内部区分通用运行模块与可选 HTTP/RPC 适配。client 与 server 不互相 import 实现。
 
-**证据**：playground 与 standalone-host-demo 已重复实现 SSE 消费，EOF/终态/取消清理尚未统一；这足以支持抽取 client。Provider 的固定渲染槽和 `sendAgentRun` 的 Koa 耦合证明需要完善组合边界。
+**证据**：playground 与 standalone-host-demo 已重复实现 SSE 消费，EOF/终态/取消清理尚未统一；这足以支持抽取 client。Provider 的固定渲染槽仍待 S4 分离；server 的通用运行逻辑已随 S3 从 Koa sender 移出。
 
 **约束**：当前仍只有三包；client 在对应切片新增，不提前宣传已可安装。共享协议与运行元数据类型放在 core 的纯契约模块；不额外拆 guard、Policy、Catalog 或 Agent 包。Koa 入口可留在 server 公开根入口，框架无关入口的加载不执行 listener/环境读取，也不要求模型 SDK。
 
@@ -159,7 +159,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **选择**：保留 core/client/react/server 的目标分包，暂不新增统一重导出四包的总门面包。各包通过公开根入口及职责内的高层 API 简化接入：client 会话控制器聚合生成/action、订阅、取消与恢复；React 提供 Provider/Surface/hooks；server 运行工厂装配准入、调度、生成源与 handler。名称与精确类型按对应实现切片定型。
 
-**server 高层 API（S3.1 定型，2026-10-22）**：server 公开 `createAgentRuntime(options): AgentRuntime` 作为传输无关运行入口——聚合 adapter 全部显式装配项并新增调度/访问/预算配置，暴露 `generate`/`action` 入队结果、运行句柄（事件流、终态、取消/dispose）与只读查询；Koa router 退为薄适配。不新增包、不新增总门面包。
+**server 高层 API（S3 已实施，2026-10-28 验收）**：server 公开 `createAgentRuntime(options): AgentRuntime` 作为传输无关运行入口——聚合 adapter 全部显式装配项并新增调度/访问/预算配置，暴露 `generate`/`action` 入队结果、运行句柄（事件流、终态、取消/dispose）与只读查询；Koa router 退为薄适配。不新增包、不新增总门面包。
 
 **依据**：宿主按环境与框架选用能力。浏览器入口不重导出 Node server，框架无关入口不引入 React/后续 Vue，不依靠 tree shaking 消除跨环境解析与可选依赖问题。统一文档和兼容说明可以提供一致接入体验；减少重复接线比减少包名更有价值。
 

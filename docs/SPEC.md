@@ -115,15 +115,17 @@ SSE `start`/`message`/`done`/`error` 即 §5.4 Session v1 事件；`sendAgentRun
 - handler 参数由服务端从已提交 action 声明与临时输入模型重新解析，并按 `paramSchema` 校验（已实施，S2.4）。`paramSchema` 校验作用于最终交给 handler 的参数：无 resolver 时为共享重算值，有 resolver 时为其输出——共享准入本身不提前否决 resolver 的参数整形。准入与参数解释一律使用提交边界固定的 Catalog 声明副本（与 hash 一并固定），不读当前 registry：宿主原地修改声明不能让同一 revision/hash/输入从拒绝翻转为接受。客户端 `context` 键必须是已声明绑定字段，且值不作为参数权威；自定义 resolver 只能在共享准入之后扩展参数，其输出仍须通过未声明字段拒绝与参数 schema，不得把被拒输入重新变为可执行 action，其对快照引用的改动不回写权威状态。准入成功不表示业务授权成功，身份、对象归属与事务由宿主 handler 判断。
 - 提交语义（S2.4 复审修复，2026-10-19）：`nexus` 必填，HTTP 只透传客户端的 revision/hash/actionId，旧格式拒绝；不得查询当前快照代替客户端声明其视图基准。已准入输入先形成基础模型，再应用 handler patch，一次原子落库；partial patch 不必回显输入，handler 对同路径的归一化结果优先，根替换以 handler 的完整新模型为准。运行消息源在 patch 前发布该临时模型（无输入时不增消息），浏览器按消息顺序应用所得模型与权威状态一致。临时输入本身不提前提交或增加 revision，流失败不发布新的成功基准。
 - 隔离与固定契约：组件、模型、Catalog 与消息在存储入界/出界均深拷贝；临时模型、待提交 inputWrites 与 resolver/handler 的参数和上下文分别持有独立值。准入、实际 patch guard 和提交前复核均使用本次快照固定声明，guard 基于原组件表与临时输入模型解释增量 patch。
-- 并发与版本：内存 store 以实例级单调安全整数计数器分配 revision，生成 epoch 取其提交 revision；删除或容量淘汰不回收编号，无每 surface 墓碑表。提交同时比较 expectedRevision 与 expectedEpoch，同代其他 action 或重新生成均使旧 patch 失效；上溢显式失败。非 HTTP 消费也持锁到 commit/onError/dispose，正常 source EOF 不释放锁、不代表提交；消费方必须显式结束运行。handler 已执行的业务副作用由宿主管理，SDK 不自动重放或回滚。
+- 并发与版本：内存 store 以实例级单调安全整数计数器分配 revision，生成 epoch 取其提交 revision；删除或容量淘汰不回收编号，无每 surface 墓碑表。提交同时比较 expectedRevision 与 expectedEpoch，同代其他 action 或重新生成均使旧 patch 失效；上溢显式失败。原始手动 AgentRun 消费也持有调度权直到 commit/onError/dispose，正常 source EOF 不代表提交；高层 runtime/adapter 句柄由调度任务自动完整校验并提交，以 result/Session 终态判断。handler 已执行的业务副作用由宿主管理，SDK 不自动重放或回滚。
 
 Catalog schema、绑定与 action 规则由 core 的共享纯模块实现，server 不复制第二套组件/输入语义。
+
+本地输入写回执行 Catalog inputs 值 schema；checks 是提交门控，在 triggerAction 与服务端 action 准入执行，不作为 setInputValue 的额外写回前置。草稿恢复整体 false 时保持原子不变且不开放新基准，完整恢复由 S4 接续。
 
 ### 4.4 失败语义
 
 注册期失败在宿主装配时抛错；运行期拒绝返回结构化失败且满足同一不变式：handler 未调用、已提交快照与 revision 不变。运行拒绝类别：envelope 缺失 `nexus` 或 `sessionVersion` 非 1（旧格式显式拒绝）；revision/hash 与快照固定值不一致；未声明组件/action/属性；越权或伪造路径；schema 不符；重复/冲突输入；action 未注册 handler（既有）。浏览器本地校验只服务状态正确性与反馈，不能替代服务端权威准入。
 
-## 5. Session 与流契约（Session v1 事件面与传输薄适配已随 S3.4/S3.5 实施，资源硬预算归 S3.6）
+## 5. Session 与流契约（Session v1、传输薄适配与资源预算已随 S3 实施）
 
 ### 5.1 版本与 envelope
 
@@ -158,7 +160,7 @@ managed run 在底层 commit 成功后验证完整提交结构与本次固定身
 
 - 入口与并发关联复核（S2.5.7，2026-10-20）：非 HTTP 消费的运行与 HTTP 路径同出 adapter 提交边界——纳入同一记录所有者，真实查询路由返回与两条路径的固定 commit 值一致；源 EOF 未显式提交按 409 处理（正常 EOF 不是终态）。查询与容量淘汰的窗口期交错经真实路由验证：读取先于淘汰返回被查运行自己的固定结果，查询到达前已淘汰返回 404，均不回退同 surface 的更新提交；查询键严格为裸 runId，事件 id 全值与被拒 envelope 的 actionId 均得 404。此项历史验收未包含消费方门控；S2.6.3 的当前消费方实施见上文，Session v1 仍待 S3/S4。
 
-成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 将报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。结果留存、按 run 查询、`X-Nexus-Run-Id` 响应头与 verifier/RPC 贯通已实施（S2.5.2/.3/.4/.6），入口与并发关联复核完成（S2.5.7，2026-10-20）；完整 Session 生命周期由 S3/S4 实施。
+成功 `done` 已提前复用 `NexusSurfaceCommit`；S3 的 `start` 报告本次运行的基准，按运行查询保留为结果对账用途，查询元数据本身不是视图恢复接口。结果留存、按 run 查询、`X-Nexus-Run-Id` 响应头与 verifier/RPC 贯通已实施（S2.5.2/.3/.4/.6），入口与并发关联复核完成（S2.5.7，2026-10-20）；完整 Session 生命周期由 S3/S4 实施。
 
 首发流适配为 POST fetch/SSE：
 
@@ -195,9 +197,9 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 响应头写入失败与其它 SSE 响应头同策略：响应占用失败（含 `flushHeaders` 抛错）在调用方同步段抛出并撤销已分配的流、运行收敛为 canceled 并释放宿主 dispose 资源，不留半占用响应（S3.2 语义更新：S2 时期记录迁移 failed）。完整 Session/SSE 生命周期（`start` 事件、断线恢复）不在本切片内，归 S3/S4；按 run 查询路由已由 S2.5.3 实施（§5.1）。
 
-### 5.4 Session v1 事件契约（S3.1 锁定，2026-10-22；事件面已随 S3.4 实施，SSE 薄适配与访问准入已随 S3.5 实施，资源硬预算归 S3.6）
+### 5.4 Session v1 事件契约（S3.1 锁定，2026-10-22；事件面已随 S3.4 实施，SSE 薄适配与访问准入已随 S3.5 实施，资源硬预算已随 S3.6 实施）
 
-本节为 S3.1 定型的 wire 契约。事件面——core 纯类型/解析/序列检查、runtime 统一事件源与锁定 error 形状的 SSE 转发——已随 S3.4 实施；传输薄适配、访问钩子与断连清理已随 S3.5 实施（2026-10-27）；资源硬预算归 S3.6。共享 oracle 数据定稿于 `fixtures/session-v1/`（含预算表、正常/取消/提交前后/unknown/重复/容量/慢消费/观察者失败场景），core 解析与 server 运行时对同一数据必须给出一致结论。
+本节为 S3.1 定型的 wire 契约。事件面——core 纯类型/解析/序列检查、runtime 统一事件源与锁定 error 形状的 SSE 转发——已随 S3.4 实施；传输薄适配、访问钩子与断连清理已随 S3.5 实施（2026-10-27）；资源硬预算已随 S3.6 实施。共享 oracle 数据定稿于 `fixtures/session-v1/`（含预算表、正常/取消/提交前后/unknown/重复/容量/慢消费/观察者失败场景），core 解析与 server 运行时对同一数据必须给出一致结论。
 
 **事件模型**：每次 run 恰一个有序事件流，wire 事件名为 `start`、`message`、`done`、`error`。HTTP SSE 与非 Koa 事件消费共用同一事实源与同一序列规则；`runId` 贯穿事件、`X-Nexus-Run-Id` 响应头、运行记录与 done 载荷（§5.1）。`start` 载荷携带 `type: "start"` 判别字段（S3.2 起既有形状；消费方按 SSE 事件名分派，core 解析器按事件名归一并校验该字段）。
 
@@ -254,14 +256,14 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 ## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，§6.1 句柄事件面已随 S3.4 实施，§6.5 访问准入与 §6.7 适配迁移已随 S3.5 实施，§6.6 资源预算已随 S3.6 实施）
 
-本节为 S3.1 定型的运行契约；实施完成前各条目不代表当前保证（现状见 §3、ARCHITECTURE §6）。
+本节为已实施的 S3 运行契约（2026-10-28 阶段验收，证据见 [S3-ACCEPTANCE](tasks/S3-ACCEPTANCE.md)）；client 预览/提交视图隔离与恢复仍为 §7 的 S4 目标。
 
 ### 6.1 运行入口、句柄与所有权
 
-- `createAgentRuntime(options): AgentRuntime` 为 server 公开高层入口（DESIGN D12）：`options` 覆盖现有 `AgentAdapterOptions` 全部显式装配项（`registry` 必填、`historyStore` 缺省隔离新建、`useLlm` 默认 false、`catalogId` 必填等，§2），新增 `scheduler`、`access`、`budgets`；缺少必需依赖在工厂初始化时抛错。默认 store、ledger、scheduler、runManager 每实例一份，实例间互不共享；根入口无 listener、环境读取或模型默认值。
+- `createAgentRuntime(options): AgentRuntime` 为 server 公开高层入口（DESIGN D12）：`options` 覆盖现有 `AgentAdapterOptions` 全部显式装配项（`registry` 必填、`historyStore` 缺省隔离新建、`useLlm` 默认 false、`catalogId` 必填等，§2），新增 `scheduler`、`access`、`budgets`；缺 registry 或非法预算在初始化时抛错；生成源可省略以仅装配 action，实际 generate 未配置源时入队前拒绝，启用 LLM 却缺 streamLlm 时调用入口抛出装配错误。默认 store、ledger、scheduler、runManager 每实例一份，实例间互不共享；根入口无 listener、环境读取或模型默认值。
 - `AgentRuntime.generate(request, options?)` / `AgentRuntime.action(request, options?)` 返回 `Promise<{ accepted: true, run } | { accepted: false, stage, code?, message }>`（成功字段固定为 `run`；拒绝 `stage` 为 `request` 或 `capacity`）：预期拒绝（access、容量、请求级校验）以结果报告，不抛异常；装配/编程错误抛错。非 Koa 消费无需构造任何 HTTP 对象。
 - 运行句柄暴露 `runId`/`surfaceId`/`kind`、`events(): AsyncIterable<SessionEvent>`（单条逻辑流、唯一事实源，已随 S3.4 实施：订阅更替经缓冲接续同一条流）、`result`（终态结果 Promise，含终态/commitState/固定提交）、`cancel(reason?)` 与幂等 `dispose()`。
-- `queryRun(surfaceId, runId)` / `listRuns(surfaceId)` 只读 run 记录所有者；语义与 §5.1 查询一致，不读当前 surface 快照。
+- `queryRun(surfaceId, runId)` / `listRuns(surfaceId)` 只读 run 记录所有者；只读固定记录、不读当前 surface 快照；这两个可信宿主本地接口不执行 access.read。对外查询由 HTTP 路由或宿主自己的适配层执行 read 授权并映射 §5.1 状态码。
 
 | 事实 | 唯一所有者 | 备注 |
 | --- | --- | --- |
@@ -289,7 +291,7 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 
 排队语义：同一 runtime 同一 surface 的 generation 与 action 同队列 FIFO 串行（覆盖固定 surfaceId 工厂碰撞/重建）；不同 surface 可并发；两个 runtime 实例的同名 surface 互不阻塞。排队容量与取消先于 source 工厂与 handler 函数体。取消排队项立即移出队列并释放额度，不等待活动任务结束。action 请求在入队前深拷贝（含 context/inputs），调度键、准入与提交只使用同一请求快照。
 
-**S3.2 实施补充（2026-10-23）**：adapter、runtime 与自定义 `AgentRun` 以同一 `runManager` 身份关联唯一 scheduler（关联由运行模块持有，传输层不另建队列）；显式为既有所有者配置第二个 scheduler 时装配报错。`sendAgentRun` 的 signal 与准备阶段 signal 都能取消运行，终态清理监听器。提交前运行失败/排队取消时，即便 manager 的终态写入或清理抛错，句柄仍收敛 result 与唯一 error，并附 `RUN_LIFECYCLE_ERROR` 诊断；不伪造外部记录已写成功，按 run 查询仍只读该所有者的实际记录。提交后的存储/留存事实隔离仍由 S3.3 完成。
+**S3.2 实施补充（2026-10-23）**：adapter、runtime 与自定义 `AgentRun` 以同一 `runManager` 身份关联唯一 scheduler（关联由运行模块持有，传输层不另建队列）；显式为既有所有者配置第二个 scheduler 时装配报错。`sendAgentRun` 的 signal 与准备阶段 signal 都能取消运行，终态清理监听器。提交前运行失败/排队取消时，即便 manager 的终态写入或清理抛错，句柄仍收敛 result 与唯一 error，并附 `RUN_LIFECYCLE_ERROR` 诊断；不伪造外部记录已写成功，按 run 查询仍只读该所有者的实际记录。提交后的存储/留存事实隔离已随 S3.3 完成。
 
 ### 6.2 调度内准入与统一候选校验
 
