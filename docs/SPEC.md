@@ -1,6 +1,6 @@
 # SPEC — SDK 契约
 
-更新：2026-10-24。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
+更新：2026-10-28。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
 
 ## 0. 术语与权威
 
@@ -38,6 +38,23 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 轻量 core runtime 未注入 `catalogRegistry` 时只执行 Protocol/Profile，不提供 Catalog 能力准入保证，也不隐式采用 SDK 标准声明；宿主需显式注入自己的 Catalog 来限制 checks/action 能力。
 
 官方用例当前基线（2026-10-17）：9 份用例，36 pass、44 已决策偏差、0 fail，位置为 `packages/nexus-core/tests/conformance-baseline.json`。偏差为 profile-unsupported 13、profile-catches-protocol-loose 23、degraded-value-constraint 5、scope-client-to-server 3。此次 checks 能力准入从 Profile 移至 Catalog 后，ChoicePicker 的 valid checks / length validation 与 CheckBox 的 valid checks 共 3 条由 Profile 不支持转为 pass；DateTimeInput 的 valid checks 用例仍因缺少 enableDate/enableTime 被拒，仅拒绝原因变化。此基线测试 Protocol/Profile，不证明默认标准 Catalog 已启用这些 checks，也不代表完整协议一致性。历史 2026-09-30 基线为 33 pass / 47 偏差；后续改动须重跑并解释分类变化。
+
+### 1.1 core 写路径与状态规模（S4.0，2026-10-28）
+
+数组容器的路径写入只允许修改界内元素或在 `index === length` 处紧凑追加，跳过末尾的写入拒绝；删除只允许界内元素，仍以 `undefined` 保留长度。`setValueAtPath`、`removeAtPath` 与输入共用的 `setStrictPath` 拒绝数组越界时抛公开的 `DataModelResourceLimitError`（`code: 'RESOURCE_LIMIT_EXCEEDED'`）。缺失中间节点的协议写入同样不能造稀疏数组；对象路径的既有创建语义保留。
+
+`A2UIRuntime` 的 `RuntimeOptions` 提供以下常开预算；省略时使用默认值，显式配置必须为正安全整数，`null`、0、负数、小数和非安全整数在构造时抛错。
+
+| 选项 | 默认值 | 作用对象与拒绝语义 |
+| --- | --- | --- |
+| `maxDataModelBytes` | 1,048,576 bytes（1 MiB） | 单 surface 最终 dataModel 的 UTF-8 JSON 字节；`updateDataModel` 整条拒绝，`setInputValue`/`confirmInputDrafts` 返回 false |
+| `maxComponentsPerSurface` | 10,000 | 单 surface 现有与新增组件 ID 的去重总数；超限 `updateComponents` 整条拒绝 |
+
+上述协议拒绝经 runtime 上报 `FEATURE_UNSUPPORTED`，组件/模型与有效输入草稿不因拒绝而部分写入；错误记录仍会增加。本地输入须先通过当前 Catalog 的 `inputs` 声明与值 schema，不能以缺声明时的提前拒绝证明预算生效。草稿确认将剩余新草稿恢复到临时模型后再检查预算，失败不确认任何有效条目、不部分恢复，调用方不得启用新 action 基准。
+
+资源预算不依赖 Catalog 是否注入；模型/组件规模限制属于 runtime 接受边界，公开低层 store 与 dataModel helper 不提供同等规模保证，也不构成进程内存硬配额。server 的完整快照预算（§6.6，含组件与 Catalog）与 core 的模型预算作用对象不同，不能互相替代；生成与 action 的 store 提交前数组越界均返回 `notCommitted + RESOURCE_LIMIT_EXCEEDED`。client 须独立执行本地校验，服务端已提交而本地拒绝时按 §5.2 失同步处理。
+
+迁移：这是 0.1.x 的资源行为收紧；过去依赖数组跳写的宿主应改为紧凑追加，需要更大状态的宿主显式配置 runtime 与 server 各自预算。不改变 A2UI v0.9、Catalog Contract 2 或 Session 1 的线上形状。
 
 ## 2. 当前 Catalog 与公开 API
 

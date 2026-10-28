@@ -1,4 +1,4 @@
-import { isUnsafeSegment } from './index';
+import { DataModelResourceLimitError, isUnsafeSegment } from './index';
 
 /** Absolute RFC 6901 input path. Document-root aliases are excluded for input bindings. */
 export function normalizeJsonPointer(path: string): string {
@@ -56,6 +56,14 @@ export function setStrictPath(model: unknown, path: string, input: unknown): unk
     if (!container(current)) throw new Error(`路径中间节点不是容器: ${path}`);
     const segment = parts[index] as string;
     const key = keyOf(current, segment);
+    // 数组容器只允许修改界内元素或在末尾紧凑追加（key === length）：越界跳写
+    //（会造稀疏空洞）显式拒绝（S4.0 资源边界；server 准入 inputWrites 与本地
+    // 输入写回共用本路径）。
+    if (Array.isArray(current) && typeof key === 'number' && key > current.length) {
+      throw new DataModelResourceLimitError(
+        `数组下标越界: ${path}（下标 ${key}，当前长度 ${current.length}）`,
+      );
+    }
     const result = (Array.isArray(current) ? [...current] : { ...current }) as Record<
       string | number,
       unknown

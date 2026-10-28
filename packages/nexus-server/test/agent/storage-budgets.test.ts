@@ -94,6 +94,41 @@ describe('S3.6 storage byte budgets', () => {
     assert.deepEqual(await store.get('s'), result.snapshot);
   });
 
+  it('generation and action classify the same array overflow without publishing or advancing revision', async () => {
+    const store = new InMemorySurfaceActionStateStore();
+    const baseline = await store.commitGeneration('s', TEST_CATALOG_ID, messages, contract);
+    assert.ok(baseline.outcome === 'committed');
+    const invalid = {
+      version: 'v0.9',
+      updateDataModel: { surfaceId: 's', path: '/arr/5', value: 'x' },
+    };
+    const commit = {
+      surfaceId: 's',
+      expectedEpoch: baseline.snapshot.epoch,
+      expectedRevision: baseline.snapshot.version,
+    };
+    const generation = await store.commitGeneration(
+      's',
+      TEST_CATALOG_ID,
+      [...messages, invalid],
+      contract,
+    );
+    const action = await store.commitAction([invalid], commit);
+    for (const rejected of [generation, action]) {
+      assert.ok(rejected.outcome === 'notCommitted');
+      assert.equal(rejected.code, 'RESOURCE_LIMIT_EXCEEDED');
+      assert.match(rejected.reason, /数组下标越界/);
+    }
+    assert.deepEqual(await store.get('s'), baseline.snapshot);
+    const accepted = await store.commitAction(
+      [{ version: 'v0.9', updateDataModel: { surfaceId: 's', path: '/arr/0', value: 'x' } }],
+      commit,
+    );
+    assert.ok(accepted.outcome === 'committed');
+    assert.equal(accepted.snapshot.version, baseline.snapshot.version + 1);
+    assert.deepEqual(accepted.snapshot.dataModel, { arr: ['x'] });
+  });
+
   it('history rejects oversized incoming turns before changing catalog/history, and evicts whole old turns', async () => {
     const store = new InMemorySurfaceHistoryStore({ maxBytesPerTurn: 70, maxBytesPerSurface: 90 });
     const old = { role: 'user' as const, content: 'old'.repeat(5) };

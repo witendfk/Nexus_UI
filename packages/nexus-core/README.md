@@ -4,6 +4,8 @@
 
 ## 当前能力
 
+S4.0 起，`A2UIRuntime` 默认限制单 surface dataModel 为 1 MiB（`maxDataModelBytes`）、组件为 10,000 个（`maxComponentsPerSurface`）；选项必须为正安全整数。协议超限拒绝整条消息，本地输入写回/草稿恢复超限返回 `false`，不部分修改模型和有效草稿。数组路径只允许界内修改或末尾紧凑追加，越界 helper 抛公开的 `DataModelResourceLimitError`。这些 runtime 规模预算不覆盖低层 store 直写；完整契约与迁移说明见 [SPEC §1.1](../../docs/SPEC.md)。
+
 - JSONL 跨 chunk 缓冲和切分。
 - 当前 Agent 线支持子集的信封与结构校验。
 - create / update / delete surface 生命周期校验。

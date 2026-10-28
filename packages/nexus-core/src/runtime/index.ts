@@ -26,7 +26,11 @@ import type {
   ParseResult,
   VNode,
 } from '../protocol/types';
-import { applyDataModelUpdate, isUnsafeDataPath } from '../dataModel/index';
+import {
+  applyDataModelUpdate,
+  DataModelResourceLimitError,
+  isUnsafeDataPath,
+} from '../dataModel/index';
 import type { CatalogRegistry, ComponentSchemaDiagnostic } from '../catalog/index';
 import { isDataBinding, validateInputValueDiagnostics } from '../catalog/index';
 import { getFirstFailedCheck } from '../checks';
@@ -86,6 +90,17 @@ export interface RuntimeOptions {
   maxNodes?: number;
   /** 链式深度上限（默认 1000）：保护宿主 React 递归消费路径，超深层以占位呈现。 */
   maxDepth?: number;
+  /**
+   * 单 surface 数据模型序列化字节上限（S4.0 资源边界；UTF-8 JSON，默认 1 MiB）。
+   * 协议 updateDataModel 应用后超限：整条消息以结构化错误拒绝，状态不变；
+   * 本地输入写回超限：写回失败返回 false，状态不变。非法值构造时抛错。
+   */
+  maxDataModelBytes?: number;
+  /**
+   * 单 surface 组件数量上限（S4.0 资源边界；现有+新增去重，默认 10000，与渲染
+   * maxNodes 同量级）。updateComponents 超限整条消息拒绝，状态不变。
+   */
+  maxComponentsPerSurface?: number;
 }
 
 /** 协议运行时：把 A2UI 流式协议渐进渲染成框架无关 VNode，并经 onAction 吐出交互。 */
@@ -113,6 +128,19 @@ export class A2UIRuntime {
 
   constructor(options: RuntimeOptions = {}) {
     validateRenderLimits(options);
+    if (
+      options.maxDataModelBytes !== undefined &&
+      (!Number.isSafeInteger(options.maxDataModelBytes) || options.maxDataModelBytes <= 0)
+    ) {
+      throw new Error('maxDataModelBytes 必须是正安全整数');
+    }
+    if (
+      options.maxComponentsPerSurface !== undefined &&
+      (!Number.isSafeInteger(options.maxComponentsPerSurface) ||
+        options.maxComponentsPerSurface <= 0)
+    ) {
+      throw new Error('maxComponentsPerSurface 必须是正安全整数');
+    }
     this.options = { ...options };
   }
 
@@ -241,13 +269,12 @@ export class A2UIRuntime {
       return false;
     }
     try {
-      st.setDataModelValueAtPath(
-        surfaceId,
-        '',
-        setStrictPath(st.dataModelBySurface[surfaceId], binding.path, written),
-      );
+      const candidate = setStrictPath(st.dataModelBySurface[surfaceId], binding.path, written);
+      const cap = this.options.maxDataModelBytes ?? DEFAULT_MAX_DATA_MODEL_BYTES;
+      if (jsonByteLength(candidate) > cap) return false;
+      st.setDataModelValueAtPath(surfaceId, '', candidate);
     } catch {
-      // 中间节点非容器等写失败：状态未变，与显式拒绝同一语义
+      // 中间节点非容器、数组越界等写失败：状态未变，与显式拒绝同一语义
       return false;
     }
     this.recordLatestInput(surfaceId, {
@@ -318,6 +345,8 @@ export class A2UIRuntime {
       for (const [, draft] of remaining) {
         model = setStrictPath(model, draft.bindingPath, structuredClone(draft.input.value));
       }
+      const cap = this.options.maxDataModelBytes ?? DEFAULT_MAX_DATA_MODEL_BYTES;
+      if (remaining.length > 0 && jsonByteLength(model) > cap) return false;
     } catch {
       return false;
     }
@@ -397,6 +426,12 @@ export class A2UIRuntime {
       this.applyMessage(message);
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
+      if (error instanceof DataModelResourceLimitError) {
+        // 资源边界拒绝是确定性分类，不是处理故障：与渲染限额同用
+        // FEATURE_UNSUPPORTED 上报（Nexus 会话资源码归 server 提交映射）。
+        this.reportError({ code: 'FEATURE_UNSUPPORTED', message: messageText, raw, surfaceId });
+        return;
+      }
       this.reportError({ message: `处理 A2UI 消息失败: ${messageText}`, raw, surfaceId });
     }
   }
@@ -484,13 +519,33 @@ export class A2UIRuntime {
       });
     } else if ('updateComponents' in message) {
       const p = message.updateComponents;
+      // 组件数量上限（S4.0）：现有 + 新增去重，超限整条消息拒绝，状态不变。
+      const cap = this.options.maxComponentsPerSurface ?? DEFAULT_MAX_COMPONENTS_PER_SURFACE;
+      const existing = st.componentsBySurface[p.surfaceId] ?? {};
+      let incoming = 0;
+      for (const component of p.components) {
+        if (!Object.prototype.hasOwnProperty.call(existing, component.id)) incoming += 1;
+      }
+      if (Object.keys(existing).length + incoming > cap) {
+        throw new DataModelResourceLimitError(
+          `Surface ${p.surfaceId} 组件数量超过上限 ${cap}，消息被拒绝`,
+        );
+      }
       st.upsertComponents(p.surfaceId, p.components);
       // 在每次已接受的组件更新后清理，不能等提取时才过滤，否则替换再恢复会复活旧值。
       this.pruneLatestInputs(p.surfaceId);
       this.rerender(p.surfaceId);
     } else if ('updateDataModel' in message) {
       const p = message.updateDataModel;
-      st.applyDataModel(p);
+      // 数据模型字节上限（S4.0）：应用后序列化超限整条消息拒绝，状态不变。
+      const next = applyDataModelUpdate(st.dataModelBySurface[p.surfaceId], p);
+      const cap = this.options.maxDataModelBytes ?? DEFAULT_MAX_DATA_MODEL_BYTES;
+      if (jsonByteLength(next) > cap) {
+        throw new DataModelResourceLimitError(
+          `Surface ${p.surfaceId} 数据模型字节超过上限 ${cap}，消息被拒绝`,
+        );
+      }
+      st.setDataModelValueAtPath(p.surfaceId, '', next);
       this.rerender(p.surfaceId);
     } else {
       const p = message.deleteSurface;
@@ -519,6 +574,19 @@ export class A2UIRuntime {
         }),
     });
     this.options.onRender?.(root, surfaceId);
+  }
+}
+
+const DEFAULT_MAX_DATA_MODEL_BYTES = 1_048_576;
+const DEFAULT_MAX_COMPONENTS_PER_SURFACE = 10_000;
+const textEncoder = new TextEncoder();
+
+/** UTF-8 JSON 序列化字节（与 wire 预算同口径）；不可序列化按超限拒绝。 */
+function jsonByteLength(value: unknown): number {
+  try {
+    return textEncoder.encode(JSON.stringify(value) ?? '').length;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
   }
 }
 

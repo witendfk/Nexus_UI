@@ -10,6 +10,7 @@ describe('core public API surface', () => {
       'CATALOG_CONTRACT_VERSION',
       'CORE_API_VERSION',
       'CatalogRegistry',
+      'DataModelResourceLimitError',
       'JSONLBuffer',
       'NEXUS_SESSION_DIAGNOSTIC_LIMIT',
       'NEXUS_SESSION_ERROR_CODES',

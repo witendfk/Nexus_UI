@@ -105,6 +105,7 @@ export { NEXUS_SESSION_VERSION } from './session/index';
 export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from './session/index';
 
 export { normalizeJsonPointer, getStrictPath, setStrictPath } from './dataModel/strict-path';
+export { DataModelResourceLimitError } from './dataModel/index';
 export { parseSurfaceCommit } from './session';
 export {
   NEXUS_SESSION_DIAGNOSTIC_LIMIT,

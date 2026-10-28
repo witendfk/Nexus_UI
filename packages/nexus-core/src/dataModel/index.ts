@@ -113,8 +113,37 @@ export function getByPath(model: unknown, path: DataPath): unknown {
 /* ───────────────────────── set（不可变 upsert） ───────────────────────── */
 
 /**
+ * 数据模型资源边界拒绝（S4.0）：数组越界/规模超限等确定性拒绝携带会话资源
+ * 错误码，server 提交失败映射与 runtime 结构化上报共用同一分类。
+ */
+export class DataModelResourceLimitError extends Error {
+  readonly code = 'RESOURCE_LIMIT_EXCEEDED' as const;
+}
+
+/**
+ * 数组容器写入的确定性拒绝：只允许修改界内元素或在末尾紧凑追加（index ===
+ * length），越界跳写（会造稀疏空洞）一律抛错（S4.0 资源边界）。
+ */
+function requireArrayIndexWritable(container: unknown[], index: number, path: DataPath): void {
+  if (!Number.isInteger(index) || index < 0 || index > container.length) {
+    throw new DataModelResourceLimitError(
+      `数组下标越界: ${path}（下标 ${String(index)}，当前长度 ${container.length}）`,
+    );
+  }
+}
+
+/** 数组删除的确定性拒绝：只允许界内置 undefined，不允许稀疏扩长（S4.0）。 */
+function requireArrayIndexInBounds(container: unknown[], index: number, path: DataPath): void {
+  if (!Number.isInteger(index) || index < 0 || index >= container.length) {
+    throw new DataModelResourceLimitError(
+      `数组下标越界: ${path}（下标 ${String(index)}，当前长度 ${container.length}）`,
+    );
+  }
+}
+
+/**
  * 按 JSON Pointer **不可变**写入（upsert）：缺失中间节点自动创建（数字段建数组，
- * 否则建对象）；返回新根，不改入参。
+ * 否则建对象）；返回新根，不改入参。数组容器内的下标必须落在当前长度内。
  */
 export function setValueAtPath(model: unknown, path: DataPath, value: unknown): unknown {
   const segments = parsePointer(path);
@@ -131,8 +160,10 @@ export function setValueAtPath(model: unknown, path: DataPath, value: unknown): 
     const seg = segments[i] as string;
     const last = i === segments.length - 1;
     if (last) {
-      if (Array.isArray(current)) (current as unknown[])[Number(seg)] = value;
-      else (current as Record<string, unknown>)[seg] = value;
+      if (Array.isArray(current)) {
+        requireArrayIndexWritable(current, Number(seg), path);
+        (current as unknown[])[Number(seg)] = value;
+      } else (current as Record<string, unknown>)[seg] = value;
       break;
     }
     const wantArray = isArrayIndex(segments[i + 1] as string);
@@ -140,6 +171,7 @@ export function setValueAtPath(model: unknown, path: DataPath, value: unknown): 
     if (Array.isArray(current)) {
       const idx = Number(seg);
       if (!Number.isInteger(idx)) throw new Error(nonContainerMessage(path));
+      requireArrayIndexWritable(current, idx, path);
       child = (current as unknown[])[idx];
     } else {
       child = getOwnProperty(current as Record<string, unknown>, seg);
@@ -174,14 +206,18 @@ export function removeAtPath(model: unknown, path: DataPath): unknown {
     const seg = segments[i] as string;
     const last = i === segments.length - 1;
     if (last) {
-      if (Array.isArray(current)) (current as unknown[])[Number(seg)] = undefined;
-      else delete (current as Record<string, unknown>)[seg];
+      if (Array.isArray(current)) {
+        // 越界删除同样拒绝：置 undefined 保留长度，但不允许稀疏扩长（S4.0）。
+        requireArrayIndexInBounds(current, Number(seg), path);
+        (current as unknown[])[Number(seg)] = undefined;
+      } else delete (current as Record<string, unknown>)[seg];
       break;
     }
     let child: unknown;
     if (Array.isArray(current)) {
       const idx = Number(seg);
       if (!Number.isInteger(idx)) throw new Error(nonContainerMessage(path));
+      requireArrayIndexInBounds(current, idx, path);
       child = (current as unknown[])[idx];
     } else {
       child = getOwnProperty(current as Record<string, unknown>, seg);

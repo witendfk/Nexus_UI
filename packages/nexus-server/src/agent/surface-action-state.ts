@@ -1,5 +1,5 @@
 import { DEFAULT_STORAGE_BUDGETS, jsonBytes } from '../runtime/budgets';
-import { applyDataModelUpdate, setStrictPath } from '@nexus-ui/core';
+import { applyDataModelUpdate, DataModelResourceLimitError, setStrictPath } from '@nexus-ui/core';
 import { assertPositiveSafeInteger } from './limits';
 import type {
   CatalogDefinition,
@@ -234,7 +234,7 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
         applyMessage(next, message);
       }
     } catch (error) {
-      return { outcome: 'notCommitted', reason: errorMessage(error) };
+      return rejectCommit(error);
     }
 
     if (next.components.size === 0) {
@@ -278,7 +278,7 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
       for (const message of structuredClone(messages)) applyMessage(next, message);
       version = this.nextVersion(this.revision);
     } catch (error) {
-      return { outcome: 'notCommitted', reason: errorMessage(error) };
+      return rejectCommit(error);
     }
     next.version = version;
     return this.publish(next);
@@ -443,6 +443,17 @@ function readSurfaceId(message: unknown): string | undefined {
     if (isRecord(payload) && typeof payload.surfaceId === 'string') return payload.surfaceId;
   }
   return undefined;
+}
+
+/** 生成与 action 的提交前拒绝共用资源分类，且保留原始诊断。 */
+function rejectCommit(error: unknown): Extract<SurfaceCommitResult, { outcome: 'notCommitted' }> {
+  return {
+    outcome: 'notCommitted',
+    reason: errorMessage(error),
+    ...(error instanceof DataModelResourceLimitError
+      ? { code: 'RESOURCE_LIMIT_EXCEEDED' as const }
+      : {}),
+  };
 }
 
 function errorMessage(error: unknown): string {
