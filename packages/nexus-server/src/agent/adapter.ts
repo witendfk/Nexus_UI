@@ -44,7 +44,9 @@ import {
 } from '../runtime/agent-runtime';
 import type { SurfaceScheduler } from '../runtime/surface-scheduler';
 import { schedulerForOwner } from '../runtime/scheduler-owner';
+import { validateBudgets, type AgentRuntimeBudgets } from '../runtime/budgets';
 import { RunTaskError, type RuntimeRunHandle } from '../runtime/run-handle';
+import { lazyMessageSource } from '../runtime/message-source';
 import { commitSurface } from '../runtime/commit-result';
 export interface AgentAction {
   name: string;
@@ -264,6 +266,12 @@ export interface AgentAdapterOptions {
    * 即拒绝；read 由查询路由评估。缺省（未配置）无任何放行路径。
    */
   access?: AgentAccessHooks;
+  /**
+   * 运行时资源预算（S3.6，SPEC §6.6；默认值与 fixtures/session-v1/budgets.json
+   * 同源）。显式注入的 store/ledger/manager/history 保持其自身配置；预算仅作用
+   * 于 runtime 新建的默认实例与调度任务内的 run 级计量。
+   */
+  budgets?: AgentRuntimeBudgets;
   onGenerationCommitted?: (event: AgentGenerationCommitEvent) => void | Promise<void>;
   /**
    * 宿主观测回调（S3.3.2，ARCHITECTURE §8）：发布点之后的扩展面失败
@@ -315,6 +323,7 @@ export class AgentAdapter {
   private readonly editablePaths?: (surfaceId: string) => readonly string[];
   private readonly defaultGenerationMessage: string;
   private readonly accessHooks?: AgentAccessHooks;
+  private readonly runtimeBudgets?: AgentRuntimeBudgets;
   private readonly onGenerationCommitted?: (
     event: AgentGenerationCommitEvent,
   ) => void | Promise<void>;
@@ -328,13 +337,44 @@ export class AgentAdapter {
       );
     }
     this.registry = options.registry;
-    this.runManager = options.runManager ?? new InMemoryAgentRunManager();
+    // 预算装配校验（S3.6，SPEC §6.6）：非法值初始化即抛错，不静默回退。
+    if (options.budgets) validateBudgets(options.budgets);
+    this.runtimeBudgets = options.budgets ? Object.freeze({ ...options.budgets }) : undefined;
+    // 预算只作用于 runtime 新建的默认实例；显式注入的实例保持其自身配置。
+    this.runManager =
+      options.runManager ??
+      new InMemoryAgentRunManager(
+        options.budgets?.runRecords === undefined ? {} : { maxRecords: options.budgets.runRecords },
+      );
     this.policy = options.policy;
     this.actionHandlers = options.actionHandlers ?? new Map();
     // Per-instance store on purpose: two adapters must never share surface history.
-    this.historyStore = options.historyStore ?? new InMemorySurfaceHistoryStore();
-    this.actionStateStore = options.actionStateStore ?? new InMemorySurfaceActionStateStore();
-    this.actionLedger = options.actionLedger ?? new InMemorySurfaceActionLedger();
+    this.historyStore =
+      options.historyStore ??
+      new InMemorySurfaceHistoryStore({
+        maxBytesPerTurn: options.budgets?.maxHistoryBytesPerTurn,
+        maxBytesPerSurface: options.budgets?.maxHistoryBytesPerSurface,
+        ...(options.budgets?.historySurfaces === undefined
+          ? {}
+          : { maxSurfaces: options.budgets.historySurfaces }),
+        ...(options.budgets?.historyTurnsPerSurface === undefined
+          ? {}
+          : { maxTurnsPerSurface: options.budgets.historyTurnsPerSurface }),
+      });
+    this.actionStateStore =
+      options.actionStateStore ??
+      new InMemorySurfaceActionStateStore({
+        maxSurfaces: options.budgets?.surfaceSnapshots,
+        maxSnapshotBytes: options.budgets?.maxSnapshotBytes,
+        maxComponentsPerSurface: options.budgets?.maxComponentsPerSurface,
+      });
+    this.actionLedger =
+      options.actionLedger ??
+      new InMemorySurfaceActionLedger(
+        options.budgets?.actionLedgerRecords === undefined
+          ? {}
+          : { maxRecords: options.budgets.actionLedgerRecords },
+      );
     this.resolveActionContext = options.resolveActionContext;
     this.editablePaths = options.editablePaths;
     this.useLlm = options.useLlm ?? (() => false);
@@ -346,7 +386,11 @@ export class AgentAdapter {
     this.accessHooks = options.access;
     this.onGenerationCommitted = options.onGenerationCommitted;
     this.onRunDiagnostic = options.onRunDiagnostic;
-    this.scheduler = schedulerForOwner(this.runManager, options.scheduler);
+    this.scheduler = schedulerForOwner(this.runManager, options.scheduler, {
+      maxQueuedPerSurface: options.budgets?.maxQueuedPerSurface,
+      maxTrackedSurfaces: options.budgets?.maxTrackedSurfaces,
+      queueTimeoutMs: options.budgets?.queueTimeoutMs,
+    });
   }
 
   /** The per-adapter (or injected runtime) scheduler; single dispatch owner. */
@@ -357,6 +401,11 @@ export class AgentAdapter {
   /** 宿主访问准入钩子；查询路由以其 read 钩子为缺省准入（未配置即 403）。 */
   get access(): AgentAccessHooks | undefined {
     return this.accessHooks;
+  }
+
+  /** 运行时预算（S3.6）：HTTP 适配层读取 SSE 预算装配发送层，任务预算随入队下发。 */
+  get budgets(): AgentRuntimeBudgets | undefined {
+    return this.runtimeBudgets;
   }
 
   /** Capture the actual execution definition on first use; later host mutations cannot change it. */
@@ -465,7 +514,12 @@ export class AgentAdapter {
     const surfaceId = this.createSurfaceId();
     const runId = randomUUID();
     const outcome = enqueueScheduledRun(
-      { runManager: this.runManager, scheduler: this.scheduler },
+      {
+        runManager: this.runManager,
+        scheduler: this.scheduler,
+        ...(this.runtimeBudgets ? { budgets: this.runtimeBudgets } : {}),
+        retainSurface: (id) => this.actionStateStore.retainSurface?.(id),
+      },
       {
         kind: 'generate',
         runId,
@@ -522,10 +576,11 @@ export class AgentAdapter {
     const createGenerationSource = this.createGenerationSource;
     const streamLlm = this.streamLlm;
     const fallbackGeneration = this.fallbackGeneration;
-    const source: AgentMessageSource = (async function* () {
-      if (createGenerationSource) yield* createGenerationSource(sourceRequest);
-      else if (useLlm)
-        yield* streamLlm!({
+    const source = lazyMessageSource(() => {
+      if (signal?.aborted) throw new RunTaskError('RUN_CANCELLED', '运行已取消');
+      if (createGenerationSource) return createGenerationSource(sourceRequest);
+      if (useLlm)
+        return streamLlm!({
           kind: 'generate',
           surfaceId,
           message,
@@ -533,10 +588,10 @@ export class AgentAdapter {
           supportedComponents,
           supportedActions,
           history,
-          ...(signal === undefined ? {} : { signal }),
+          ...(signal ? { signal } : {}),
         });
-      else yield* fallbackGeneration!(sourceRequest);
-    })();
+      return fallbackGeneration!(sourceRequest);
+    });
     const shouldRecordHistory = Boolean(this.createGenerationSource) || useLlm;
     const sequence: AgentSequenceOptions = {
       kind: 'generate',
@@ -645,8 +700,8 @@ export class AgentAdapter {
     // 克隆在任何 await 之前完成（入队入口隔离，SPEC §6.1）。
     const request = structuredClone(action);
     // 访问准入先于快照读取与记录建立：拒绝不泄露 surface 存在性（SPEC §6.5）；
-    // 钩子收到同一入口快照的只读副本，不能受调用方修改影响或改写任务请求。
-    const access = await evaluateAccessHook(this.accessHooks?.action, request, options.context);
+    // 钩子收到调用方原始请求，克隆不可被调用方后续修改影响。
+    const access = await evaluateAccessHook(this.accessHooks?.action, action, options.context);
     if (!access.allowed) {
       return {
         accepted: false,
@@ -659,7 +714,12 @@ export class AgentAdapter {
     }
     const runId = randomUUID();
     return enqueueScheduledRun(
-      { runManager: this.runManager, scheduler: this.scheduler },
+      {
+        runManager: this.runManager,
+        scheduler: this.scheduler,
+        ...(this.runtimeBudgets ? { budgets: this.runtimeBudgets } : {}),
+        retainSurface: (id) => this.actionStateStore.retainSurface?.(id),
+      },
       {
         kind: 'action',
         runId,
@@ -880,27 +940,32 @@ export class AgentAdapter {
     };
 
     // Invoke the host handler only after the surface slot is acquired (in-task).
-    const source: AgentMessageSource = (async function* () {
-      if (admission.inputWrites.length > 0) {
-        yield {
-          version: 'v0.9',
-          updateDataModel: {
-            surfaceId: action.surfaceId,
-            value: structuredClone(admission.tempDataModel),
-          },
-        };
-      }
-      yield* await handler(authoritativeAction, {
-        catalogId,
-        catalog: structuredClone(catalog),
-        supportedActions: catalog.actions.map((entry) => entry.name),
-        catalogContract: createCatalogContractReference(catalog),
-        history,
-        surfaceAction: structuredClone(surfaceAction),
-        clientContext: structuredClone(clientContext),
-        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
-      });
-    })();
+    const source = lazyMessageSource(
+      () => {
+        if (ctx.signal.aborted) throw new RunTaskError('RUN_CANCELLED', '运行已取消');
+        return handler(authoritativeAction, {
+          catalogId,
+          catalog: structuredClone(catalog),
+          supportedActions: catalog.actions.map((entry) => entry.name),
+          catalogContract: createCatalogContractReference(catalog),
+          history,
+          surfaceAction: structuredClone(surfaceAction),
+          clientContext: structuredClone(clientContext),
+          signal: ctx.signal,
+        });
+      },
+      admission.inputWrites.length > 0
+        ? [
+            {
+              version: 'v0.9',
+              updateDataModel: {
+                surfaceId: action.surfaceId,
+                value: structuredClone(admission.tempDataModel),
+              },
+            },
+          ]
+        : [],
+    );
 
     let committed = false;
     return {

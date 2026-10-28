@@ -21,7 +21,7 @@
       "default": 256,
       "unit": "surfaces",
       "owner": "SurfaceActionStateStore",
-      "onLimit": "LRU 淘汰非活动 surface",
+      "onLimit": "LRU 淘汰非活动 surface；保护容量已满则在工厂前拒绝新 surface，不允许越界",
       "activeProtection": "有活动/排队 run 的 surface 不淘汰"
     },
     "historySurfaces": {
@@ -91,13 +91,59 @@
       "default": null,
       "configurable": true,
       "owner": "surfaceScheduler",
-      "note": "默认不启用；启用后超时按取消收敛，晚到 handler 返回被丢弃，不假装已杀死业务代码"
+      "note": "默认不启用；超时发出 abort 并及时返回取消终态；宿主退出前隔离 surface，拒绝后续运行，提交已在飞时等待确认"
     },
     "queueTimeoutMs": {
       "default": null,
       "configurable": true,
       "owner": "surfaceScheduler",
       "note": "默认不启用；启用后排队超时按取消收敛并释放队列额度"
+    },
+    "maxTrackedSurfaces": {
+      "default": 512,
+      "unit": "surfaces",
+      "owner": "surfaceScheduler"
+    },
+    "maxSnapshotBytes": {
+      "default": 8000000,
+      "unit": "bytes/surface",
+      "owner": "SurfaceActionStateStore"
+    },
+    "maxComponentsPerSurface": {
+      "default": 10000,
+      "unit": "components/surface",
+      "owner": "SurfaceActionStateStore"
+    },
+    "maxHistoryBytesPerTurn": {
+      "default": 8000000,
+      "unit": "bytes/turn",
+      "owner": "SurfaceHistoryStore"
+    },
+    "maxHistoryBytesPerSurface": {
+      "default": 16000000,
+      "unit": "bytes/surface",
+      "owner": "SurfaceHistoryStore"
+    },
+    "eventHighWaterMarkBytes": {
+      "default": 1048576,
+      "unit": "bytes/iterator",
+      "owner": "runtimeEvents"
+    },
+    "eventHighWaterMarkMessages": {
+      "default": 32,
+      "unit": "events/iterator",
+      "owner": "runtimeEvents"
+    },
+    "eventSlowConsumerTimeoutMs": {
+      "default": 30000,
+      "unit": "ms",
+      "owner": "runtimeEvents"
+    },
+    "sourceCleanupTimeoutMs": {
+      "default": 100,
+      "unit": "ms",
+      "owner": "runtimeTask",
+      "note": "源关闭请求最多等待此时长后报告原错误；关闭未完成仍保留有界 surface 所有权"
     }
   },
   "invalidConfig": "所有数值预算必须为正安全整数；可空项只接受正安全整数或显式 null；非法值在工厂初始化时抛错，不静默采用默认值或关闭限制。"

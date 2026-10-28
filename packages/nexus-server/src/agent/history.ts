@@ -1,3 +1,4 @@
+import { DEFAULT_STORAGE_BUDGETS, jsonBytes } from '../runtime/budgets';
 import type { AgentTurn } from './agent-turn';
 import { assertPositiveSafeInteger } from './limits';
 
@@ -14,6 +15,8 @@ export interface SurfaceHistoryStore {
 export interface InMemorySurfaceHistoryStoreOptions {
   maxSurfaces?: number;
   maxTurnsPerSurface?: number;
+  maxBytesPerTurn?: number;
+  maxBytesPerSurface?: number;
 }
 
 const DEFAULT_MAX_SURFACES = 64;
@@ -29,15 +32,23 @@ export class InMemorySurfaceHistoryStore implements SurfaceHistoryStore {
   private readonly surfaceIds = new Set<string>();
   private readonly maxSurfaces: number;
   private readonly maxTurnsPerSurface: number;
+  private readonly maxBytesPerTurn: number;
+  private readonly maxBytesPerSurface: number;
 
   constructor({
     maxSurfaces = DEFAULT_MAX_SURFACES,
     maxTurnsPerSurface = DEFAULT_MAX_TURNS_PER_SURFACE,
+    maxBytesPerTurn = DEFAULT_STORAGE_BUDGETS.maxHistoryBytesPerTurn,
+    maxBytesPerSurface = DEFAULT_STORAGE_BUDGETS.maxHistoryBytesPerSurface,
   }: InMemorySurfaceHistoryStoreOptions = {}) {
     assertPositiveSafeInteger('maxSurfaces', maxSurfaces);
     assertPositiveSafeInteger('maxTurnsPerSurface', maxTurnsPerSurface);
     this.maxSurfaces = maxSurfaces;
     this.maxTurnsPerSurface = maxTurnsPerSurface;
+    assertPositiveSafeInteger('maxBytesPerTurn', maxBytesPerTurn);
+    assertPositiveSafeInteger('maxBytesPerSurface', maxBytesPerSurface);
+    this.maxBytesPerTurn = maxBytesPerTurn;
+    this.maxBytesPerSurface = maxBytesPerSurface;
   }
 
   async getHistory(surfaceId: string): Promise<readonly AgentTurn[]> {
@@ -53,14 +64,22 @@ export class InMemorySurfaceHistoryStore implements SurfaceHistoryStore {
     catalogId: string,
     turns: readonly AgentTurn[],
   ): Promise<void> {
+    const incoming = cloneTurns(turns);
+    if (
+      incoming.some((turn) => jsonBytes(turn, this.maxBytesPerTurn) > this.maxBytesPerTurn) ||
+      jsonBytes(incoming, this.maxBytesPerSurface) > this.maxBytesPerSurface
+    ) {
+      throw new Error('history 新增轮次字节超过预算');
+    }
+    const history = [...(this.historiesBySurface.get(surfaceId) ?? []), ...incoming];
+    while (
+      history.length > this.maxTurnsPerSurface ||
+      jsonBytes(history, this.maxBytesPerSurface) > this.maxBytesPerSurface
+    )
+      history.shift();
     this.touchSurface(surfaceId);
     this.catalogsBySurface.set(surfaceId, catalogId);
-    if (turns.length === 0) return;
-    const history = this.historiesBySurface.get(surfaceId) ?? [];
-    history.push(...cloneTurns(turns));
-    while (history.length > this.maxTurnsPerSurface) history.shift();
     this.historiesBySurface.set(surfaceId, history);
-    this.touchSurface(surfaceId);
   }
 
   private touchSurface(surfaceId: string): void {

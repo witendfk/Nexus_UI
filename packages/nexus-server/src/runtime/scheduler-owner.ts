@@ -1,5 +1,5 @@
 import type { AgentRunManager } from '../agent/run-manager';
-import { SurfaceScheduler } from './surface-scheduler';
+import { SurfaceScheduler, type SurfaceSchedulerOptions } from './surface-scheduler';
 
 // The owner is the identity boundary shared by adapter and custom-run entrypoints.
 // Weak keys do not keep a discarded runtime alive.
@@ -8,6 +8,7 @@ const schedulers = new WeakMap<AgentRunManager, SurfaceScheduler>();
 export function schedulerForOwner(
   owner: AgentRunManager,
   configured?: SurfaceScheduler,
+  defaults?: SurfaceSchedulerOptions,
 ): SurfaceScheduler {
   const existing = schedulers.get(owner);
   if (existing) {
@@ -16,7 +17,7 @@ export function schedulerForOwner(
     }
     return existing;
   }
-  const scheduler = configured ?? new SurfaceScheduler();
+  const scheduler = configured ?? new SurfaceScheduler(defaults);
   schedulers.set(owner, scheduler);
   return scheduler;
 }

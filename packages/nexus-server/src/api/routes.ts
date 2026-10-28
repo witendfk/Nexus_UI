@@ -8,7 +8,7 @@ import type { AgentRunManager, AgentRunRecord } from '../agent/run-manager';
 import type { EnqueueOutcome } from '../runtime/agent-runtime';
 import { parseNexusActionRequest } from './nexus-request';
 import { isRecord, readJsonBody } from './request';
-import { sendAgentRun } from './send-messages';
+import { sendAgentRun, sseOptionsFromBudgets } from './send-messages';
 import { registerSurfaceStateQueryRoute } from './surface-state';
 import { SERVER_API_VERSION } from '../version';
 import {
@@ -183,6 +183,8 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
   // 查询准入单一来源（SPEC §6.5/§6.7）：路由级 access.read 优先，缺省回落
   // adapter 装配的 read 钩子；两者都缺省时查询一律 403。
   const readAccess = options.access?.read ?? options.adapter.access?.read;
+  // SSE 背压预算取自 runtime 装配（S3.6.3）；未配置用契约默认。
+  const sseOptions = sseOptionsFromBudgets(options.adapter.budgets);
   const catalogContracts = new Map<string, CatalogContractPayload>();
   for (const catalog of options.catalogContracts ?? []) {
     const payload = buildPublishedCatalogContract(catalog, options.adapter);
@@ -269,6 +271,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
         ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
         manager: runManager,
         signal: requestAbort.signal,
+        sse: sseOptions,
       });
     } finally {
       // sender 已同步接管连接监听；占用失败时也释放入队阶段的监听。
@@ -424,6 +427,7 @@ export function createAgentRouter(options: AgentRouterOptions): Router {
         ...(options.streamDelayMs === undefined ? {} : { streamDelayMs: options.streamDelayMs }),
         manager: runManager,
         signal: requestAbort.signal,
+        sse: sseOptions,
       });
     } finally {
       requestAbort.dispose();

@@ -22,7 +22,9 @@ export function reportRunDiagnostic(
 ): void {
   try {
     // TypeScript 的 void 回调也允许 async 函数；观察者拒绝不能泄漏为 unhandled rejection。
-    void Promise.resolve(callback?.(diagnostic)).catch(() => undefined);
+    void Promise.resolve(
+      callback?.({ ...diagnostic, message: diagnostic.message.slice(0, 512) }),
+    ).catch(() => undefined);
   } catch {
     // 诊断缺席不影响提交事实。
   }

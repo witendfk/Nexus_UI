@@ -35,7 +35,13 @@ export async function commitSurface(
     if (!isRecord(raw)) throw new Error('store 提交结果必须为对象');
     if (raw.outcome === 'notCommitted') {
       if (typeof raw.reason !== 'string') throw new Error('notCommitted 缺少拒绝原因');
-      result = { outcome: 'notCommitted', reason: raw.reason };
+      if (raw.code !== undefined && raw.code !== 'RESOURCE_LIMIT_EXCEEDED')
+        throw new Error('notCommitted 错误码非法');
+      result = {
+        outcome: 'notCommitted',
+        reason: raw.reason,
+        ...(raw.code ? { code: raw.code } : {}),
+      };
     } else if (raw.outcome === 'unknown') {
       if (raw.reason !== undefined && typeof raw.reason !== 'string')
         throw new Error('unknown 原因必须为字符串');
@@ -103,7 +109,8 @@ export async function commitSurface(
     report('commit-identity', errorMessage(error));
     throw new UnknownCommitError(`store 提交确认非法: ${errorMessage(error)}`);
   }
-  if (result.outcome === 'notCommitted') throw new RunTaskError('RUN_FAILED', result.reason);
+  if (result.outcome === 'notCommitted')
+    throw new RunTaskError(result.code ?? 'RUN_FAILED', result.reason);
   if (result.outcome === 'unknown')
     throw new UnknownCommitError(result.reason ?? 'store 提交结果不确定');
   return result.commit;

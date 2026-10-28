@@ -74,7 +74,7 @@ SSE `start`/`message`/`done`/`error` 即 §5.4 Session v1 事件；`sendAgentRun
 | --------------------------- | ---------------------------------------------------------------------- |
 | JSON 请求体                 | JSON 或 +json，1 MiB、10 s                                             |
 | 外部 Agent RPC              | 15 s、2,000,000 bytes；仅 NDJSON/JSONL；空输出拒绝；AbortSignal 传播   |
-| SSE 下发                    | 默认每条延迟 200 ms；背压硬上限尚待补齐                                |
+| SSE 下发                    | 有界背压（高水位 1 MiB、慢消费 30 s，S3.6 已实施）；`streamDelayMs` 退为演示用逐条间隔，默认 0 |
 | JSONL 行                    | 1,000,000 个 JavaScript 字符串代码单元；不是 HTTP 字节限制；超长行丢弃 |
 | VNode / 深度 / React 元素   | 10,000 / 1,000 / 10,000                                                |
 | 错误记录                    | 200 条；raw 截断 2000 字符                                             |
@@ -252,7 +252,7 @@ UI commitState 为 notCommitted、committed 或 unknown。服务端按已知提�
 
 **版本决策（S3.1）**：Nexus Session 保持 1（本契约新增事件与错误码枚举值，不改变既有 `done`/`message` 形状，消费方按事件名分派）；server API 保持 1；外部 Agent RPC 保持 1（请求载荷不变）；agent onboarding 保持 1；Catalog Contract 保持 2。不做新旧两套流解释；新增字段只出现在新事件中，A2UI payload 不掺运行元数据。
 
-## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，§6.1 句柄事件面已随 S3.4 实施，§6.5 访问准入与 §6.7 适配迁移已随 S3.5 实施，资源预算归 S3.6）
+## 6. 运行时契约（S3.1 锁定，2026-10-22；§6.1/§6.2 已随 S3.2 实施，§6.3/§6.4 已随 S3.3 实施，§6.1 句柄事件面已随 S3.4 实施，§6.5 访问准入与 §6.7 适配迁移已随 S3.5 实施，§6.6 资源预算已随 S3.6 实施）
 
 本节为 S3.1 定型的运行契约；实施完成前各条目不代表当前保证（现状见 §3、ARCHITECTURE §6）。
 
@@ -328,9 +328,24 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 
 自定义 run 在托管、记录预留和任务初始化的失败路径均须清理宿主资源一次；记录已终态不能跳过宿主 `dispose`。清理异常只报告诊断，保留原始初始化错误，不占用 SSE 响应。
 
-### 6.6 资源预算
+### 6.6 资源预算（已实施，S3.6，2026-10-27）
 
-预算默认值、单位、所有者与超限行为定稿于 `fixtures/session-v1/budgets.json`（同源测试数据），要点：run 记录 512、ledger 1024、surface 快照 256、history 64×20 沿 S2 现状并补活动保护；每 surface 排队 32（超限入队 503）；每 run 消息 2000 条、单条 1,000,000 字节、累计 8,000,000 字节（超限流中结构化失败，不发布部分 UI）；SSE 高水位 1 MiB 与慢消费 30 s 硬上限；执行/排队超时默认不启用、可显式配置。所有数值预算必须为正安全整数，非法值装配时抛错；超限显式拒绝或断流，禁止无限排队、缓冲或淘汰活动记录。
+预算默认值、单位、所有者与超限行为见 `fixtures/session-v1/budgets.json`，实现常量由测试逐项读取对拍。`AgentAdapterOptions.budgets` 与 `createAgentRuntime` 使用相同装配；配置取不可变快照，非法数值初始化拒绝，0 不表示关闭。显式注入的 store/ledger/manager/history 保持自身配置；共享记录所有者复用唯一 scheduler，首次装配确定预算，显式冲突调度器拒绝。runtime 的显式 `scheduler` 字段逐项覆盖 budgets 中对应队列项。
+
+| 预算 | 默认值与行为 |
+| --- | --- |
+| run / ledger / snapshot / history 条数 | 512 / 1024 / 256 / 64×20；活动记录不淘汰；全部保护时显式拒绝，snapshot 不允许临时越界 |
+| 调度 | 每 surface 排队 32；活动、排队、隔离 surface 合计最多 512（`maxTrackedSurfaces`）；容量拒绝在 source/handler 前发生 |
+| 消息与结果缓存 | 每 run 2000 条、单条 1,000,000 字节、累计 8,000,000 字节（UTF-8 JSON）；候选先计量再 guard，同一有界消息集合用于提交、事件与 result，不复制第二套无界 raw |
+| 持久 snapshot | 完整快照含固定 Catalog 最大 8,000,000 字节、组件最多 10000；对输入基础模型与 handler patch 合并后的最终值计量，超限原子 `notCommitted` + `RESOURCE_LIMIT_EXCEEDED`，不推进 revision |
+| history | 每 turn 8,000,000 字节、每 surface 16,000,000 字节；新增批次超限拒绝，已有历史按完整旧 turn 淘汰；提交后的 history 失败只诊断，不改写已确认 UI |
+| 事件迭代消费 | 高水位 1 MiB / 32 条，等待上限 30 s；一个活动迭代器，`return()` 移交未读缓存供接续，释放当前消费等待；不取消运行。`subscribe()` 是同步观察端口，不作为异步拉取消费接口 |
+| SSE | 高水位 1 MiB、慢消费 30 s；`write(false)` 即启动期限，`drain` 清状态并唤醒；最终响应完成也有期限，堵塞或错误回收 stream/连接；取消输出最多保留 100 ms 发送终态 |
+| 诊断 | 至多 64 条；message/path/dataPath 各 512 字符、code 128 字符，已失败句柄不保留原始无界诊断对象 |
+
+非 HTTP `events()`/兼容 `source` 的消费水位在下一次拉取源之前等待；单条合法消息可以超过事件字节高水位，但仍受单条消息预算约束。未挂接迭代消费而仅 await `result` 的运行继续主动消费，backlog/result 受 run 条数与字节预算约束。SSE 的 message 闸门最多多持有一条已校验候选；合法大流经过真实 `write(false)`/`drain` 仍完整收到终态。`streamDelayMs` 是默认 0 的演示间隔，可取消。sender Promise 在目的响应 finish/close/失败时结束；终态事件与传输完成分别判断，传输错误不能倒写 store 已确认提交。
+
+执行/排队超时默认 `null`，启用需正安全整数。排队取消清除 timer、释放 pin，不调用工厂。执行超时调用取消信号；提交前取消及时返回唯一终态，同时向持有的 iterator 请求 `return()`，不依赖下一条消息。宿主操作或关闭仍在飞时隔离该 surface，已接受排队任务显式失败，新运行容量拒绝，直到真实退出才解除；隔离条目计入 `maxTrackedSurfaces`，不能靠终态记录淘汰绕过。普通失败关闭源最多等待 100 ms 后报告原错误，未完成关闭仍保持隔离。宿主不协作时不承诺终止业务代码；提交已在飞时继续等待 §6.3 store 确认，不伪造 notCommitted。默认内存 store 的 `retainSurface` 对活动、排队及隔离运行保护快照，保护容量已满时工厂前拒绝；外部 store 未实现该可选能力可能因淘汰确定性拒绝提交。
 
 ### 6.7 旧 API 迁移表
 

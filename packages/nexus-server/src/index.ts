@@ -90,6 +90,14 @@ export type { AgentRuntime } from './runtime/runtime-facade';
 export { DEFAULT_MAX_QUEUED_PER_SURFACE, SurfaceScheduler } from './runtime/surface-scheduler';
 export type { AgentSchedulerOptions } from './runtime/agent-runtime';
 export type { AgentRuntimeOptions, EnqueueOutcome } from './runtime/agent-runtime';
+export {
+  DEFAULT_SLOW_CONSUMER_TIMEOUT_MS,
+  DEFAULT_SSE_HIGH_WATER_MARK,
+  DEFAULT_RUN_STREAM_BUDGETS,
+  DEFAULT_STORAGE_BUDGETS,
+  DEFAULT_SOURCE_CLEANUP_TIMEOUT_MS,
+} from './runtime/budgets';
+export type { AgentRuntimeBudgets, RunStreamBudgets, SseAdapterBudgets } from './runtime/budgets';
 export type {
   CommitState,
   RunOutcome,

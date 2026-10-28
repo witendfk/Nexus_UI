@@ -14,7 +14,7 @@
 | D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
-| D9   | 单一运行调度与有界资源                          | S3.1 定型；单一调度/提交事实/ledger 收紧已实施（S3.2–S3.3）；访问准入已实施（S3.5）；取消与资源收敛归 S3.6 |
+| D9   | 单一运行调度与有界资源                          | S3.1 定型；单一调度/提交事实/ledger 收紧已实施（S3.2–S3.3）；访问准入已实施（S3.5）；资源预算与取消收敛已实施（S3.6，2026-10-27） |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
 | D11  | 保留段、媒体 URL 与正则求值的统一安全口径       | 已决策，S1 已实施（core/react）         |
 | D12  | 按职责分包，通过层内高层 API 聚合接入能力       | 已决策，暂不新增总门面包                |
@@ -128,10 +128,10 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 - 入口与调度：server 公开 `createAgentRuntime` 工厂（见 D12）；每 runtime 实例一份调度器，同 surface 的 generation 与 action 同队列 FIFO 串行，覆盖快照读取到提交全链；不同 surface 并发，跨实例互不阻塞。入队阶段只做 access 钩子、队列容量与请求级校验，三类拒绝不建运行记录；调度内准入失败是运行失败终态（不再是入队前 400）。adapter 的 `prepareGeneration/prepareAction` 保留为委托同一实现的兼容外壳，不构成旁路。
 - 提交事实三分：store 提交方法返回 `committed | notCommitted | unknown` 结果契约——确定性拒绝（revision/epoch 比较、结构校验）返回 notCommitted；无法证明未写入的异常一律映射 unknown；确认提交后取消/失败/传输异常不得倒写。发布点之后的 history/hook/recordCommit/传输失败按诊断面报告，不删除快照、不改写留存（替代 S2 的 hook/history 异常回滚快照方案）。
 - ledger 重放：留存窗口内任意已知记录（含 failed/canceled）拒绝重入，`failed` 不是重试许可；SDK 不自动重放，业务重试归宿主。备选方案「failed 重入=业务重试入口」被拒：SDK 无法证明 failed 记录的 handler 未执行，把重试许可建在不可证明的事实上会把重复副作用伪装成安全行为。
-- 资源预算：默认值定稿于 `fixtures/session-v1/budgets.json`（SPEC §6.6 同源）——run 512、ledger 1024、surface 256、history 64×20 沿 S2 并补活动/排队保护；每 surface 排队 32、每 run 消息与字节上限、SSE 高水位与慢消费硬上限为新增；执行/排队超时默认不启用、显式配置。非法配置装配抛错，超限显式拒绝，全部活动时拒绝新建而不淘汰活动记录。
+- 资源预算：默认值定稿于 `fixtures/session-v1/budgets.json`（SPEC §6.6 同源）——run 512、ledger 1024、surface 256、history 64×20 沿 S2 并补活动/排队保护；每 surface 排队 32、全部活动/排队/隔离 surface 合计 512；每 run 消息、完整快照和 history 分别有字节上限。非 HTTP 迭代源与 SSE 都执行消费水位及慢消费期限，SSE 资源由适配器持有至响应结束或超时回收；执行/排队超时默认不启用、显式配置。非法配置装配抛错，超限显式拒绝，全部活动时拒绝新建而不淘汰活动记录。
 - 访问准入：`access.read/generate/action` 钩子缺省一律拒绝（D4 默认拒绝原则扩展到写入路径），拒绝在入队前、不建记录不泄露存在性；`runsAccess` 迁移为 `access.read`，可信身份由宿主闭包从自己的上下文提取，SDK 不解释 context。（已实施，S3.5，2026-10-27：generate/action 配置于 adapter，钩子接收入口快照的冻结隔离副本，异步鉴权与执行使用同一入口值；HTTP 路由透传 Context；读取路由保持既有 403 码，generate/action 拒绝映射 403、容量拒绝映射 503。）
 - Session 准备失败（S3.4 复审，2026-10-24）：身份尚不可得时不造 start，以 `beforeStart:true/notCommitted` 的唯一 error 收敛；generation 固定身份后即 start，history 读取失败仍是 start→error。core 检查跨事件身份与 action revision 推进；句柄在入队固定 actionId，提前退出归还未读缓存（含终态），接续消费不依赖生产速度。已存在的无标记排队取消形状继续可解析；不允许 beforeStart 声称 unknown。
-- 取消语义：sender 始终组合连接断开与外部 signal，不以存在 signal 推断连接监听所有权；routes 入队阶段的监听在 sender 同步接入后释放，重复关闭/abort 幂等。自定义 run 初始化失败统一释放宿主资源，清理异常仅诊断并保留原错误。排队取消先于工厂/handler，无 start 事件、唯一 error 终态；store 确认提交后的迟到取消不倒写终态；宿主不理会 signal 时不假装已杀死业务代码，超时按取消收敛并丢弃晚到的 handler 返回（提交由 SDK 介导，悬挂 handler 无法自行提交）。
+- 取消语义：sender 始终组合连接断开与外部 signal，不以存在 signal 推断连接监听所有权；routes 入队阶段的监听在 sender 同步接入后释放，重复关闭/abort 幂等。自定义 run 初始化失败统一释放宿主资源，清理异常仅诊断并保留原错误。排队取消先于工厂/handler，无 start 事件、唯一 error 终态；store 确认提交后的迟到取消不倒写终态；宿主不理会 signal 时不假装已杀死业务代码，超时按取消收敛并丢弃晚到的 handler 返回（提交由 SDK 介导，悬挂 handler 无法自行提交）。（S3.6 已实施，2026-10-27：执行/排队超时可配置、默认不启用；执行超时发出 abort 并返回取消终态，宿主与关闭退出前隔离 surface、拒绝重叠；隔离计入全局 surface 硬上限。提交已在飞时按 §6.3 等待 store 确认。）
 
 **S3.2 所有权落实（2026-10-23）**：调度关联放在运行模块，adapter/runtime/自定义 run 按 runManager 身份取得同一 scheduler；传输层不另建平行队列。显式共用记录所有者就共用调度；对同一所有者装配冲突 scheduler 直接报错，避免静默覆盖预算或串行边界。入队时隔离 action 请求，取消排队即释放额度；记录终态写入失败作为诊断报告，不能阻断句柄本地终态，也不假装外部记录已修复。
 

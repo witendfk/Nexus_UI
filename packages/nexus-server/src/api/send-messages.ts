@@ -10,11 +10,19 @@ import {
 import type { AgentSequenceOptions } from '../agent/agent-guard';
 import type { ComponentSchemaDiagnostic } from '@nexus-ui/core';
 import type { AgentRun } from '../agent/adapter';
-import type { NexusRunDiagnostic } from '../agent/run-diagnostic';
+import { reportRunDiagnostic, type NexusRunDiagnostic } from '../agent/run-diagnostic';
+import { assertPositiveSafeInteger } from '../agent/limits';
 import type { AgentRunManager } from '../agent/run-manager';
 import { RuntimeRunHandle } from '../runtime/run-handle';
 import type { RunOutcome, RuntimeRunListener } from '../runtime/run-handle';
 import { startCustomRunTask } from '../runtime/agent-runtime';
+import {
+  DEFAULT_SLOW_CONSUMER_TIMEOUT_MS,
+  DEFAULT_SSE_HIGH_WATER_MARK,
+  resolveSseBudgets,
+} from '../runtime/budgets';
+import type { AgentRuntimeBudgets } from '../runtime/budgets';
+import { RunTaskError } from '../runtime/run-handle';
 import { formatSseEvent, prepareSseResponse } from '../transport/sse';
 import type { PrepareSseResponseOptions } from '../transport/sse';
 
@@ -29,6 +37,8 @@ export interface SendMessagesOptions {
   signal?: AbortSignal;
   streamDelayMs?: number;
 }
+
+const CANCELED_OUTPUT_GRACE_MS = 100;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -69,9 +79,15 @@ function createAgentStreamError(
  * response — queued runs included — carries its identity from the moment it is
  * occupied.
  */
-function claimSseResponse(ctx: Koa.Context, options?: PrepareSseResponseOptions): PassThrough {
+function claimSseResponse(
+  ctx: Koa.Context,
+  options?: PrepareSseResponseOptions & { highWaterMark?: number },
+): PassThrough {
   prepareSseResponse(ctx, options);
-  const stream = new PassThrough();
+  // 契约默认 1 MiB（SPEC §6.6）：超过即暂停读取，尊重背压。
+  const highWaterMark = options?.highWaterMark ?? DEFAULT_SSE_HIGH_WATER_MARK;
+  assertPositiveSafeInteger('sse.highWaterMarkBytes', highWaterMark);
+  const stream = new PassThrough({ highWaterMark });
   const previousRespond = ctx.respond;
   try {
     ctx.body = stream;
@@ -225,7 +241,12 @@ export function sendMessages(
 export interface SendAgentRunOptions {
   /** 附加取消源；不替代 sender 自己的 req/res 断连监听。 */
   signal?: AbortSignal;
+  /** 演示用逐条间隔 ms（默认 0，不再人为限速；真实背压由 drain 闸门承担）。 */
   streamDelayMs?: number;
+  /** SSE 背压预算（S3.6.3）；缺省用契约默认（HWM 1 MiB、慢消费 30s）。 */
+  sse?: { highWaterMarkBytes?: number; slowConsumerTimeoutMs?: number };
+  /** 自定义 run 的 run 级消息流预算（缺省契约默认，预算默认常开）。 */
+  budgets?: AgentRuntimeBudgets;
   /** Defaults to the SDK run owner; custom runs require one. A different owner is rejected. */
   manager?: AgentRunManager;
   /** 自定义 AgentRun 的扩展故障诊断；SDK 句柄使用 runtime 装配的诊断回调。 */
@@ -233,16 +254,31 @@ export interface SendAgentRunOptions {
   dispose?: () => void;
 }
 
+/** 由 runtime 预算解析发送层 SSE 选项（routes 装配使用）。 */
+export function sseOptionsFromBudgets(
+  budgets?: AgentRuntimeBudgets,
+): NonNullable<SendAgentRunOptions['sse']> {
+  const resolved = resolveSseBudgets(budgets);
+  return {
+    highWaterMarkBytes: resolved.highWaterMarkBytes,
+    slowConsumerTimeoutMs: resolved.slowConsumerTimeoutMs,
+  };
+}
+
 /**
  * 薄发送层依赖的句柄端口（S3.5.1 接口隔离）：发送只消费事件、终态与取消，
  * 不触碰任务侧内部 API（lifecycle/abortSignal/emit*）。RuntimeRunHandle 结构
- * 性满足该端口；测试替身亦按此最小面实现。
+ * 性满足该端口；测试替身亦按此最小面实现。setEmitGate 是 S3.6.3 的可选背压
+ * 闸门：安装后任务侧 message 发出前等待闸门，drain/断连/取消/慢消费超时放行。
  */
 interface SessionEventSource {
   readonly runId: string;
+  readonly surfaceId: string;
   readonly result: Promise<RunOutcome>;
   subscribe(listener: RuntimeRunListener): () => void;
   cancel(): void;
+  interrupt?(error: RunTaskError): void;
+  setEmitGate?(gate: (() => Promise<void>) | undefined, onInterrupt?: () => void): void;
 }
 
 export function sendAgentRun(
@@ -250,6 +286,25 @@ export function sendAgentRun(
   run: AgentRun | RuntimeRunHandle,
   options: SendAgentRunOptions = {},
 ): Promise<SendMessagesResult> {
+  try {
+    assertPositiveSafeInteger(
+      'sse.highWaterMarkBytes',
+      options.sse?.highWaterMarkBytes ?? DEFAULT_SSE_HIGH_WATER_MARK,
+    );
+    assertPositiveSafeInteger(
+      'sse.slowConsumerTimeoutMs',
+      options.sse?.slowConsumerTimeoutMs ?? DEFAULT_SLOW_CONSUMER_TIMEOUT_MS,
+    );
+    if (
+      options.streamDelayMs !== undefined &&
+      (!Number.isSafeInteger(options.streamDelayMs) || options.streamDelayMs < 0)
+    )
+      throw new Error('streamDelayMs 必须为非负安全整数');
+  } catch (error) {
+    if (run instanceof RuntimeRunHandle) run.cancel();
+    options.dispose?.();
+    throw error;
+  }
   // Identity/owner/capacity validation stays synchronous: callers may rely on
   // a throw before any response claim (S2 contract kept).
   if (run instanceof RuntimeRunHandle) {
@@ -262,7 +317,10 @@ export function sendAgentRun(
     //（排队 → canceled；已开跑 → abort 后由任务侧收敛，确认提交仍胜出）。
     let stream: PassThrough;
     try {
-      stream = claimSseResponse(ctx, { runId: run.runId });
+      stream = claimSseResponse(ctx, {
+        runId: run.runId,
+        highWaterMark: options.sse?.highWaterMarkBytes,
+      });
     } catch (error) {
       run.cancel();
       options.dispose?.();
@@ -281,7 +339,10 @@ export function sendAgentRun(
   }
   let stream: PassThrough;
   try {
-    stream = claimSseResponse(ctx, { runId: handle.runId });
+    stream = claimSseResponse(ctx, {
+      runId: handle.runId,
+      highWaterMark: options.sse?.highWaterMarkBytes,
+    });
   } catch (error) {
     handle.cancel();
     options.dispose?.();
@@ -297,70 +358,190 @@ async function sendScheduledRun(
   ctx: Koa.Context,
 ): Promise<SendMessagesResult> {
   const messages: unknown[] = [];
-  let settle: (result: SendMessagesResult) => void = () => undefined;
+  let settle!: (result: SendMessagesResult) => void;
   const finished = new Promise<SendMessagesResult>((resolve) => {
     settle = resolve;
   });
-
-  // Transitional pacing (S2 transport behavior, DESIGN D3): per-message write
-  // delay keeps the await/void per-event delivery contract until S3.6 replaces
-  // it with real backpressure. Writes are chained so order is preserved.
-  const streamDelayMs = options.streamDelayMs ?? 200;
-  let writeChain: Promise<void> = Promise.resolve();
-  const write = (frame: string, paced: boolean): void => {
-    writeChain = writeChain.then(async () => {
-      if (paced && streamDelayMs > 0) await sleep(streamDelayMs);
-      stream.write(frame);
-    });
+  const timeoutMs = options.sse?.slowConsumerTimeoutMs ?? DEFAULT_SLOW_CONSUMER_TIMEOUT_MS;
+  const delayMs = options.streamDelayMs ?? 0;
+  let drainPending = false;
+  let gateClosed = false;
+  let wakeGate: (() => void) | undefined;
+  let drainTimer: ReturnType<typeof setTimeout> | undefined;
+  let finalTimer: ReturnType<typeof setTimeout> | undefined;
+  let delayTimer: ReturnType<typeof setTimeout> | undefined;
+  let wakeDelay: (() => void) | undefined;
+  let terminal: SendMessagesResult | undefined;
+  let cleaned = false;
+  let failure: RunTaskError | undefined;
+  let unsubscribe = (): void => {};
+  let detachConnection = (): void => {};
+  let detachAbortWake = (): void => {};
+  const releaseGate = (): void => {
+    const wake = wakeGate;
+    wakeGate = undefined;
+    wake?.();
   };
-  const drainThen = (fn: () => void): void => {
-    writeChain = writeChain.then(fn);
+  const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    clearTimeout(drainTimer);
+    clearTimeout(finalTimer);
+    clearTimeout(delayTimer);
+    gateClosed = true;
+    wakeDelay?.();
+    releaseGate();
+    unsubscribe();
+    handle.setEmitGate?.(undefined);
+    stream.off('drain', onDrain);
+    stream.off('error', onError);
+    stream.off('close', onStreamClose);
+    ctx.res.off('finish', onFinish);
+    ctx.res.off('close', onClose);
+    ctx.res.off('error', onError);
+    detachAbortWake();
+    detachConnection();
+    try {
+      options.dispose?.();
+    } catch (error) {
+      reportRunDiagnostic(options.onRunDiagnostic, {
+        runId: handle.runId,
+        surfaceId: handle.surfaceId,
+        stage: 'run-dispose',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
-
-  const unsubscribe = handle.subscribe((event) => {
+  const failTransport = (): void => {
+    if (cleaned) return;
+    failure = new RunTaskError('AGENT_STREAM_ERROR', `SSE 输出未能在 ${timeoutMs}ms 内恢复或结束`);
+    gateClosed = true;
+    releaseGate();
+    if (handle.interrupt) handle.interrupt(failure);
+    else handle.cancel();
+    settle({ messages, ok: false });
+    cleanup();
+    stream.unpipe(ctx.res);
+    stream.destroy();
+    ctx.res.destroy();
+  };
+  const onDrain = (): void => {
+    drainPending = false; // drain can precede the next candidate/gate
+    clearTimeout(drainTimer);
+    drainTimer = undefined;
+    releaseGate();
+  };
+  const onFinish = (): void => {
+    settle(terminal ?? { messages, ok: false });
+    cleanup();
+  };
+  const onClose = (): void => {
+    if (!ctx.res.writableFinished) {
+      // The shared connection listener owns cancel; avoid a second invocation.
+      settle({ messages, ok: false });
+    } else settle(terminal ?? { messages, ok: false });
+    cleanup();
+    stream.destroy();
+  };
+  const onError = (): void => failTransport();
+  const onStreamClose = (): void => {
+    if (!stream.writableFinished && !cleaned) failTransport();
+  };
+  stream.on('drain', onDrain);
+  stream.on('error', onError);
+  stream.on('close', onStreamClose);
+  ctx.res.on('finish', onFinish);
+  ctx.res.on('close', onClose);
+  ctx.res.on('error', onError);
+  const gate = async (): Promise<void> => {
+    if (delayMs > 0 && !gateClosed)
+      await new Promise<void>((resolve) => {
+        delayTimer = setTimeout(() => {
+          wakeDelay = undefined;
+          resolve();
+        }, delayMs);
+        wakeDelay = () => {
+          clearTimeout(delayTimer);
+          wakeDelay = undefined;
+          resolve();
+        };
+      });
+    if (failure) throw failure;
+    if (drainPending && !gateClosed)
+      await new Promise<void>((resolve) => {
+        wakeGate = resolve;
+      });
+    if (failure) throw failure;
+  };
+  handle.setEmitGate?.(gate, () => {
+    gateClosed = true;
+    wakeDelay?.();
+    releaseGate();
+  });
+  const write = (frame: string): void => {
+    if (cleaned || stream.destroyed) return;
+    if (!stream.write(frame)) {
+      drainPending = true;
+      drainTimer ??= setTimeout(failTransport, timeoutMs);
+    }
+  };
+  unsubscribe = handle.subscribe((event) => {
     switch (event.type) {
       case 'start':
-        // Additive wire event (SPEC §5.4); S2 consumers ignore unknown names.
-        write(formatSseEvent('start', event, `${handle.runId}:start`), false);
+        write(formatSseEvent('start', event, `${handle.runId}:start`));
         break;
-      case 'message': {
-        write(formatSseEvent('message', event.message, `${handle.runId}:${messages.length}`), true);
+      case 'message':
+        write(formatSseEvent('message', event.message, `${handle.runId}:${messages.length}`));
         messages.push(event.message);
         break;
-      }
       case 'done':
-        write(formatSseEvent('done', event.commit, `${handle.runId}:done`), false);
-        drainThen(() => settle({ messages, ok: true }));
+        terminal = { messages, ok: true };
+        write(formatSseEvent('done', event.commit, `${handle.runId}:done`));
         break;
       case 'error': {
-        // S3.4：锁定 wire 形状（SPEC §5.4），直接转发 runtime 事件——发送层
-        // 不再改写 code 或拼装附加字段；进程内判别字段 type 不上 wire。
         const { type: _discriminator, ...payload } = event;
-        write(formatSseEvent('error', payload, `${handle.runId}:error`), false);
-        drainThen(() => settle({ messages, ok: false }));
+        terminal = { messages, ok: false };
+        write(formatSseEvent('error', payload, `${handle.runId}:error`));
         break;
       }
     }
   });
-
-  // sender 持有传输期间的连接监听，外部 signal 只是附加取消源。routes 在
-  // sendAgentRun 同步接入后释放入队阶段监听；直接调用同样具备断连保护。
-  const detachConnection = attachDisconnectTeardown(handle, options, ctx);
-
+  detachConnection = attachDisconnectTeardown(handle, options, ctx);
+  detachAbortWake = attachAbortWake(options, ctx, () => {
+    gateClosed = true;
+    wakeDelay?.();
+    releaseGate();
+  });
   void handle.result
     .catch(() => undefined)
-    .finally(() => {
-      drainThen(() => {
-        try {
-          stream.end();
-        } finally {
-          unsubscribe();
-          detachConnection();
-          options.dispose?.();
-        }
-      });
+    .then((outcome) => {
+      if (cleaned) return;
+      stream.end();
+      if (ctx.res.writableFinished) onFinish();
+      else
+        finalTimer = setTimeout(
+          failTransport,
+          outcome?.terminal === 'canceled'
+            ? Math.min(timeoutMs, CANCELED_OUTPUT_GRACE_MS)
+            : timeoutMs,
+        );
     });
   return finished;
+}
+
+function attachAbortWake(
+  options: SendAgentRunOptions,
+  ctx: Koa.Context,
+  wake: () => void,
+): () => void {
+  if (typeof ctx.req?.once === 'function') ctx.req.once('aborted', wake);
+  if (typeof ctx.res?.once === 'function') ctx.res.once('close', wake);
+  options.signal?.addEventListener('abort', wake, { once: true });
+  return () => {
+    options.signal?.removeEventListener('abort', wake);
+    if (typeof ctx.req?.off === 'function') ctx.req.off('aborted', wake);
+    if (typeof ctx.res?.off === 'function') ctx.res.off('close', wake);
+  };
 }
 
 function attachDisconnectTeardown(

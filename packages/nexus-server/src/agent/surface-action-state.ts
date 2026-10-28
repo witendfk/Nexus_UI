@@ -1,3 +1,4 @@
+import { DEFAULT_STORAGE_BUDGETS, jsonBytes } from '../runtime/budgets';
 import { applyDataModelUpdate, setStrictPath } from '@nexus-ui/core';
 import { assertPositiveSafeInteger } from './limits';
 import type {
@@ -66,7 +67,11 @@ export type SurfaceCommitOutcome = 'committed' | 'notCommitted' | 'unknown';
 
 export type SurfaceCommitResult =
   | { readonly outcome: 'committed'; readonly snapshot: SurfaceActionSnapshot }
-  | { readonly outcome: 'notCommitted'; readonly reason: string }
+  | {
+      readonly outcome: 'notCommitted';
+      readonly reason: string;
+      readonly code?: 'RESOURCE_LIMIT_EXCEEDED';
+    }
   | { readonly outcome: 'unknown'; readonly reason?: string };
 
 export interface SurfaceActionStateStore {
@@ -82,6 +87,12 @@ export interface SurfaceActionStateStore {
     commit: SurfaceActionCommit,
   ): Promise<SurfaceCommitResult>;
   removeSnapshot(surfaceId: string): Promise<void>;
+  /**
+   * 活动保护（S3.6.1，可选能力）：有活动/排队 run 的 surface 在运行生命周期内
+   * 不参与容量淘汰。缺省（未实现）即无保护——LRU 淘汰照常，运行中的 action
+   * 可能因快照被淘汰而提交失败（确定性 notCommitted），不会静默复活旧快照。
+   */
+  retainSurface?(surfaceId: string): () => void;
 }
 
 export interface SurfaceActionLedgerRecord {
@@ -114,6 +125,8 @@ export interface SurfaceActionLedger {
 
 export type InMemorySurfaceActionStateStoreOptions = {
   maxSurfaces?: number;
+  maxSnapshotBytes?: number;
+  maxComponentsPerSurface?: number;
 };
 
 export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore {
@@ -121,10 +134,67 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
   // One bounded counter per store: no tombstone map, no identity reuse after eviction.
   private revision = 0;
   private readonly maxSurfaces: number;
+  private readonly maxSnapshotBytes: number;
+  private readonly maxComponentsPerSurface: number;
+  // 活动保护（S3.6.1）：有活动/排队 run 的 surface 在运行生命周期内不参与
+  // LRU 淘汰；保护是引用计数的，多个并发 run 共享同一 surface 时取并集。
+  private readonly pinned = new Map<string, number>();
 
   constructor(options: InMemorySurfaceActionStateStoreOptions = {}) {
     this.maxSurfaces = options.maxSurfaces === undefined ? 256 : options.maxSurfaces;
     assertPositiveSafeInteger('maxSurfaces', this.maxSurfaces);
+    this.maxSnapshotBytes = options.maxSnapshotBytes ?? DEFAULT_STORAGE_BUDGETS.maxSnapshotBytes;
+    this.maxComponentsPerSurface =
+      options.maxComponentsPerSurface ?? DEFAULT_STORAGE_BUDGETS.maxComponentsPerSurface;
+    assertPositiveSafeInteger('maxSnapshotBytes', this.maxSnapshotBytes);
+    assertPositiveSafeInteger('maxComponentsPerSurface', this.maxComponentsPerSurface);
+  }
+
+  /** 活动保护（可选能力）：pin 期间该 surface 不被容量淘汰，返回的释放函数幂等。 */
+  retainSurface(surfaceId: string): () => void {
+    if (!this.pinned.has(surfaceId) && this.pinned.size >= this.maxSurfaces) {
+      throw new Error('surface 活动保护容量已满，拒绝新 surface');
+    }
+    this.pinned.set(surfaceId, (this.pinned.get(surfaceId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (this.pinned.get(surfaceId) ?? 1) - 1;
+      if (count <= 0) this.pinned.delete(surfaceId);
+      else this.pinned.set(surfaceId, count);
+    };
+  }
+
+  private publish(next: MutableSurfaceActionSnapshot): SurfaceCommitResult {
+    try {
+      if (next.components.size > this.maxComponentsPerSurface)
+        throw new Error('surface 组件数量超过预算');
+      if (
+        jsonBytes({ ...next, components: [...next.components.values()] }, this.maxSnapshotBytes) >
+        this.maxSnapshotBytes
+      ) {
+        throw new Error('surface 完整快照字节超过预算');
+      }
+      const overflow =
+        this.snapshots.size + (this.snapshots.has(next.surfaceId) ? 0 : 1) - this.maxSurfaces;
+      const victims = [...this.snapshots.keys()]
+        .filter((id) => id !== next.surfaceId && !this.pinned.has(id))
+        .slice(0, Math.max(0, overflow));
+      if (victims.length < overflow) throw new Error('surface 快照容量已满且全部受活动保护');
+      // 所有校验先于权威写入与淘汰；超限不会删除旧快照或推进 revision。
+      for (const id of victims) this.snapshots.delete(id);
+      this.snapshots.delete(next.surfaceId);
+      this.snapshots.set(next.surfaceId, next);
+      this.revision = next.version;
+      return { outcome: 'committed', snapshot: cloneSnapshot(next) };
+    } catch (error) {
+      return {
+        outcome: 'notCommitted',
+        code: 'RESOURCE_LIMIT_EXCEEDED',
+        reason: errorMessage(error),
+      };
+    }
   }
 
   async get(surfaceId: string): Promise<SurfaceActionSnapshot | undefined> {
@@ -170,16 +240,7 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
     if (next.components.size === 0) {
       return { outcome: 'notCommitted', reason: '生成流缺少组件，不能建立 action 权威状态' };
     }
-    // 每次写入刷新顺序，重生成不能淘汰刚提交的权威快照。
-    this.snapshots.delete(surfaceId);
-    this.snapshots.set(surfaceId, next);
-    this.revision = version;
-    while (this.snapshots.size > this.maxSurfaces) {
-      const oldest = this.snapshots.keys().next().value;
-      if (oldest === undefined) break;
-      this.snapshots.delete(oldest);
-    }
-    return { outcome: 'committed', snapshot: cloneSnapshot(next) };
+    return this.publish(next);
   }
 
   async commitAction(
@@ -220,11 +281,7 @@ export class InMemorySurfaceActionStateStore implements SurfaceActionStateStore 
       return { outcome: 'notCommitted', reason: errorMessage(error) };
     }
     next.version = version;
-    this.revision = version;
-    // 与 commitGeneration 同口径：刷新插入位，容量淘汰不选中刚提交的快照。
-    this.snapshots.delete(surfaceId);
-    this.snapshots.set(surfaceId, next);
-    return { outcome: 'committed', snapshot: cloneSnapshot(next) };
+    return this.publish(next);
   }
 
   async removeSnapshot(surfaceId: string): Promise<void> {

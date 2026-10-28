@@ -1,3 +1,4 @@
+import { DEFAULT_STORAGE_BUDGETS, jsonBytes, type AgentRuntimeBudgets } from './budgets';
 import type { NexusSurfaceCommit } from '@nexus-ui/core';
 import {
   NEXUS_SESSION_DIAGNOSTIC_LIMIT,
@@ -107,6 +108,32 @@ export class RuntimeRunHandle {
   private startEmitted = false;
   private lifecycleDisposed = false;
   private detachSignal?: () => void;
+  private emitGate?: () => Promise<void>;
+  private emitGateInterrupt?: () => void;
+  private eventGate?: () => Promise<void>;
+  private iteratorActive = false;
+  private eventBudgets: {
+    eventHighWaterMarkBytes: number;
+    eventHighWaterMarkMessages: number;
+    eventSlowConsumerTimeoutMs: number;
+  } = { ...DEFAULT_STORAGE_BUDGETS };
+
+  /** @internal Immutable per-run budget snapshot, installed before the task starts. */
+  configureBudgets(budgets?: AgentRuntimeBudgets): void {
+    this.eventBudgets = {
+      eventHighWaterMarkBytes:
+        budgets?.eventHighWaterMarkBytes ?? DEFAULT_STORAGE_BUDGETS.eventHighWaterMarkBytes,
+      eventHighWaterMarkMessages:
+        budgets?.eventHighWaterMarkMessages ?? DEFAULT_STORAGE_BUDGETS.eventHighWaterMarkMessages,
+      eventSlowConsumerTimeoutMs:
+        budgets?.eventSlowConsumerTimeoutMs ?? DEFAULT_STORAGE_BUDGETS.eventSlowConsumerTimeoutMs,
+    };
+  }
+
+  /** @internal Await consumer capacity before pulling a new host candidate. */
+  async waitForConsumer(): Promise<void> {
+    await this.eventGate?.();
+  }
 
   /** Guard sequence for diagnostics; set once the in-task preparation finished. */
   get sequence(): AgentSequenceOptions {
@@ -167,7 +194,21 @@ export class RuntimeRunHandle {
     return this.controller.signal.aborted;
   }
 
-  emitMessage(message: unknown): void {
+  /**
+   * @internal 消费端背压闸门（S3.6.3）：安装后每个 message 事件在发出前等待
+   * 闸门放行——SSE 发送层借此把 drain/慢消费暂停传导为任务侧的读取暂停，事件
+   * 源按消费速率推进而非无限预取。onInterrupt 在 cancel() 时同步触发，保证
+   * 取消不依赖消费推进即被观察（SPEC §6.1）；终态事件不受闸门约束。
+   */
+  setEmitGate(gate: (() => Promise<void>) | undefined, onInterrupt?: () => void): void {
+    this.emitGate = gate;
+    this.emitGateInterrupt = onInterrupt;
+  }
+
+  async emitMessage(message: unknown): Promise<void> {
+    const gate = this.emitGate;
+    if (gate) await gate();
+    if (this.isAborted() || this.settled) throw new RunTaskError('RUN_CANCELLED', '运行已取消');
     this.sent.push(message);
     this.emit({ type: 'message', message });
   }
@@ -232,6 +273,7 @@ export class RuntimeRunHandle {
 
   /** @internal Record/extension failures cannot prevent the local terminal. */
   finishFailure(error: RunTaskError | Error, stage: { canceled: boolean }): void {
+    if (this.settled) return;
     const diagnostics: unknown[] = [];
     const phase = stage.canceled ? 'cancel' : 'fail';
     try {
@@ -312,19 +354,27 @@ export class RuntimeRunHandle {
     for (const listener of [...this.listeners]) listener(event);
   }
 
+  /** @internal Transport failure interrupts work without disguising it as user cancellation. */
+  interrupt(error: RunTaskError): void {
+    if (this.settled) return;
+    this.controller.abort(error);
+    this.emitGateInterrupt?.();
+  }
+
   /** Host cancellation: queued runs are dropped before their task starts. */
   cancel(): void {
     if (this.settled) return;
     if (!this.isAborted()) this.controller.abort();
+    // 背压闸门同步放行：取消不依赖消费推进才被观察（SPEC §6.1）。
+    this.emitGateInterrupt?.();
     if (this.cancelQueued?.()) {
       this.finishFailure(new RunTaskError('RUN_CANCELLED', '运行在排队期间被取消'), {
         canceled: true,
       });
     }
-    // Running runs observe the aborted signal at their next checkpoint and the
-    // task side converges the terminal: a store-confirmed commit wins (succeeded),
-    // everything else settles canceled/unknown. The handle itself never rewrites
-    // a terminal (SPEC §6.3).
+    // The task's abort listener converges pre-commit cancellation immediately;
+    // host operations retain bounded ownership until exit. In-flight commits
+    // still await the store and a confirmed commit wins (SPEC §6.3).
   }
 
   dispose(): void {
@@ -349,25 +399,70 @@ export class RuntimeRunHandle {
 
   /** Ordered event iteration; the iterator completes after the terminal event. */
   events(): AsyncIterable<RuntimeRunEvent> {
+    if (this.iteratorActive) throw new Error('同一 run 只允许一个活动事件迭代器；先 return 再接续');
+    this.iteratorActive = true;
     const queue: RuntimeRunEvent[] = [];
+    let queuedBytes = 0;
+    let wakeCapacity: (() => void) | undefined;
+    const releaseCapacity = (): void => {
+      wakeCapacity?.();
+    };
+    const gate = async (): Promise<void> => {
+      if (closed || this.isAborted() || this.settled) return;
+      if (
+        queue.length < this.eventBudgets.eventHighWaterMarkMessages &&
+        queuedBytes < this.eventBudgets.eventHighWaterMarkBytes
+      )
+        return;
+      await new Promise<void>((resolve, reject) => {
+        const release = (): void => {
+          clearTimeout(timer);
+          this.abortSignal.removeEventListener('abort', release);
+          wakeCapacity = undefined;
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          this.abortSignal.removeEventListener('abort', release);
+          wakeCapacity = undefined;
+          reject(new RunTaskError('AGENT_STREAM_ERROR', '非 HTTP 事件消费等待超时'));
+        }, this.eventBudgets.eventSlowConsumerTimeoutMs);
+        wakeCapacity = release;
+        this.abortSignal.addEventListener('abort', release, { once: true });
+        if (this.isAborted()) release();
+      });
+    };
+    this.eventGate = gate;
     let notify: (() => void) | undefined;
     let terminalDelivered = false;
     let closed = false;
     const unsubscribe = this.subscribe((event) => {
       queue.push(event);
+      queuedBytes += jsonBytes(event);
       const wake = notify;
       notify = undefined;
       wake?.();
     });
     const take = (): IteratorResult<RuntimeRunEvent> => {
       const value = queue.shift()!;
-      if (value.type === 'done' || value.type === 'error') terminalDelivered = true;
+      queuedBytes -= jsonBytes(value);
+      if (
+        queue.length < this.eventBudgets.eventHighWaterMarkMessages &&
+        queuedBytes < this.eventBudgets.eventHighWaterMarkBytes
+      )
+        releaseCapacity();
+      if (value.type === 'done' || value.type === 'error') {
+        terminalDelivered = true;
+        finish();
+      }
       return { done: false, value };
     };
     const finish = (): IteratorResult<RuntimeRunEvent> => {
       if (!closed) {
         closed = true;
         unsubscribe();
+        this.iteratorActive = false;
+        if (this.eventGate === gate) this.eventGate = undefined;
+        releaseCapacity();
         // 未投递给调用者的事件仍属于同一条逻辑流。同步移交给句柄，供下个
         // 订阅者接续；旧迭代器清空后不能再次消费它们。
         this.backlog = [...queue.splice(0), ...this.backlog];
@@ -483,7 +578,7 @@ function normalizeRunDiagnostics(
   if (boundaryCode !== undefined) {
     entries.push({ code: boundaryCode, message: truncateDiagnostic(error.message) });
   }
-  for (const entry of raw ?? []) {
+  for (const entry of (raw ?? []).slice(0, 64 - entries.length)) {
     entries.push(toSessionDiagnostic(entry, boundaryCode));
   }
   return entries.length > 0 ? entries : undefined;
@@ -500,10 +595,15 @@ function toSessionDiagnostic(
   const message = typeof record.message === 'string' ? record.message : String(entry);
   const phase = typeof record.phase === 'string' ? record.phase : undefined;
   return {
-    code: typeof record.code === 'string' ? record.code : (fallbackCode ?? 'PROTOCOL_INVALID'),
+    code:
+      typeof record.code === 'string'
+        ? record.code.slice(0, 128)
+        : (fallbackCode ?? 'PROTOCOL_INVALID'),
     message: truncateDiagnostic(phase !== undefined ? `${phase}: ${message}` : message),
-    ...(typeof record.path === 'string' ? { path: record.path } : {}),
-    ...(typeof record.dataPath === 'string' ? { dataPath: record.dataPath } : {}),
+    ...(typeof record.path === 'string' ? { path: truncateDiagnostic(record.path) } : {}),
+    ...(typeof record.dataPath === 'string'
+      ? { dataPath: truncateDiagnostic(record.dataPath) }
+      : {}),
   };
 }
 
@@ -523,9 +623,12 @@ export class RunTaskError extends Error {
       boundaryCode?: string;
     },
   ) {
-    super(message);
+    super(truncateDiagnostic(message));
     this.code = code;
-    if (extra?.diagnostics) this.diagnostics = extra.diagnostics;
+    if (extra?.diagnostics)
+      this.diagnostics = extra.diagnostics
+        .slice(0, 64)
+        .map((entry) => toSessionDiagnostic(entry, extra.boundaryCode));
     if (extra?.actionId) this.actionId = extra.actionId;
     if (extra?.boundaryCode) this.boundaryCode = extra.boundaryCode;
   }

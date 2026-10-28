@@ -845,6 +845,10 @@ describe('S3.5.4 真实 HTTP 与非 Koa 同输入对测', () => {
     });
     let first = true;
     let sourceClosed = false;
+    let observeSourceExit!: () => void;
+    const sourceExited = new Promise<void>((resolve) => {
+      observeSourceExit = resolve;
+    });
     const { runtime } = makeSharedSurfaceRuntime({
       options: {
         createGenerationSource: (request) => {
@@ -858,6 +862,7 @@ describe('S3.5.4 真实 HTTP 与非 Koa 同输入对测', () => {
               yield* surfaceMessages(request.surfaceId);
             } finally {
               sourceClosed = true;
+              observeSourceExit();
             }
           })();
         },
@@ -887,6 +892,8 @@ describe('S3.5.4 真实 HTTP 与非 Koa 同输入对测', () => {
       release();
       await Promise.race([terminal, expired]);
       assert.equal(runtime.runManager.get(runId)?.state, 'canceled');
+      await sourceExited;
+      await new Promise<void>((resolve) => setImmediate(resolve));
       assert.ok(sourceClosed);
       assert.equal(await runtime.adapter.describeSurfaceContract('parity-shared'), undefined);
       const recovered = await postJson(baseUrl, '/api/a2ui/generate', generateBody());
