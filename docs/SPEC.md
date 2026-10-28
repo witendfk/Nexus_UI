@@ -52,6 +52,8 @@ server→client 消息采用 A2UI `version: 'v0.9'`，每个信封恰好一个 p
 
 上述协议拒绝经 runtime 上报 `FEATURE_UNSUPPORTED`，组件/模型与有效输入草稿不因拒绝而部分写入；错误记录仍会增加。本地输入须先通过当前 Catalog 的 `inputs` 声明与值 schema，不能以缺声明时的提前拒绝证明预算生效。草稿确认将剩余新草稿恢复到临时模型后再检查预算，失败不确认任何有效条目、不部分恢复，调用方不得启用新 action 基准。
 
+`A2UIRuntime.dispatchChecked(message: unknown): ParseResult` 返回单条消息经过 Protocol/Profile/Catalog、生命周期及应用阶段资源校验后的结果；`ok: false` 同时经既有错误出口报告。client 按每条结果决定能否接受 done，不以错误日志长度推断准入（日志有容量上限）。`dispatch(message): void` 保持兼容并委托同一路径；`parse(line)` 仍只做解析/预校验，不代表消息已应用。运行时回调抛错仍可能抛出，失败结果不承诺回滚此前消息；client 将拒绝或异常按失同步处理。
+
 资源预算不依赖 Catalog 是否注入；模型/组件规模限制属于 runtime 接受边界，公开低层 store 与 dataModel helper 不提供同等规模保证，也不构成进程内存硬配额。server 的完整快照预算（§6.6，含组件与 Catalog）与 core 的模型预算作用对象不同，不能互相替代；生成与 action 的 store 提交前数组越界均返回 `notCommitted + RESOURCE_LIMIT_EXCEEDED`。client 须独立执行本地校验，服务端已提交而本地拒绝时按 §5.2 失同步处理。
 
 迁移：这是 0.1.x 的资源行为收紧；过去依赖数组跳写的宿主应改为紧凑追加，需要更大状态的宿主显式配置 runtime 与 server 各自预算。不改变 A2UI v0.9、Catalog Contract 2 或 Session 1 的线上形状。
@@ -382,9 +384,17 @@ canceled               ├── 取消先于提交确认 ───► canceled 
 
 `AgentRun`/`AgentRunManager` 注入语义沿 S2.5 不变：自定义 run 必须显式传入 manager、`commit` 必须返回固定 `NexusSurfaceCommit`、`recordCommit` 为结果接口；SDK run 不接受另一个记录所有者。Koa 适配保持调用时响应占用与 `await`/`void` 时序（DESIGN D3）：排队 run 同步写 `X-Nexus-Run-Id` 头，两种调用写法均逐条下发；该保证属于 Koa 适配行为，非 Koa 消费不复制 socket 操作。
 
-## 7. 目标 React 与 client 组合（待实现）
+## 7. 目标 React 与 client 组合（client 会话已实施 S4.1，2026-10-28；React Provider/Surface 归 S4.2）
 
-client 对外提供会话控制器；其 TypeScript API 在实现时以 `createClientSession` 为入口定型，包含稳定 runtime、会话/surface 状态订阅、生成/action、取消、恢复及 dispose。transport 可注入；首发自带 fetch/SSE，核心会话状态机不依赖 React 或 Node server 包。
+client 对外提供会话控制器（`@nexus-ui/client`，S4.1 已实施会话与传输，恢复归 S4.1.2）：`createClientSession(options)` 入口——稳定 runtime（外部注入或自建）、per-surface 状态（`streaming | ready | desync` 与 `actionOpen` 门控）、可解除订阅、`generate/action`（RunResult：committed/failed/canceled/desync/ignored）、`cancel` 及 `dispose`。`cancel` 只作用于调用时在途的运行，不阻断后续运行；会话级终态只有 `dispose`（销毁后入口抛错）。transport 可注入（`SessionTransport.open(request) → { runIdHeader, frames, close?() }`，`close` 幂等释放 reader/监听/定时器，会话在运行结束时一律调用，含未开始消费帧的提前拒绝）；首发自带 `fetchSseTransport(options)`，核心会话状态机不依赖 React 或 Node server 包。
+
+会话状态机承担完整消费路径（抽取自两个参考浏览器，SPEC §5.1/§5.4 的客户端门控）：响应头权威 runId 关联（缺失不采信 done）、done 身份/catalogHash 按宿主提供的契约 hash 表门控、action 基准 revision 前进、生成视图归属与 root 校验、草稿随 `nexus.inputs` 发送并在成功后确认、终态后额外事件使流无效、EOF 无终态与 unknown 归入 desync 禁 action、取消丢弃生成预览。运行标识头常量 `NEXUS_RUN_ID_HEADER` 定义在 core，server 写入、client 读取，两端按值比对，不各持一份字面量。
+
+**失败分级**（与 §5 提交三态同口径，S4.1 定型）：`failed` 仅用于身份关联可信的 `error + notCommitted`、本次流未改动本地视图且未报告准入拒绝的情形，action 保留旧视图与动作出口。`RUN_ADMISSION_REJECTED` 未细分 revision/hash 等拒绝原因，统一 `desync`，不解析错误文案。`error`（含 `beforeStart`）也须匹配响应头 runId 和已知 surface。缺运行标识、done 身份/版本不符、无效流、EOF 无终态、unknown、本地消息拒绝或视图已改动均归 `desync`；generate 丢弃预览，action 保留可见视图但关闭动作出口。
+
+调用 `transport.open` 即视为请求可能送达：open 抛错或收到首帧前取消都不能证明宿主未提交，action 归 `desync`、不推进基准、不确认草稿；确定未发送的 action 取消保留旧基准并返回 `canceled`。生成取消返回 `canceled` 并丢弃预览。运行须先登记再通知订阅者，发送前、每条 runtime 写入前及 EOF 后终态副作用前检查有效性，订阅内同步 cancel/dispose 与 abort 后正常 EOF 均不能复活运行。取消不等于撤销宿主业务副作用，SDK 不自动重试。预览隔离/完整恢复仍归 S4.1.2，当前部分写入失败后关闭动作资格。
+
+**传输资源边界**（S4.1.3）：`fetchSseTransport` 默认建连 30s、空闲 60s、总时长 600s 超时，单帧 1e6 UTF-16 代码单元（不含空行分隔符）、单次响应 16 MiB 原始字节预算。先拆完整帧再按帧检查，剩余半帧单独限额；同一内容不因网络分片/合并而改变接受结果。错误响应体读取同受空闲/总时长/字节预算及取消约束，诊断最多保留 500 字符；非法 content-type 直接关闭响应体。总时长从 open 开始计量，也覆盖消费暂停；关闭时不等待宿主自定义 cancel 钩子完成。超时/越界抛错（action 归 desync）。预算须为非负安全整数，非法配置在工厂入口报错，`0` 关闭该项。按 surface 的交互可用状态经 `getSurface/surfaces/subscribe` 提供；订阅与 `onListenerError` 回调异常均隔离。
 
 React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话接入还需提供按 surface 订阅的交互可用状态，Surface 与动作出口均执行门控。
 
@@ -392,7 +402,7 @@ React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 
 
 ## 8. 版本迁移与验证
 
-当前三包 API 1 保持“现状”标识，目标改造涉及 Provider 行为、默认依赖、Catalog 与 HTTP envelope 的破坏性变化。各切片同步公开根导出快照、消费方、迁移说明；交付新的破坏性契约时提升相应 API 版本。包版本与 workspace 安装规则遵循 AGENTS.md，文档定稿不提前改包版本。
+core/react/server 三包 API 1 保持“现状”标识；client 随 S4 新增，其 API 1 在 S4.1 定型（会话与传输），恢复与 React 接入不改变已发布入口。目标改造涉及 Provider 行为、默认依赖、Catalog 与 HTTP envelope 的破坏性变化。各切片同步公开根导出快照、消费方、迁移说明；交付新的破坏性契约时提升相应 API 版本。包版本与 workspace 安装规则遵循 AGENTS.md，文档定稿不提前改包版本。
 
 Catalog Contract 版本在 S2 升至 2：hash 对 `{ contractVersion, catalog }` 稳定序列化取 SHA-256；catalog 先规范化为 JSON 传输形状（合法可选字段的显式 undefined 与省略等价），纯 JSON 声明的既有摘要不变（2026-10-21 复审修正），版本常量提升后全部 hash 随之变化；输入能力、action 参数 schema 与组件声明都进入发布内容，能力变化必须影响 hash。surface 快照在创建时固定 `contractVersion` 与 `catalogHash`，请求携带值与固定值不一致显式拒绝，registry 原地变更不回写已创建 surface。v1 的拒绝点是明确的：v1 形状 Catalog 在注册闸门报错，缺 `nexus` 的 action 请求在解析入口拒绝，不维护 v1/v2 两套通用解释器。迁移样例以 `fixtures/catalog-v2/` 的正常夹具与 S2.6 的最小接入样例为准；各包 API 版本随其破坏性行为落地的切片提升并同步消费方。
 

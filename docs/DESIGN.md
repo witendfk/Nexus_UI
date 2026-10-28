@@ -11,7 +11,7 @@
 | D3   | Koa 适配器调用时同步占用 SSE 响应               | 保留已有修复，限定在 Koa 适配层         |
 | D4   | SDK 中立默认值与显式宿主装配                    | server 侧已实施（含 runs 准入默认拒绝） |
 | D5   | 区分消息状态、运行提交与业务结果                | server 已实施；client 视图隔离与恢复归 S4 |
-| D6   | 四包目标与可选框架适配                          | 已决策，client 尚未创建                 |
+| D6   | 四包目标与可选框架适配                          | 已决策；client 包已创建（S4.1，2026-10-28），可安装声明归 S5 |
 | D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
 | D9   | 单一运行调度与有界资源                          | S3 已实施并验收（2026-10-28），证据见 S3-ACCEPTANCE |
@@ -59,6 +59,8 @@
 
 client 只在明确成功终态且本地校验通过后开放当前 revision 的 action。失败丢弃本次预览；已有提交视图可保留展示，但在提交结果未知或版本不一致时必须标记失同步并禁用 action。缺失终态、网络中断和提交确认丢失不能推断服务端未提交。
 
+**S4.1 门控决定（2026-10-28）**：是否已调用 transport.open 是客户端能可靠观察的发送边界，未收到响应头不证明未送达；发送后取消/网络失败按失同步处理。准入错误暂未细分 revision/hash 原因，统一关闭旧动作资格，不通过错误文案猜测安全性；确定未发送的取消与可信 notCommitted、未改动视图且无准入拒绝的失败可保留旧基准。消息接受结果由 core 显式返回，避免复制校验器或依赖有界日志长度。预览隔离/恢复仍归 S4.1.2。
+
 **提交事实口径（S3.1 补充，2026-10-22）**：服务端 commitState 由 store 结果契约三分（SPEC §6.3）——确定性拒绝为 notCommitted，确认提交为 committed，store 异常且无法证明未写入为 unknown（不得凭异常推断未提交）；确认后不可倒写。客户端在未获得可信终态时保守使用 unknown。
 
 **副作用边界**：取消与 patch 失败不回滚宿主事务。SDK 不自动重试业务 action，不把 ledger 的 failed 当作业务可重试。宿主可提供不透明操作关联标识及恢复回调；SDK 不内建领域结果库。
@@ -71,7 +73,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **证据**：playground 与 standalone-host-demo 已重复实现 SSE 消费，EOF/终态/取消清理尚未统一；这足以支持抽取 client。Provider 的固定渲染槽仍待 S4 分离；server 的通用运行逻辑已随 S3 从 Koa sender 移出。
 
-**约束**：当前仍只有三包；client 在对应切片新增，不提前宣传已可安装。共享协议与运行元数据类型放在 core 的纯契约模块；不额外拆 guard、Policy、Catalog 或 Agent 包。Koa 入口可留在 server 公开根入口，框架无关入口的加载不执行 listener/环境读取，也不要求模型 SDK。
+**约束**：client 已随 S4.1 新增（2026-10-28，`packages/nexus-client`，依赖 core，无 React/server 依赖），alpha 安装声明仍归 S5。共享协议与运行元数据类型放在 core 的纯契约模块；不额外拆 guard、Policy、Catalog 或 Agent 包。Koa 入口可留在 server 公开根入口，框架无关入口的加载不执行 listener/环境读取，也不要求模型 SDK。
 
 **代价**：新增一个包的构建、兼容和发行维护；由消除跨示例关键逻辑复制获得收益。不同 transport 通过薄适配接入，不在首发建设通用插件平台。
 

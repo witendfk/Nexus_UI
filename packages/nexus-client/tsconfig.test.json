@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "//": "测试使用 node:test/node:assert，需要 Node 全局；src 保持纯浏览器/同构边界（types: []）。",
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

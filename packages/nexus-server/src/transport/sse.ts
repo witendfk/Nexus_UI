@@ -1,15 +1,16 @@
 import type { Context } from 'koa';
+import { NEXUS_RUN_ID_HEADER } from '@nexus-ui/core';
 
 export type SseEventName = 'start' | 'message' | 'error' | 'done';
 
 /**
- * SSE 运行标识响应头（S2.5.4）。值是该次运行的唯一不可变 ID（`AgentRun.runId`），
- * 与运行记录 id、SSE event id 前缀和成功 `done` 载荷同值。跨源读取须由宿主
- * CORS 装配显式 `Access-Control-Expose-Headers` 暴露并合并其已有暴露配置。
- * 消费者以该头与成功 `done` 关联本次运行；SDK 不提供解析 event id 格式猜 runId
- * 的任何途径，按 run 查询以显式参数提交（SPEC §5.3）。
+ * SSE 运行标识响应头（S2.5.4）。常量定义在 core（`NEXUS_RUN_ID_HEADER`），
+ * server 写入、client 读取，两端按值比对，避免同一契约出现两份字面量。
+ * 跨源读取须由宿主 CORS 装配显式 `Access-Control-Expose-Headers` 暴露并合并
+ * 其已有暴露配置。消费者以该头与成功 `done` 关联本次运行；SDK 不提供解析
+ * event id 格式猜 runId 的任何途径，按 run 查询以显式参数提交（SPEC §5.3）。
  */
-export const NEXUS_RUN_ID_HEADER = 'X-Nexus-Run-Id';
+export { NEXUS_RUN_ID_HEADER };
 
 export interface PrepareSseResponseOptions {
   /**

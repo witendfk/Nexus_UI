@@ -1,0 +1,33 @@
+{
+  "name": "@nexus-ui/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexus UI client —— 框架无关的 A2UI 会话控制器：稳定 runtime、per-surface 状态订阅、生成/action 门控、可注入 fetch/SSE transport。",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
+    "test": "tsx --test test/**/*.test.ts",
+    "lint": "eslint src test --ext .ts"
+  },
+  "dependencies": {
+    "@nexus-ui/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.50",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}

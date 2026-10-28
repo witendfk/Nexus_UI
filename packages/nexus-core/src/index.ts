@@ -101,7 +101,7 @@ export type {
   DynamicBindingPolicy,
   SchemaValueType,
 } from './catalog/schema';
-export { NEXUS_SESSION_VERSION } from './session/index';
+export { NEXUS_RUN_ID_HEADER, NEXUS_SESSION_VERSION } from './session/index';
 export type { NexusActionInput, NexusActionMetadata, NexusSurfaceCommit } from './session/index';
 
 export { normalizeJsonPointer, getStrictPath, setStrictPath } from './dataModel/strict-path';

@@ -20,7 +20,7 @@ S4.0 起，`A2UIRuntime` 默认限制单 surface dataModel 为 1 MiB（`maxDataM
 - `CatalogRegistry`：登记 Catalog v2 的组件 schema、可写输入、checks 与 action 声明。
 - `createCatalogPromptContract`：从同一份 `CatalogDefinition` 生成外部 Agent 可选使用的确定性 A2UI 输出提示词；guard 仍是最终放行边界。
 - 结构化错误：`A2UIError` 可携带 `A2UIDiagnostic[]`，每条诊断包含 `path`、`message` 和可选 `dataPath`。
-- 单条坏消息记录错误并丢弃，不中断后续流。
+- 单条坏消息记录错误并丢弃，不中断后续流。`dispatchChecked(message)` 返回完整准入/应用结果，供 client 逐条核对；`dispatch()` 保持 void 兼容，`parse()` 不代表已应用。
 
 当前校验分两层：`validateProtocolMessage` 判断官方 A2UI v0.9 结构；`validateNexusProfileMessage` 判断 Profile 是否支持。`validateA2UIMessage` 保留兼容并串联两者。Catalog 能力、宿主策略和组件 schema 在后续边界继续收口。自定义组件 schema 支持 JSON 基础类型、required / enum / min / max / length / pattern、嵌套 object / array 与 `{ path }` 绑定策略，并会聚合返回全部确定性诊断。绑定路径在 dataModel 已有值时继续校验 resolved value，路径尚未出现时保持流式 pending。通用 FunctionCall、`checks` 组合条件、跨字段校验、Workbench checks 和端到端 `sendDataModel` 均被 Profile 拒绝；Profile 中 `TextField` / `Slider` / `Button` 的 5 个基础校验函数属于当前最小支持范围。
 

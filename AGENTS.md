@@ -6,10 +6,10 @@
 
 硬规则：
 
-1. **依赖方向单一**（所有消费方适用）：`examples/agent-demo` 只消费本仓公开入口（`@nexus-ui/core` / `@nexus-ui/react` / `@nexus-ui/server`；目标 client 待 S4 新增后纳入），经 pnpm `workspace:*` 链接；绝不 import 源码/深路径。本仓 `packages/nexus-server`（SDK server 包）代码绝不反向依赖业务宿主应用模型。仓库目录地图见 README「仓库地图」与 ARCHITECTURE §2.0。
+1. **依赖方向单一**（所有消费方适用）：`examples/agent-demo` 只消费本仓公开入口（`@nexus-ui/core` / `@nexus-ui/client` / `@nexus-ui/react` / `@nexus-ui/server`），经 pnpm `workspace:*` 链接；绝不 import 源码/深路径。本仓 `packages/nexus-server`（SDK server 包）代码绝不反向依赖业务宿主应用模型。仓库目录地图见 README「仓库地图」与 ARCHITECTURE §2.0。
 2. **同居期不刷 tarball**：core/react/server 变更后只需根目录 `pnpm install` 即对 workspace 消费方生效；`pnpm pack:nexus` + 版本提升 + overrides 同步的整套仪式**暂停使用**，拆分/发行时恢复——届时必须先升三包 patch 版本并让对方同步 overrides/deps（pnpm 不重读同名同版本的 file: tarball，`--force` 也不行；2026-09-29 已实际踩坑）。
 3. **校验行为变更**（Catalog/协议/Profile）验证入口：本仓 conformance 与共享正常/非法 fixture 的双端准入对测；验证宿主与 Agent 尚未选定，不等待业务应用重建。评审仅覆盖 SDK 及其公开接入契约，不评审接入方业务工程。
-4. **测试入口**：根 `pnpm test` 覆盖 core/react/server/playground/standalone-host-demo；业务载体专属命令（`pnpm -C examples/agent-demo <script>`）随重建恢复。重建若含 `better-sqlite3` 类原生模块，必须 Node 24（ABI 敏感，2026-10-10 曾因 Node 18/22 全量挂）。
+4. **测试入口**：根 `pnpm test` 覆盖 core/client/react/server/playground/standalone-host-demo；业务载体专属命令（`pnpm -C examples/agent-demo <script>`）随重建恢复。重建若含 `better-sqlite3` 类原生模块，必须 Node 24（ABI 敏感，2026-10-10 曾因 Node 18/22 全量挂）。
 5. 产品与任务事实源依次为 `docs/PRD.md`、`docs/SPEC.md`、`docs/ARCHITECTURE.md`、`docs/DESIGN.md`、`docs/tasks/CURRENT.md`；业务宿主应用的业务模型绝不进入本仓通用包。
 
 ## 工程 SOP（强制）
@@ -52,6 +52,8 @@
 20. 访问钩子与调度/执行必须基于同一入口请求快照；钩子持有的请求隔离且只读，异步反例覆盖受限目标切为允许目标及反向对照。托管记录已终态不能代表宿主资源已清理，初始化/预留失败与清理自身抛错须组合证伪并保留原错误。signal 是附加取消源，不能据此推断连接监听所有权；监听交接覆盖真实断连与重复关闭/abort。
 
 21. 句柄终态不等于宿主退出：取消/超时必须触发源关闭，未退出操作须有界隔离并拒绝同 surface 重叠。背压反例覆盖 drain 先于等待、最后一帧堵塞与非 HTTP 消费暂停；snapshot/history 按跨 run 累积后的最终状态计量，不能用每 run 限额代替持久占用预算。容量保护不得绕过硬上限，排队取消同时释放 pin/timer。
+
+22. 客户端须逐条观察 runtime 准入结果，不能以有界错误日志数量代替；open 未返回或本地取消不证明请求未送达，准入拒绝不证明旧基准有效。运行先登记再通知，EOF 后仍检查失效；错误响应体与成功流共用超时/取消边界，单帧预算须对分片方式不敏感。
 
 ## Code Review 标准（强制）
 

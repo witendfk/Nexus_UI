@@ -13,6 +13,13 @@ import { CATALOG_CONTRACT_VERSION } from '../catalog';
 export const NEXUS_SESSION_VERSION = 1 as const;
 
 /**
+ * 运行标识响应头（S2.5.4）。值是该次运行的唯一不可变 ID，与运行记录 id、
+ * SSE event id 前缀和成功 `done` 载荷同值。server 写入、client 读取，两端按值
+ * 比对；跨源读取须由宿主 CORS 装配显式暴露该头。定义在 core 以保证单一来源。
+ */
+export const NEXUS_RUN_ID_HEADER = 'X-Nexus-Run-Id';
+
+/**
  * 某次运行实际发布的 UI 提交结果。提交时固定，后续运行不能覆盖其值；
  * S2 的按 run 查询与 S3 的成功 done 复用此类型，不能从最新快照事后拼装。
  */

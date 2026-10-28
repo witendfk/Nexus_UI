@@ -12,7 +12,7 @@ Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard →
 
 **S3 已交付并验收（2026-10-28）**：传输无关 server runtime、唯一 surface 调度、Session v1、提交事实三态、访问准入、双端背压、资源预算与取消隔离。验收证据、公开入口迁移和限制见 [S3 验收报告](docs/tasks/S3-ACCEPTANCE.md)。
 
-**S4 进行中（2026-10-28）**：S4.0 core 数组寻址、模型字节与组件数量边界已完成并通过本轮复核，契约见 [SPEC §1.1](docs/SPEC.md)。S4.1 已拆分为会话契约、视图与草稿恢复、传输适配、headless 验收四个切片，尚未实施；随后推进 Provider/Surface 与消费方迁移。目标四包，当前仍为三包；仓外产物与发行验收在 S5，详见 [当前计划](docs/tasks/CURRENT.md)。
+**S4 进行中（2026-10-28）**：S4.0 core 数组寻址、模型字节与组件数量边界已完成并通过本轮复核，契约见 [SPEC §1.1](docs/SPEC.md)。S4.1 的会话契约（`recover` 除外）与 fetch/SSE 传输已完成：新增 `packages/nexus-client`（逐条本地准入、发送不确定性与过期基准门控、取消/销毁竞态防护、SSE 分帧预算与超时释放），见 [SPEC §7](docs/SPEC.md)；视图隔离/恢复（S4.1.2）与 headless 验收矩阵（S4.1.4）待实施，随后推进 Provider/Surface 与消费方迁移。当前为四包，client 尚未声明可安装；仓外产物与发行验收在 S5，详见 [当前计划](docs/tasks/CURRENT.md)。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
@@ -36,8 +36,9 @@ Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
 
 ```text
 Nexus_UI/
-├─ packages/            当前 SDK 三包（dist 根入口，私有）
+├─ packages/            当前 SDK 四包（dist 根入口，私有）
 │  ├─ nexus-core        @nexus-ui/core    协议/Profile/Catalog 校验、surface 状态
+│  ├─ nexus-client      @nexus-ui/client  会话状态机、per-surface 门控、fetch/SSE transport
 │  ├─ nexus-react       @nexus-ui/react   Provider / 17 标准组件 / renderMap
 │  └─ nexus-server      @nexus-ui/server  宿主装配 API、guard、SSE 传输（显式注入）
 ├─ web/nexus-playground 开发者试验台前端（vite proxy → :3001）
@@ -49,7 +50,7 @@ Nexus_UI/
 └─ docs/                PRD → SPEC → ARCHITECTURE → DESIGN → tasks/CURRENT
 ```
 
-依赖单向：`core ← react / server`；`core + react ← playground`；`core + server ← playground-server`；业务宿主应用、standalone-host-demo 与 playground-server 只消费公开根入口，Nexus 不反向依赖业务。独立 client 尚未创建。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
+依赖单向：`core ← client / react / server`；`core + react ← playground`；`core + server ← playground-server`；业务宿主应用、standalone-host-demo 与 playground-server 只消费公开根入口，Nexus 不反向依赖业务。client 不依赖 React 或 server；两个浏览器示例的迁移归 S4.3。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
 
 ## 本地运行
 

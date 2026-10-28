@@ -34,9 +34,9 @@ Nexus_UI/
 └─ docs/                     PRD / SPEC / ARCHITECTURE / DESIGN / tasks/CURRENT
 ```
 
-当前依赖为 `react → core`、`server → core`、`playground-server → core + server`；浏览器流处理散在 playground 与 standalone-host-demo。client 包尚不存在。自定义交互和非 Koa 接入尚未完成。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
+当前依赖为 `react → core`、`client → core`、`server → core`、`playground-server → core + server`；浏览器流处理仍散在 playground 与 standalone-host-demo（迁移归 S4.3）。`packages/nexus-client/` 已随 S4.1 创建（2026-10-28），会话与传输已实现，恢复归 S4.1.2、React 接入归 S4.2；两个示例消费方尚未切换。自定义交互和非 Koa 接入尚未完成。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
 
-三包构建先清理各自 dist，再编译并完成现有 ESM import 修补；根 build/build:packages 串行执行，避免依赖包清理竞态；产物清单对照当前 src，防止源码迁出后遗留旧 listener、模型 SDK、业务模块或测试。此为 S1 产物卫生检查，不替代 S5 的仓外发行验收。
+四包构建先清理各自 dist，再编译并完成现有 ESM import 修补；根 build/build:packages 串行执行，避免依赖包清理竞态；产物清单对照当前 src，防止源码迁出后遗留旧 listener、模型 SDK、业务模块或测试。此为 S1 产物卫生检查，不替代 S5 的仓外发行验收。
 
 ### 2.1 已决策的目标包图
 
@@ -55,7 +55,7 @@ flowchart TB
 
 箭头为代码依赖；虚线为通信。client 与 server 不互相 import 实现，React 不强依赖 client。共享的纯消息、运行元数据与组件能力类型放在 core；请求读取、SSE framing 和 HTTP 对象留在适配层。
 
-目标新增 `packages/nexus-client/`，先只提供浏览器会话与 fetch/SSE。参考程序已在 `examples/playground-server/`，只通过 SDK 根入口消费三包/后续四包。现有 web 路径保留，不为整齐重命名无关目录；根 dev/递归脚本已随迁移更新。
+`packages/nexus-client/` 已随 S4.1 新增（2026-10-28）：会话状态机与可注入 transport（自带 fetch/SSE），React 接入归 S4.2。参考程序已在 `examples/playground-server/`，只通过 SDK 根入口消费三包/后续四包。现有 web 路径保留，不为整齐重命名无关目录；根 dev/递归脚本已随迁移更新。
 
 不额外拆分 guard、Catalog、Policy 或 Agent 包。Node server 的根入口不启动 listener、不读取项目环境、不隐式依赖模型 SDK；Koa/RPC 适配为显式可选能力。实际产物验证框架无关入口的可加载性。
 
@@ -141,7 +141,7 @@ client session 创建并持有稳定 runtime、运行状态和 transport；React
       → Surface(surfaceId=B)
 ```
 
-目标公开名称为 `createClientSession` 与 `A2UISurface`；具体类型签名随实现切片锁定，当前未导出。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
+`createClientSession` 已由 client 根入口导出（S4.1.1/§7 会话与传输）；`A2UISurface` 仍为 S4.2 目标名称，当前未导出。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
 
 外部 runtime/session 由创建者销毁；Provider 自建 runtime 在卸载时释放。视图层使用可取消且稳定快照的订阅，避免 React 并发渲染下的状态撕裂。标准样式显式选择，不在 import 时注入全局动画。
 
@@ -155,6 +155,8 @@ client session 创建并持有稳定 runtime、运行状态和 transport；React
   → done：核对成功提交与本地校验，发布新视图并开放 action
   → error / cancel / 缺失终态：丢弃预览，按 commitState 决定是否失同步
 ```
+
+当前实现（S4.1.1/S4.1.3）：client 通过 core 的 `dispatchChecked` 取得每条消息的完整准入结果，不读取有界错误日志推断接受。运行先登记再通知；发送前、写入前与 EOF 后的终态副作用前检查取消/销毁。open 已调用即可能送达宿主；网络失败、发送后取消及未细分原因的准入拒绝均关闭 action。默认 transport 对正常流/错误体执行同一超时和取消边界，按单帧内容限制缓冲，详情见 SPEC §7。上图的隔离预览/完整视图恢复仍待 S4.1.2，当前部分写入失败以失同步门控收敛。
 
 EOF 不是 done。失败后可以保留上次已提交视图展示，但提交结果未知时不能继续执行其 action。取消须关闭 reader/监听器并阻止晚到事件覆盖新 run；frame、响应大小和处理时间有上限。恢复使用重新生成或宿主提供的受控快照；不盲目重发业务操作。
 

@@ -156,27 +156,29 @@ export class A2UIRuntime {
 
   /** 直接喂一条已解析的消息；与 push 走同一套结构和生命周期校验。 */
   dispatch(message: A2UIMessage): void {
+    this.dispatchChecked(message);
+  }
+
+  /** 单条消息的完整准入结果（含生命周期/资源校验）；不依赖有界错误日志。 */
+  dispatchChecked(message: unknown): ParseResult {
     const raw = stringifyMessage(message);
     const result = validateProtocolMessage(message);
     const validatedMessage = result.message;
     if (!result.ok || !validatedMessage) {
-      this.reportError({
+      return this.rejectMessage({
         ...(result.error ?? { message: '非法消息结构' }),
         raw,
       });
-      return;
     }
     const profileError = validateNexusProfileMessage(validatedMessage);
     if (profileError) {
-      this.reportError({ ...profileError, raw });
-      return;
+      return this.rejectMessage({ ...profileError, raw });
     }
     const catalogError = this.getCatalogIssue(validatedMessage);
     if (catalogError) {
-      this.reportError({ ...catalogError, raw });
-      return;
+      return this.rejectMessage({ ...catalogError, raw });
     }
-    this.acceptMessage(validatedMessage, raw);
+    return this.acceptMessage(validatedMessage, raw);
   }
 
   /** 解析一条 JSONL 文本。 */
@@ -414,25 +416,34 @@ export class A2UIRuntime {
     this.acceptMessage(result.message, line);
   }
 
-  private acceptMessage(message: A2UIMessage, raw: string): void {
+  private rejectMessage(error: A2UIError): ParseResult {
+    this.reportError(error);
+    return { ok: false, error };
+  }
+
+  private acceptMessage(message: A2UIMessage, raw: string): ParseResult {
     const surfaceId = getSurfaceId(message);
     const lifecycleError = this.getLifecycleError(message, surfaceId);
     if (lifecycleError) {
-      this.reportError({ ...lifecycleError, raw, surfaceId });
-      return;
+      return this.rejectMessage({ ...lifecycleError, raw, surfaceId });
     }
 
     try {
       this.applyMessage(message);
+      return { ok: true, message };
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
       if (error instanceof DataModelResourceLimitError) {
         // 资源边界拒绝是确定性分类，不是处理故障：与渲染限额同用
         // FEATURE_UNSUPPORTED 上报（Nexus 会话资源码归 server 提交映射）。
-        this.reportError({ code: 'FEATURE_UNSUPPORTED', message: messageText, raw, surfaceId });
-        return;
+        return this.rejectMessage({
+          code: 'FEATURE_UNSUPPORTED',
+          message: messageText,
+          raw,
+          surfaceId,
+        });
       }
-      this.reportError({ message: `处理 A2UI 消息失败: ${messageText}`, raw, surfaceId });
+      return this.rejectMessage({ message: `处理 A2UI 消息失败: ${messageText}`, raw, surfaceId });
     }
   }
 
@@ -607,7 +618,7 @@ function formatDiagnostics(diagnostics: readonly A2UIDiagnostic[]): string {
   return diagnostics.map((diagnostic) => diagnostic.message).join('; ');
 }
 
-function stringifyMessage(message: A2UIMessage): string {
+function stringifyMessage(message: unknown): string {
   try {
     return JSON.stringify(message);
   } catch {
