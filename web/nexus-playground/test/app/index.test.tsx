@@ -99,6 +99,16 @@ function installServer(
       catalogHash: hashOf(catalogFor(currentCatalog)),
       surfaceRevision: revision,
     })}\n\n`;
+  const start = (runId: string, revision?: number, surfaceId = 's') =>
+    `event: start\ndata: ${JSON.stringify({
+      sessionVersion: 1,
+      runId,
+      surfaceId,
+      catalogId: currentCatalog,
+      contractVersion: CATALOG_CONTRACT_VERSION,
+      catalogHash: hashOf(catalogFor(currentCatalog)),
+      ...(revision === undefined ? {} : { surfaceRevision: revision }),
+    })}\n\n`;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     if (url.pathname === '/api/a2ui/catalog-contract') {
@@ -157,12 +167,13 @@ function installServer(
         },
       ];
       return new Response(
-        messages
-          .map(
-            (message) =>
-              `event: message\ndata: ${JSON.stringify({ version: 'v0.9', ...message })}\n\n`,
-          )
-          .join('') +
+        start('fixture-run') +
+          messages
+            .map(
+              (message) =>
+                `event: message\ndata: ${JSON.stringify({ version: 'v0.9', ...message })}\n\n`,
+            )
+            .join('') +
           (options.invalidMessage
             ? 'event: message\ndata: {"version":"v0.9","unexpected":true}\n\n'
             : '') +
@@ -172,12 +183,18 @@ function installServer(
     }
     actionCount += 1;
     const runId = `action-run-${actionCount}`;
+    const actionSurface = JSON.parse(String(init?.body)).message.action.surfaceId as string;
     // action 响应：服务端归一化写回 name，再 done；连续提交 revision 递增。
     return new Response(
-      `event: message\ndata: ${JSON.stringify({
-        version: 'v0.9',
-        updateDataModel: { surfaceId: 's', path: '/name', value: `normalized-${actionCount}` },
-      })}\n\n${done(runId, actionCount + 1)}`,
+      start(runId, actionCount, actionSurface) +
+        `event: message\ndata: ${JSON.stringify({
+          version: 'v0.9',
+          updateDataModel: {
+            surfaceId: actionSurface,
+            path: '/name',
+            value: `normalized-${actionCount}`,
+          },
+        })}\n\n${done(runId, actionCount + 1).replace('"surfaceId":"s"', JSON.stringify('surfaceId') + ':' + JSON.stringify(actionSurface))}`,
       { headers: sseHeaders(runId) },
     );
   });
@@ -297,7 +314,8 @@ describe('Playground 公开 Catalog 装配', () => {
       await mount();
       await act(async () => button('Nexus Basic').click());
       await act(async () => button('生成 UI').click());
-      await act(async () => button('Submit').click());
+      expect(container.querySelector('.nexus-surface')).toBeNull();
+      expect(container.querySelector('.nexus-preview')).toBeNull();
       expect(
         fetchMock.mock.calls.filter(([url]) => String(url) === '/api/a2ui/event'),
       ).toHaveLength(0);
@@ -368,7 +386,7 @@ it('第二次生成只有新 run/revision 的 done，不能给旧视图换基准
   await act(async () => button('Nexus Basic').click());
   await act(async () => button('生成 UI').click());
   await act(async () => button('生成 UI').click());
-  await act(async () => button('Submit').click());
+  expect(container.querySelector('.nexus-surface')).toBeNull();
   expect(eventBodies(fetchMock), 'done-only response cannot qualify an old view').toHaveLength(0);
 });
 
@@ -494,7 +512,7 @@ it('切换 Catalog 并完成 B 后，A 的晚到响应不改变视图、基准�
 });
 
 for (const phase of ['generate', 'action'] as const) {
-  it(`${phase} 挂起期间卸载，晚到响应不能再 push 到 runtime`, async () => {
+  it(`${phase} 挂起期间卸载，晚到响应不能再准入或发布到 runtime`, async () => {
     const fetchMock = installServer();
     const original = fetchMock.getMockImplementation()!;
     let release!: (response: Response) => void;
@@ -513,11 +531,15 @@ for (const phase of ['generate', 'action'] as const) {
     await act(async () => button('Nexus Basic').click());
     await act(async () => button('生成 UI').click());
     if (phase === 'action') await act(async () => button('Submit').click());
-    const push = vi.spyOn(A2UIRuntime.prototype, 'push');
+    const dispatch = vi.spyOn(A2UIRuntime.prototype, 'dispatchChecked');
+    const restore = vi.spyOn(A2UIRuntime.prototype, 'restoreSurfaceView');
+    const commit = vi.spyOn(A2UIRuntime.prototype, 'commitSurfaceView');
     await act(async () => root!.unmount());
     root = undefined;
     await act(async () => release(oldResponse));
-    expect(push).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(restore).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
   });
 }
 
@@ -539,3 +561,92 @@ it('响应改成另一个已加载 Catalog，仍不能作为本次生成结果�
   expect(container.querySelector('.nexus-surface input')).toBeNull();
   expect(container.textContent).toContain('生成视图与本次请求不匹配');
 });
+
+for (const terminal of ['done', 'missing-done', 'cancel'] as const) {
+  it(`生成中只显示不可交互预览，${terminal} 后按会话结果发布或清除`, async () => {
+    const fetchMock = installServer();
+    const original = fetchMock.getMockImplementation()!;
+    let control!: ReadableStreamDefaultController<Uint8Array>;
+    let tail = '';
+    fetchMock.mockImplementation(async (input, init) => {
+      const response = await original(input, init);
+      if (String(input) !== '/api/a2ui/generate') return response;
+      const text = await response.text();
+      const split = text.lastIndexOf('event: done');
+      tail = text.slice(split);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            control = c;
+            c.enqueue(new TextEncoder().encode(text.slice(0, split)));
+          },
+        }),
+        { headers: response.headers },
+      );
+    });
+    await mount();
+    await act(async () => button('Nexus Basic').click());
+    await act(async () => button('生成 UI').click());
+    expect((container.querySelector('.nexus-preview') as HTMLFieldSetElement).disabled).toBe(true);
+    expect(button('Submit').disabled).toBe(true);
+    expect(container.querySelector('.nexus-surface')).toBeNull();
+    // React test-utils 可绕过原生 disabled，验证实际回调出口也封闭。
+    await act(async () => Simulate.click(button('Submit')));
+    expect(eventBodies(fetchMock)).toHaveLength(0);
+    if (terminal === 'cancel') {
+      await act(async () => button('取消').click());
+    } else {
+      await act(async () => {
+        if (terminal === 'done') control.enqueue(new TextEncoder().encode(tail));
+        control.close();
+      });
+    }
+    expect(container.querySelector('.nexus-preview')).toBeNull();
+    if (terminal === 'done') {
+      expect(button('Submit').disabled).toBe(false);
+      await act(async () => button('Submit').click());
+      expect(eventBodies(fetchMock)).toHaveLength(1);
+    } else {
+      expect(container.querySelector('.nexus-surface')).toBeNull();
+      expect(eventBodies(fetchMock)).toHaveLength(0);
+    }
+  });
+}
+
+for (const commitState of ['unknown', 'notCommitted'] as const) {
+  it(`action 候选 patch 后 ${commitState}：原视图/草稿保留，动作资格按提交事实收敛`, async () => {
+    const fetchMock = installServer();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const response = await original(input, init);
+      if (String(input) !== '/api/a2ui/event') return response;
+      const text = await response.text();
+      return new Response(
+        text.slice(0, text.indexOf('event: done')) +
+          `event: error\ndata: ${JSON.stringify({ sessionVersion: 1, runId: 'action-run-1', surfaceId: 's', code: 'RUN_FAILED', commitState, message: 'fixture failure' })}\n\n`,
+        { headers: response.headers },
+      );
+    });
+    await mount();
+    await act(async () => button('Nexus Basic').click());
+    await act(async () => button('生成 UI').click());
+    const field = container.querySelector('.nexus-surface input[type="text"]') as HTMLInputElement;
+    await act(async () => {
+      field.value = 'my draft';
+      Simulate.change(field);
+    });
+    await act(async () => button('Submit').click());
+    expect(field.value).toBe('my draft');
+    expect(button('Submit').disabled).toBe(commitState === 'unknown');
+    if (commitState === 'unknown') {
+      await act(async () => Simulate.click(button('Submit')));
+      expect(eventBodies(fetchMock)).toHaveLength(1);
+    } else {
+      await act(async () => button('Submit').click());
+      expect(eventBodies(fetchMock)[1]!.nexus.surfaceRevision).toBe(1);
+      expect(eventBodies(fetchMock)[1]!.nexus.inputs).toEqual([
+        { componentId: 'name', property: 'value', value: 'my draft' },
+      ]);
+    }
+  });
+}

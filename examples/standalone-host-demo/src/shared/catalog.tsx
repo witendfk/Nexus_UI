@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, KeyboardEvent } from 'react';
 import { CatalogRegistry, toDisplayString } from '@nexus-ui/core';
 import { standardRenderMap } from '@nexus-ui/react';
 import type { RenderMap } from '@nexus-ui/react';
@@ -76,7 +76,7 @@ export const standaloneHostRenderMap: RenderMap = {
         key: vnode.id,
         type: 'button',
         style: buttonStyle,
-        disabled: vnode.props.disabled === true,
+        disabled: vnode.props.disabled === true || context.actionsEnabled === false,
         onClick: () => context.triggerAction(vnode.id, vnode.surfaceId),
       },
       ...children,
@@ -141,8 +141,15 @@ export const scorecardHostRenderMap: RenderMap = {
       {
         key: vnode.id,
         role: 'button',
-        tabIndex: 0,
-        style: submitCardStyle,
+        tabIndex: context.actionsEnabled === false ? -1 : 0,
+        'aria-disabled': context.actionsEnabled === false,
+        style: { ...submitCardStyle, opacity: context.actionsEnabled === false ? 0.5 : 1 },
+        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            context.triggerAction(vnode.id, vnode.surfaceId);
+          }
+        },
         onClick: () => context.triggerAction(vnode.id, vnode.surfaceId),
       },
       ...children,

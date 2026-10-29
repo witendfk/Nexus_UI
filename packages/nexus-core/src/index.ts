@@ -70,6 +70,7 @@ export {
 export { buildTree } from './render/index';
 export { buildActionEvent } from './action/index';
 export { A2UIRuntime } from './runtime/index';
+export type { SurfaceViewSnapshot } from './runtime/index';
 export type { InputDraftSnapshot, InputDraftSnapshotEntry, RuntimeOptions } from './runtime/index';
 export { compileSafeRegExp } from './checks/index';
 export type { SafeRegExp } from './checks/index';

@@ -374,7 +374,7 @@ describe('S4.1 · 失败分级（failed / desync）', () => {
     assert.equal(status?.baseline?.surfaceRevision, 1, '基准不被未采信的 done 推进');
   });
 
-  it('action 流已应用补丁后失败 → desync（视图与基准不再可证明一致）', async () => {
+  it('候选 patch 后明确 notCommitted：丢弃候选，保留原视图与动作资格', async () => {
     const t = scriptedTransport([]);
     const harness = await setupReady(t);
     t.queue.push({
@@ -405,8 +405,9 @@ describe('S4.1 · 失败分级（failed / desync）', () => {
       name: 'submit',
       sourceComponentId: 'confirm',
     });
-    assert.equal(result.status, 'desync');
-    assert.equal(harness.session.getSurface('ready-1')?.actionOpen, false);
+    assert.equal(result.status, 'failed');
+    assert.equal(harness.session.getSurface('ready-1')?.actionOpen, true);
+    assert.deepEqual(harness.runtime.getSurfaceView('ready-1')?.dataModel, { note: 'v1' });
   });
 });
 
@@ -918,5 +919,497 @@ describe('S4.1 · 复核整改反例', () => {
     });
     assert.equal((await session.generate({ catalogId: CATALOG_ID })).status, 'committed');
     assert.equal(session.getSurface('error-hook')?.actionOpen, true);
+  });
+});
+
+describe('S4.1.2-C · recover 完整恢复', () => {
+  function desyncSurface() {
+    const runId = 'f0000000-0000-4000-8000-000000000001';
+    const t = scriptedTransport([
+      {
+        runId,
+        frames: framesOf([
+          startFrame(runId, 'rec-1'),
+          ...messageFrames('rec-1'),
+          doneFrame(runId, 'rec-1', 1),
+        ]),
+      },
+      // desync 触发：EOF 无终态。
+      { runId: 'f0000000-0000-4000-8000-000000000002', frames: [] },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    return { session, runtime, t };
+  }
+
+  it('合法恢复：desync surface 重新 ready，视图与基准一次到位', async () => {
+    const { session, runtime } = desyncSurface();
+    const setup = await session.generate({ catalogId: CATALOG_ID });
+    if (setup.status !== 'committed') {
+      console.log('SETUP:', JSON.stringify(setup));
+      console.log('ERRORS:', JSON.stringify(runtime.store.getState().errors.slice(0, 2)));
+    }
+    assert.ok(setup.status === 'committed');
+    const baseline = session.getSurface('rec-1')!.baseline!;
+    // 先弄成 desync（第二个队列条目：EOF 无终态）。
+    const bad = await session.action({
+      surfaceId: 'rec-1',
+      name: 'submit',
+      sourceComponentId: 'confirm',
+    });
+    assert.equal(bad.status, 'desync');
+    assert.equal(session.getSurface('rec-1')!.actionOpen, false);
+
+    // 宿主提供可信快照 + 同一次提交身份：恢复。
+    const view = runtime.getSurfaceView('rec-1')!;
+    const recovered = session.recover({ view, commit: baseline });
+    assert.equal(recovered.status, 'committed');
+    const status = session.getSurface('rec-1')!;
+    assert.equal(status.phase, 'ready');
+    assert.equal(status.actionOpen, true);
+    assert.equal(status.baseline?.surfaceRevision, 1);
+  });
+
+  it('身份错配/未注册 hash 的恢复被拒绝且原状态不变', async () => {
+    const { session, runtime } = desyncSurface();
+    const setup = await session.generate({ catalogId: CATALOG_ID });
+    assert.ok(setup.status === 'committed');
+    const before = session.getSurface('rec-1')!;
+    const view = runtime.getSurfaceView('rec-1')!;
+    // surface 错配（view 的 surfaceId 与 commit 不一致）。
+    assert.throws(
+      () =>
+        session.recover({
+          view: { ...view, surfaceId: 'other' },
+          commit: {
+            sessionVersion: 1,
+            runId: 'x',
+            surfaceId: 'rec-1',
+            catalogId: CATALOG_ID,
+            contractVersion: 2,
+            catalogHash: HASH,
+            surfaceRevision: 1,
+          },
+        }),
+      /surface 与提交身份不一致/,
+    );
+    // hash 未在契约表。
+    assert.throws(
+      () =>
+        session.recover({
+          view,
+          commit: {
+            sessionVersion: 1,
+            runId: 'x',
+            surfaceId: 'rec-1',
+            catalogId: CATALOG_ID,
+            contractVersion: 2,
+            catalogHash: 'sha256:' + 'b'.repeat(64),
+            surfaceRevision: 1,
+          },
+        }),
+      /契约不一致/,
+    );
+    const after = session.getSurface('rec-1')!;
+    assert.equal(after.phase, before.phase);
+    assert.equal(after.actionOpen, before.actionOpen);
+  });
+
+  it('恢复使在途旧 run 失效：晚到帧不再写入', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runId = 'f0000000-0000-4000-8000-000000000003';
+    const hang: SessionTransport = {
+      async open(request) {
+        await gate;
+        if (request.signal?.aborted) throw new DOMException('已取消', 'AbortError');
+        return {
+          runIdHeader: runId,
+          frames: (async function* () {
+            yield {
+              event: 'message',
+              data: JSON.stringify({
+                version: 'v0.9',
+                updateDataModel: { surfaceId: 'rec-2', value: { late: true } },
+              }),
+            };
+          })(),
+        };
+      },
+    };
+    const registry = new CatalogRegistry([catalog()]);
+    const runtime = new A2UIRuntime({ catalogRegistry: registry });
+    // 预置已提交 surface（宿主本地残留的旧视图）。
+    runtime.dispatch({
+      version: 'v0.9',
+      createSurface: { surfaceId: 'rec-2', catalogId: CATALOG_ID },
+    } as never);
+    const session = createClientSession({
+      runtime,
+      catalogHashes: new Map([[CATALOG_ID, HASH]]),
+      transport: hang,
+      endpoints: { generate: '/g', event: '/e' },
+    });
+    // 旧 run：desync surface 上发起的 action 被门控——直接用挂起 transport 的 generate 不可行
+    //（generate 创建新 surface），改用 action：先本地把 rec-2 置为 ready。
+    session.recover({
+      view: {
+        surfaceId: 'rec-2',
+        catalogId: CATALOG_ID,
+        components: [
+          { id: 'root', component: 'Column', children: ['label'] },
+          { id: 'label', component: 'Text', text: { path: '/note' } },
+        ],
+        dataModel: { note: 'base' },
+      },
+      commit: {
+        sessionVersion: 1,
+        runId: 'f0000000-0000-4000-8000-000000000009',
+        surfaceId: 'rec-2',
+        catalogId: CATALOG_ID,
+        contractVersion: 2,
+        catalogHash: HASH,
+        surfaceRevision: 1,
+      },
+    });
+    // 在途旧 action（挂起）。
+    const inFlight = session.action({
+      surfaceId: 'rec-2',
+      name: 'submit',
+      sourceComponentId: 'label',
+    });
+    // 再次恢复（新基准 revision 2）：旧 run 失效。
+    const second = session.recover({
+      view: {
+        surfaceId: 'rec-2',
+        catalogId: CATALOG_ID,
+        components: [
+          { id: 'root', component: 'Column', children: ['label'] },
+          { id: 'label', component: 'Text', text: { path: '/note' } },
+        ],
+        dataModel: { note: 'restored-v2' },
+      },
+      commit: {
+        sessionVersion: 1,
+        runId: 'f0000000-0000-4000-8000-000000000004',
+        surfaceId: 'rec-2',
+        catalogId: CATALOG_ID,
+        contractVersion: 2,
+        catalogHash: HASH,
+        surfaceRevision: 2,
+      },
+    });
+    assert.equal(second.status, 'committed');
+    release();
+    const late = await inFlight;
+    assert.ok(late.status !== 'committed', '旧响应不能覆盖恢复后的视图');
+    assert.deepEqual(runtime.getSurfaceView('rec-2')!.dataModel, { note: 'restored-v2' });
+  });
+});
+
+describe('S4 复核 · 隔离视图、恢复与稳定订阅', () => {
+  const submit = (surfaceId: string) => ({
+    surfaceId,
+    name: 'submit',
+    sourceComponentId: 'confirm',
+  });
+  const barrier = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it('生成候选可观察但不写入公开 runtime；完整 done/EOF 后才发布', async () => {
+    const ready = barrier(),
+      release = barrier();
+    const t = scriptedTransport([
+      {
+        runId: R1,
+        makeFrames: () =>
+          (async function* () {
+            yield* happyRun(R1, 'preview').slice(0, -1);
+            ready.resolve();
+            await release.promise;
+            yield framesOf([doneFrame(R1, 'preview', 1)])[0];
+          })(),
+      },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    const pending = session.generate({ catalogId: CATALOG_ID });
+    await ready.promise;
+    assert.equal(runtime.getSurfaceView('preview'), undefined);
+    assert.deepEqual(session.getSurface('preview')?.preview?.dataModel, { note: 'v1' });
+    assert.equal(session.getSurface('preview')?.actionOpen, false);
+    assert.equal(session.getCommittedSurface('preview'), undefined);
+    release.resolve();
+    assert.equal((await pending).status, 'committed');
+    assert.deepEqual(runtime.getSurfaceView('preview')?.dataModel, { note: 'v1' });
+    assert.equal(session.getSurface('preview')?.preview, null);
+  });
+
+  for (const ending of ['notCommitted', 'unknown', 'eof', 'cancel'] as const) {
+    it(`候选 patch 后 ${ending}：原视图、草稿和固定基准不被污染`, async () => {
+      const ready = barrier(),
+        release = barrier();
+      const t = scriptedTransport([{ runId: R1, frames: happyRun(R1, 'isolated') }]);
+      const { session, runtime } = makeSession(t.transport);
+      await session.generate({ catalogId: CATALOG_ID });
+      const committed = session.getCommittedSurface('isolated');
+      assert.equal(runtime.setInputValue('label', 'isolated', 'text', 'sent'), true);
+      t.queue.push({
+        runId: R2,
+        makeFrames: () =>
+          (async function* () {
+            yield* framesOf([
+              startFrame(R2, 'isolated'),
+              {
+                event: 'message',
+                data: {
+                  version: 'v0.9',
+                  updateDataModel: { surfaceId: 'isolated', value: { note: 'candidate' } },
+                },
+              },
+            ]);
+            ready.resolve();
+            await release.promise;
+            if (ending === 'notCommitted' || ending === 'unknown')
+              yield framesOf([
+                {
+                  event: 'error',
+                  data: {
+                    sessionVersion: 1,
+                    runId: R2,
+                    surfaceId: 'isolated',
+                    code: 'RUN_FAILED',
+                    commitState: ending,
+                  },
+                },
+              ])[0];
+          })(),
+      });
+      const pending = session.action(submit('isolated'));
+      await ready.promise;
+      assert.deepEqual(runtime.getSurfaceView('isolated')?.dataModel, { note: 'sent' });
+      assert.equal(runtime.setInputValue('label', 'isolated', 'text', 'later'), true);
+      const drafts = runtime.extractLatestInputDrafts('isolated');
+      if (ending === 'cancel') session.cancel();
+      release.resolve();
+      assert.equal((await pending).status, ending === 'notCommitted' ? 'failed' : 'desync');
+      assert.deepEqual(runtime.getSurfaceView('isolated')?.dataModel, { note: 'later' });
+      assert.deepEqual(runtime.extractLatestInputDrafts('isolated'), drafts);
+      assert.equal(session.getCommittedSurface('isolated'), committed);
+      assert.equal(session.getSurface('isolated')?.actionOpen, ending === 'notCommitted');
+      assert.equal(session.getSurface('isolated')?.preview, null);
+    });
+  }
+
+  it('真实请求期间新编辑在成功发布后保持可见，下次 inputs 与可见值一致', async () => {
+    const ready = barrier(),
+      release = barrier();
+    const t = scriptedTransport([{ runId: R1, frames: happyRun(R1, 'edits') }]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    runtime.setInputValue('label', 'edits', 'text', 'sent');
+    t.queue.push({
+      runId: R2,
+      makeFrames: () =>
+        (async function* () {
+          yield* framesOf([startFrame(R2, 'edits')]);
+          ready.resolve();
+          await release.promise;
+          yield* framesOf([
+            {
+              event: 'message',
+              data: {
+                version: 'v0.9',
+                updateDataModel: { surfaceId: 'edits', value: { note: 'normalized' } },
+              },
+            },
+            doneFrame(R2, 'edits', 2),
+          ]);
+        })(),
+    });
+    const pending = session.action(submit('edits'));
+    await ready.promise;
+    runtime.setInputValue('label', 'edits', 'text', 'later');
+    release.resolve();
+    assert.equal((await pending).status, 'committed');
+    assert.deepEqual(runtime.getSurfaceView('edits')?.dataModel, { note: 'later' });
+    assert.deepEqual(session.getCommittedSurface('edits')?.view.dataModel, { note: 'normalized' });
+    t.queue.push({
+      runId: R1,
+      frames: framesOf([startFrame(R1, 'edits'), doneFrame(R1, 'edits', 3)]),
+    });
+    await session.action(submit('edits'));
+    const body = t.requests[2].body as { nexus: { inputs: Array<{ value: unknown }> } };
+    assert.equal(body.nexus.inputs[0].value, 'later');
+  });
+
+  it('成功终态前完整引用校验失败不发布候选或确认草稿', async () => {
+    const t = scriptedTransport([
+      { runId: R1, frames: happyRun(R1, 'refs') },
+      {
+        runId: R2,
+        frames: framesOf([
+          startFrame(R2, 'refs'),
+          {
+            event: 'message',
+            data: {
+              version: 'v0.9',
+              updateComponents: {
+                surfaceId: 'refs',
+                components: [{ id: 'root', component: 'Column', children: ['missing'] }],
+              },
+            },
+          },
+          doneFrame(R2, 'refs', 2),
+        ]),
+      },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    runtime.setInputValue('label', 'refs', 'text', 'keep');
+    const before = runtime.getSurfaceView('refs'),
+      drafts = runtime.extractLatestInputDrafts('refs');
+    assert.equal((await session.action(submit('refs'))).status, 'desync');
+    assert.equal(runtime.getSurfaceView('refs'), before);
+    assert.deepEqual(runtime.extractLatestInputDrafts('refs'), drafts);
+    assert.equal(session.getSurface('refs')?.baseline?.surfaceRevision, 1);
+  });
+
+  it('拒绝旧版本与同版本身份/内容冲突，恢复拒绝保留视图、基准及草稿', async () => {
+    const t = scriptedTransport([
+      { runId: R1, frames: happyRun(R1, 'recover') },
+      { runId: R2, frames: framesOf([startFrame(R2, 'recover'), doneFrame(R2, 'recover', 2)]) },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    const old = session.getCommittedSurface('recover')!;
+    await session.action(submit('recover'));
+    const current = session.getCommittedSurface('recover')!;
+    runtime.setInputValue('label', 'recover', 'text', 'keep');
+    const before = runtime.getSurfaceView('recover'),
+      drafts = runtime.extractLatestInputDrafts('recover');
+    for (const input of [
+      old,
+      { ...current, commit: { ...current.commit, runId: R1 } },
+      { ...current, view: { ...current.view, dataModel: { note: 'forged' } } },
+    ]) {
+      assert.throws(() => session.recover(input), /过期|冲突/);
+      assert.equal(runtime.getSurfaceView('recover'), before);
+      assert.deepEqual(runtime.extractLatestInputDrafts('recover'), drafts);
+      assert.equal(session.getCommittedSurface('recover'), current);
+    }
+    assert.equal(session.recover(current).status, 'committed');
+    assert.deepEqual(runtime.getSurfaceView('recover')?.dataModel, current.view.dataModel);
+    assert.equal(runtime.getLatestInputs('recover').length, 0);
+  });
+
+  it('状态快照稳定、按 surface 通知隔离且可解除；异常观察者不阻断恢复', async () => {
+    const t = scriptedTransport([
+      { runId: R1, frames: happyRun(R1, 'a') },
+      { runId: R2, frames: happyRun(R2, 'b') },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    const before = session.getSurface('a');
+    assert.equal(session.getSurface('a'), before);
+    let called = 0;
+    const off = session.subscribeSurface('a', () => called++);
+    await session.generate({ catalogId: CATALOG_ID });
+    assert.equal(called, 0);
+    assert.equal(session.getSurface('a'), before);
+    runtime.subscribeSurface('a', () => {
+      throw new Error('observer');
+    });
+    assert.equal(session.recover(session.getCommittedSurface('a')!).status, 'committed');
+    assert.equal(called, 0, '身份与门控未变，不重复通知');
+    t.queue.push({ runId: R2, frames: framesOf([startFrame(R2, 'a'), doneFrame(R2, 'a', 2)]) });
+    await session.action(submit('a'));
+    assert.ok(called > 0);
+    off();
+    off();
+    const count = called;
+    session.recover(session.getCommittedSurface('a')!);
+    assert.equal(called, count);
+    session.dispose();
+    off();
+  });
+});
+
+describe('S4 复核 · runtime 装配与所有权', () => {
+  it('自建 runtime 接收声明和预算，dispose 清理自建视图；外部视图保留', async () => {
+    const t = scriptedTransport([{ runId: R1, frames: happyRun(R1, 'owned') }]);
+    const session = createClientSession({
+      runtimeOptions: { catalogRegistry: new CatalogRegistry([catalog()]), maxDataModelBytes: 80 },
+      catalogHashes: new Map([[CATALOG_ID, HASH]]),
+      transport: t.transport,
+      endpoints: { generate: '/g', event: '/e' },
+    });
+    assert.equal((await session.generate({ catalogId: CATALOG_ID })).status, 'committed');
+    assert.equal(session.runtime.setInputValue('label', 'owned', 'text', 'editable'), true);
+    assert.equal(session.runtime.setInputValue('label', 'owned', 'text', 'x'.repeat(100)), false);
+    session.dispose();
+    assert.equal(session.runtime.getSurfaceView('owned'), undefined);
+    const external = makeSession(
+      scriptedTransport([{ runId: R1, frames: happyRun(R1, 'external') }]).transport,
+    );
+    await external.session.generate({ catalogId: CATALOG_ID });
+    external.session.dispose();
+    assert.ok(external.runtime.getSurfaceView('external'));
+  });
+});
+
+describe('S4 复核 · 发布观察者与固定身份', () => {
+  it('恢复发布期间观察者改写传入 commit 不改变本次固定身份', async () => {
+    const t = scriptedTransport([{ runId: R1, frames: happyRun(R1, 'identity') }]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    const fixed = session.getCommittedSurface('identity')!;
+    const commit = { ...fixed.commit, runId: R2, surfaceRevision: 2 };
+    const off = runtime.subscribeSurface('identity', () => {
+      commit.surfaceId = 'other';
+      commit.surfaceRevision = 999;
+    });
+    const result = session.recover({ view: fixed.view, commit });
+    off();
+    assert.equal(result.status, 'committed');
+    assert.equal(session.getSurface('identity')?.baseline?.surfaceRevision, 2);
+    assert.equal(session.getSurface('other'), undefined);
+    assert.equal(session.getCommittedSurface('identity')?.commit.runId, R2);
+  });
+
+  it('成功发布中的观察者取消不会把已发布事实改成 desync', async () => {
+    const t = scriptedTransport([
+      { runId: R1, frames: happyRun(R1, 'publish') },
+      {
+        runId: R2,
+        frames: framesOf([
+          startFrame(R2, 'publish'),
+          {
+            event: 'message',
+            data: {
+              version: 'v0.9',
+              updateDataModel: { surfaceId: 'publish', value: { note: 'server' } },
+            },
+          },
+          doneFrame(R2, 'publish', 2),
+        ]),
+      },
+    ]);
+    const { session, runtime } = makeSession(t.transport);
+    await session.generate({ catalogId: CATALOG_ID });
+    runtime.subscribeSurface('publish', () => session.cancel());
+    assert.equal(
+      (await session.action({ surfaceId: 'publish', name: 'submit', sourceComponentId: 'confirm' }))
+        .status,
+      'committed',
+    );
+    assert.equal(session.getSurface('publish')?.baseline?.surfaceRevision, 2);
+    assert.equal(session.getSurface('publish')?.actionOpen, true);
+    assert.deepEqual(runtime.getSurfaceView('publish')?.dataModel, { note: 'server' });
   });
 });

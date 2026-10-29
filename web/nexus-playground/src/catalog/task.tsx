@@ -54,7 +54,7 @@ export const taskRenderMap: RenderMap = {
       {
         key: vnode.id,
         style: buttonStyle,
-        disabled: vnode.props.disabled === true,
+        disabled: vnode.props.disabled === true || ctx.actionsEnabled === false,
         onClick: () => ctx.triggerAction(vnode.id, vnode.surfaceId),
       },
       toDisplayString(vnode.props.label),

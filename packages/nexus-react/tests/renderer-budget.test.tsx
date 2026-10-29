@@ -26,8 +26,7 @@ function diamondComponents(depth: number): Record<string, Component> {
   const components: Record<string, Component> = {
     root: { id: 'root', component: 'Column', children: [`a0`, `b0`] },
   };
-  const id = (level: number, branch: 'a' | 'b') =>
-    level >= depth ? 'leaf' : `${branch}${level}`;
+  const id = (level: number, branch: 'a' | 'b') => (level >= depth ? 'leaf' : `${branch}${level}`);
   for (let level = 0; level < depth; level++) {
     for (const branch of ['a', 'b'] as const) {
       components[id(level, branch)] = {

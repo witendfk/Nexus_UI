@@ -6,6 +6,7 @@ import type {
   ClientSession,
   ClientSessionOptions,
   RunResult,
+  RecoverInput,
   SessionTransport,
   SseTransportOptions,
   SurfaceStatus,
@@ -26,12 +27,13 @@ describe('client 公开入口契约', () => {
       null as ClientSession | null,
       null as ClientSessionOptions | null,
       null as RunResult | null,
+      null as RecoverInput | null,
       null as SessionTransport | null,
       null as SseTransportOptions | null,
       null as SurfaceStatus | null,
       null as TransportResponse | null,
     ];
-    assert.ok(probes.length === 7);
+    assert.ok(probes.length === 8);
   });
 
   it('运行标识头与 core/server 同源（单一常量定义）', () => {

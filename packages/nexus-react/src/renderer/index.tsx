@@ -9,7 +9,7 @@
  * 对单次渲染实际创建的元素总数设上限，预算耗尽后停止扩展，剩余引用渲染为统一的
  * 「预算已用尽」占位，onLimit 恰好上报一次。
  */
-import { createElement } from 'react';
+import { createElement, cloneElement, isValidElement, Fragment } from 'react';
 import type { ReactNode } from 'react';
 import type { VNode } from '@nexus-ui/core';
 import { standardRenderMap } from '../components';
@@ -94,8 +94,18 @@ export class ReactRenderer {
         `未知组件: ${vnode.type}`,
       );
     }
+    // key 属于引用出现位置，而非共享 VNode 本身；不同 id 重排仍保持身份。
+    const occurrences = new Map<string, number>();
     const children = vnode.children
-      ? vnode.children.map((c) => this.renderBounded(c, ctx, budget, limit, onLimit))
+      ? vnode.children.map((c) => {
+          const occurrence = occurrences.get(c.id) ?? 0;
+          occurrences.set(c.id, occurrence + 1);
+          const key = JSON.stringify([c.id, occurrence]);
+          const child = this.renderBounded(c, ctx, budget, limit, onLimit);
+          return isValidElement(child)
+            ? cloneElement(child, { key })
+            : createElement(Fragment, { key }, child);
+        })
       : [];
     return fn(vnode, children, ctx);
   }

@@ -35,6 +35,19 @@ export interface CoreState {
   /** [seam] 双向绑定写路径：输入组件即时写本地模型（范式 1 表单预留）。 */
   setDataModelValueAtPath(surfaceId: string, path: DataPath, value: unknown): void;
   deleteSurface(surfaceId: string): void;
+  /**
+   * [S4.1.2-A] 单 surface 视图原子替换：三维（surface 元数据/组件表/数据模型）
+   * 在同一次 set 内落地，不存在可观察的中间态。调用方（runtime 恢复原语）
+   * 负责资源边界与 Catalog 校验，store 只保证原子性与引用隔离。
+   */
+  replaceSurfaceView(view: {
+    surfaceId: string;
+    catalogId: string;
+    components: Record<string, Component>;
+    dataModel: unknown;
+    theme?: Record<string, unknown>;
+    sendDataModel?: boolean;
+  }): void;
   addError(error: A2UIErrorRecord): void;
 }
 
@@ -97,6 +110,29 @@ export function createCoreStore(): CoreStore {
         delete componentsBySurface[surfaceId];
         const dataModelBySurface = { ...st.dataModelBySurface };
         delete dataModelBySurface[surfaceId];
+        return { surfaces, componentsBySurface, dataModelBySurface };
+      }),
+
+    replaceSurfaceView: (view) =>
+      set((st) => {
+        // runtime 已校验完整视图；包括元数据一并替换。
+        const surfaces = {
+          ...st.surfaces,
+          [view.surfaceId]: {
+            id: view.surfaceId,
+            catalogId: view.catalogId,
+            ...(view.theme === undefined ? {} : { theme: view.theme }),
+            ...(view.sendDataModel === undefined ? {} : { sendDataModel: view.sendDataModel }),
+          },
+        };
+        const componentsBySurface = {
+          ...st.componentsBySurface,
+          [view.surfaceId]: view.components,
+        };
+        const dataModelBySurface = {
+          ...st.dataModelBySurface,
+          [view.surfaceId]: view.dataModel,
+        };
         return { surfaces, componentsBySurface, dataModelBySurface };
       }),
 

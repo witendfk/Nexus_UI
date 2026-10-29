@@ -1,9 +1,10 @@
-import type { InputDraftSnapshot, NexusSurfaceCommit } from '@nexus-ui/core';
+import type { InputDraftSnapshot, NexusSurfaceCommit, SurfaceViewSnapshot } from '@nexus-ui/core';
 import {
   A2UIRuntime,
   createSessionStreamCheck,
   parseSessionEvent,
   parseSurfaceCommit,
+  type RuntimeOptions,
 } from '@nexus-ui/core';
 import type { SessionTransport, TransportResponse } from './transport';
 import { fetchSseTransport } from './transport/fetch-sse';
@@ -18,9 +19,9 @@ import { fetchSseTransport } from './transport/fetch-sse';
  * 失败分级（与 server 提交三态同口径）：
  * - `failed`：服务端明确未提交、未改动本地视图且基准仍可信；准入拒绝按 desync；
  * - `desync`：提交状态不可知（缺运行标识、done 身份/版本不符、无效流、EOF 无终态、
- *   unknown），或本次流已改动本地视图——此时不能证明视图与基准一致；
+ *   unknown），或候选完整校验/发布失败——此时不能证明视图与基准一致；
  * - `canceled`：生成取消或确定未发送的 action 取消；action 可能已发送则 desync。
- * 预览隔离归 S4.1.2；在那之前，凡视图可能被本次流改动都按 desync 关闭动作出口。
+ * 候选消息仅写隔离 runtime；成功完整接受后才发布，失败不污染原视图。
  */
 
 export interface ClientSessionEndpoints {
@@ -34,6 +35,8 @@ export interface ClientSessionOptions {
    * 两种方式的 runtime 都由宿主注入 Catalog registry（门控写回与契约校验需要）。
    */
   runtime?: A2UIRuntime;
+  /** 自建 runtime 的 Catalog 与资源装配；外部 runtime 时忽略。 */
+  runtimeOptions?: RuntimeOptions;
   /**
    * 可信 Catalog hash 表（宿主从契约加载获得，浏览器经 Web Crypto 复算核对）。
    * generate 的 catalogId 与 done/action 基准的 catalogHash 都按此表门控；
@@ -54,7 +57,7 @@ export interface ClientSessionOptions {
 
 export type SurfacePhase = 'streaming' | 'ready' | 'desync';
 
-/** per-surface 快照（冻结拷贝；订阅回调后经 `getSurface` 重新读取）。 */
+/** per-surface 冻结快照；状态未变时引用稳定，可配合 subscribeSurface。 */
 export interface SurfaceStatus {
   surfaceId: string;
   catalogId: string | null;
@@ -66,6 +69,8 @@ export interface SurfaceStatus {
   baseline: NexusSurfaceCommit | null;
   /** desync 原因（仅 desync 相位）；ready/streaming 为 null。 */
   blockReason: string | null;
+  /** 本次运行候选视图；不会写入公开 runtime，也不授予动作资格。 */
+  preview: SurfaceViewSnapshot | null;
 }
 
 export interface GenerateRequest {
@@ -95,11 +100,28 @@ export type RunResult =
   /** 在途重复提交被忽略（不打断当前运行）。 */
   | { status: 'ignored'; surfaceId: string };
 
+/** 恢复输入：可信宿主同次读取的完整视图 + 固定提交；SDK 不认证任意 JSON 的来源。 */
+export interface RecoverInput {
+  view: SurfaceViewSnapshot;
+  commit: NexusSurfaceCommit;
+}
+
 export interface ClientSession {
   readonly runtime: A2UIRuntime;
   readonly disposed: boolean;
   generate(request: GenerateRequest): Promise<RunResult>;
   action(request: ActionRequest): Promise<RunResult>;
+  /**
+   * 恢复（S4.1.2-C）：重验完整视图及 surface/Catalog/hash 与提交身份的一致性，
+   * 成功时一次恢复视图、基准并重新开启动作资格，同时使该 surface 的在途旧 run
+   * 失效（晚到帧/终态不再写入）。恢复拒绝时抛错，原视图/基准/草稿保持不变；
+   * 不使用查询到的最新 revision 给旧视图续资格，不自动重试业务 action。
+   */
+  recover(input: RecoverInput): RunResult;
+  /** 读取同一次成功提交的固定视图与身份；不含后续本地编辑或候选 patch。 */
+  getCommittedSurface(surfaceId: string): Readonly<RecoverInput> | undefined;
+  /** 仅指定 surface 状态变化时通知；getSurface 在状态不变时引用稳定。 */
+  subscribeSurface(surfaceId: string, listener: () => void): () => void;
   /** 取消全部在途运行；只影响本次调用时在途的运行，之后仍可发起新运行。 */
   cancel(reason?: string): void;
   /** 销毁会话：取消在途运行、清空订阅与 surface 跟踪；之后调用入口抛错。 */
@@ -121,9 +143,12 @@ interface InternalSurface {
 
 interface RunContext {
   kind: 'generate' | 'action';
+  view: A2UIRuntime;
   controller: AbortController;
   runIdHeader: string | null;
   catalogId: string;
+  /** 恢复/取消使本 run 失效后置位：晚到帧/晚到终态不再触碰视图与门控。 */
+  superseded: boolean;
   /** generate：start/createSurface 透露的目标 surface；action：基准 surface。 */
   surfaceId: string | null;
   baseline: NexusSurfaceCommit | null;
@@ -136,8 +161,7 @@ interface RunContext {
   /** open 已调用即可能送达宿主，响应头未到不代表未提交。 */
   attempted: boolean;
   ownsTracking: boolean;
-  /** runtime 已接受的消息条数：>0 表示本地视图可能被本次流改动。 */
-  applied: number;
+  publishing?: boolean;
 }
 
 /** 流本身不可信：提交状态无法证明，按 desync 收敛。 */
@@ -153,13 +177,36 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
     throw new Error('createClientSession 需要显式 endpoints（generate/event）');
   }
   const transport = options.transport ?? fetchSseTransport();
-  const runtime = options.runtime ?? new A2UIRuntime();
+  const runtime = options.runtime ?? new A2UIRuntime(options.runtimeOptions);
   const surfaces = new Map<string, InternalSurface>();
   const listeners = new Set<(session: ClientSession) => void>();
   const runs = new Set<RunContext>();
+  const committedViews = new Map<string, Readonly<RecoverInput>>();
+  const statusCache = new Map<string, SurfaceStatus>();
+  const surfaceListeners = new Map<string, Set<() => void>>();
+  const observed = new Map<string, SurfaceStatus | undefined>();
+  const recovering = new Set<string>();
   let disposed = false;
 
   const notify = (): void => {
+    for (const [id, callbacks] of [...surfaceListeners]) {
+      if (disposed) break;
+      const current = session.getSurface(id);
+      if (observed.get(id) === current) continue;
+      observed.set(id, current);
+      for (const callback of [...callbacks]) {
+        if (disposed) break;
+        try {
+          callback();
+        } catch (error) {
+          try {
+            options.onListenerError?.(error);
+          } catch {
+            /* 观察者异常隔离。 */
+          }
+        }
+      }
+    }
     for (const listener of [...listeners]) {
       if (disposed) break;
       try {
@@ -176,7 +223,10 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
   };
 
   const snapshot = (surface: InternalSurface): SurfaceStatus => {
-    return Object.freeze({
+    const active = surface.busy
+      ? [...runs].find((run) => !run.superseded && run.surfaceId === surface.surfaceId)
+      : undefined;
+    const next: SurfaceStatus = {
       surfaceId: surface.surfaceId,
       catalogId: surface.catalogId,
       phase: surface.phase,
@@ -184,7 +234,17 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       busy: surface.busy,
       baseline: surface.baseline,
       blockReason: surface.blockReason,
-    });
+      preview: active?.view.getSurfaceView(surface.surfaceId) ?? null,
+    };
+    const cached = statusCache.get(surface.surfaceId);
+    if (
+      cached &&
+      (Object.keys(next) as Array<keyof SurfaceStatus>).every((key) => cached[key] === next[key])
+    )
+      return cached;
+    const value = Object.freeze(next);
+    statusCache.set(surface.surfaceId, value);
+    return value;
   };
 
   const touch = (): void => notify();
@@ -277,6 +337,14 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       if (terminal.status === 'committed') return acceptCommitted(ctx, terminal);
       return applyTerminalSideEffects(ctx, terminal);
     } catch (error) {
+      if (ctx.superseded) {
+        // 恢复取代的旧 run：晚到帧/终态不再触碰视图、基准与门控。
+        return {
+          status: 'canceled',
+          reason: '该 surface 已被恢复取代',
+          surfaceId: ctx.surfaceId,
+        };
+      }
       if (ctx.canceled !== null) return finishCanceled(ctx, ctx.canceled);
       if (error instanceof DOMException && error.name === 'AbortError') {
         return finishCanceled(ctx, '运行已取消');
@@ -295,7 +363,9 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
   };
 
   const assertActive = (ctx: RunContext): void => {
-    if (disposed || ctx.canceled !== null || !runs.has(ctx)) throw canceledError(ctx);
+    if (disposed || ctx.superseded || ctx.canceled !== null || !runs.has(ctx)) {
+      throw canceledError(ctx);
+    }
   };
 
   const parseJson = (data: string): Record<string, unknown> => {
@@ -328,7 +398,7 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
         typeof created.catalogId !== 'string' ||
         created.catalogId !== ctx.catalogId ||
         (ctx.surfaceId !== null && created.surfaceId !== ctx.surfaceId) ||
-        runtime.store.getState().surfaces[created.surfaceId] !== undefined
+        Object.prototype.hasOwnProperty.call(runtime.store.getState().surfaces, created.surfaceId)
       ) {
         throw new StreamFailure('生成视图与本次请求不匹配');
       }
@@ -345,11 +415,11 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
         ctx.touched.add(String(payload.surfaceId));
       }
     }
-    const accepted = runtime.dispatchChecked(message);
+    const accepted = ctx.view.dispatchChecked(message);
     if (!accepted.ok) {
       throw new StreamFailure(`本地 runtime 拒绝消息：${accepted.error?.message ?? '准入失败'}`);
     }
-    ctx.applied += 1;
+    touch();
     assertActive(ctx);
   };
 
@@ -388,8 +458,8 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       if (
         touchedIds.some((id) => id !== parsed.surfaceId) ||
         !ctx.touched.has(parsed.surfaceId) ||
-        runtime.store.getState().componentsBySurface[parsed.surfaceId]?.root === undefined ||
-        runtime.store.getState().surfaces[parsed.surfaceId]?.catalogId !== parsed.catalogId
+        ctx.view.store.getState().componentsBySurface[parsed.surfaceId]?.root === undefined ||
+        ctx.view.store.getState().surfaces[parsed.surfaceId]?.catalogId !== parsed.catalogId
       ) {
         throw new StreamFailure('生成流未通过本地完整性校验（root/归属）');
       }
@@ -406,16 +476,28 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
     assertActive(ctx);
     if (terminal.status !== 'committed') return terminal;
     const surface = requireSurface(ctx);
-    let draftsConfirmed = true;
-    if (ctx.kind === 'action' && ctx.draftSnapshot) {
-      // 确认失败：已提交事实保留，但动作出口按失同步禁用（不部分恢复）。
-      draftsConfirmed = runtime.confirmInputDrafts(ctx.draftSnapshot);
+    const candidate = ctx.view.getSurfaceView(terminal.surfaceId);
+    if (!candidate) throw new StreamFailure('提交缺少完整候选视图');
+    // 完整 final 校验与草稿协调均先于发布；失败不污染原视图或确认草稿。
+    ctx.publishing = true;
+    recovering.add(terminal.surfaceId);
+    try {
+      if (ctx.kind === 'action' && ctx.draftSnapshot)
+        runtime.commitSurfaceView(candidate, ctx.draftSnapshot);
+      else runtime.restoreSurfaceView(candidate);
+    } finally {
+      ctx.publishing = false;
+      recovering.delete(terminal.surfaceId);
     }
-    assertActive(ctx);
-    surface.phase = draftsConfirmed ? 'ready' : 'desync';
+    if (disposed) return terminal;
+    committedViews.set(
+      terminal.surfaceId,
+      Object.freeze({ view: candidate, commit: terminal.commit }),
+    );
+    surface.phase = 'ready';
     surface.busy = false;
     surface.baseline = terminal.commit;
-    surface.blockReason = draftsConfirmed ? null : '草稿确认失败，需重新生成恢复一致性';
+    surface.blockReason = null;
     touch();
     return terminal;
   };
@@ -427,8 +509,7 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
         dropPreview(ctx);
         return terminal;
       }
-      // 显式 notCommitted 但本次流已改动视图：视图与基准不再可证明一致。
-      if (ctx.applied > 0) return finishDesync(ctx, terminal.reason);
+      // 候选 patch 已隔离；可信 notCommitted 不改变原提交视图与基准。
       const surface = ctx.surfaceId !== null ? surfaces.get(ctx.surfaceId) : undefined;
       if (surface) {
         surface.busy = false;
@@ -442,10 +523,12 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
 
   /** generate 的预览丢弃：没有固定基准的半个视图不可交互，也不再保留跟踪。 */
   const dropPreview = (ctx: RunContext): void => {
-    if (ctx.createdSurfaceId !== null) {
-      runtime.store.getState().deleteSurface(ctx.createdSurfaceId);
+    if (ctx.superseded) return;
+    if (ctx.createdSurfaceId !== null) ctx.view.removeSurfaceView(ctx.createdSurfaceId);
+    if (ctx.ownsTracking && ctx.surfaceId !== null) {
+      surfaces.delete(ctx.surfaceId);
+      statusCache.delete(ctx.surfaceId);
     }
-    if (ctx.ownsTracking && ctx.surfaceId !== null) surfaces.delete(ctx.surfaceId);
     touch();
   };
 
@@ -454,8 +537,8 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       dropPreview(ctx);
       return { status: commitUnknown ? 'desync' : 'failed', reason, surfaceId: ctx.surfaceId };
     }
-    // action：提交状态不可知，或本次流已改动视图 → 关闭动作出口。
-    if (commitUnknown || ctx.applied > 0) return finishDesync(ctx, reason);
+    // action：提交状态不可知 → 关闭动作出口，候选不影响原视图。
+    if (commitUnknown) return finishDesync(ctx, reason);
     const surface = ctx.surfaceId !== null ? surfaces.get(ctx.surfaceId) : undefined;
     if (surface) {
       surface.busy = false;
@@ -478,13 +561,15 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
   };
 
   const finishCanceled = (ctx: RunContext, reason: string): RunResult => {
+    if (ctx.superseded) {
+      return { status: 'canceled', reason: '该 surface 已被恢复取代', surfaceId: ctx.surfaceId };
+    }
     // 本地取消不能证明宿主未执行；只有确定未发送的 action 保留旧资格。
-    if (ctx.kind === 'action' && (ctx.attempted || ctx.applied > 0)) {
+    if (ctx.kind === 'action' && ctx.attempted) {
       return finishDesync(ctx, `${reason}（请求可能已提交，视图需重新同步）`);
     }
-    if (ctx.kind === 'generate' && ctx.createdSurfaceId !== null) {
-      runtime.store.getState().deleteSurface(ctx.createdSurfaceId);
-    }
+    if (ctx.kind === 'generate' && ctx.createdSurfaceId !== null)
+      ctx.view.removeSurfaceView(ctx.createdSurfaceId);
     const surface = ctx.surfaceId !== null ? surfaces.get(ctx.surfaceId) : undefined;
     if (surface && ctx.kind === 'action') {
       surface.busy = false;
@@ -554,8 +639,10 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       }
       const ctx: RunContext = {
         kind: 'generate',
+        view: runtime.createViewRuntime(),
         controller: new AbortController(),
         runIdHeader: null,
+        superseded: false,
         catalogId: request.catalogId,
         surfaceId: null,
         baseline: null,
@@ -566,7 +653,6 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
         canceled: null,
         attempted: false,
         ownsTracking: false,
-        applied: 0,
       };
       return runStream(ctx, options.endpoints.generate, {
         ...(request.message === undefined ? {} : { message: request.message }),
@@ -584,10 +670,19 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
           surfaceId: request.surfaceId,
         };
       }
-      if (surface.busy) {
+      if (surface.busy || recovering.has(request.surfaceId)) {
         return { status: 'ignored', surfaceId: request.surfaceId };
       }
       const baseline = surface.baseline;
+      const current = runtime.getSurfaceView(request.surfaceId);
+      if (!current) {
+        surface.phase = 'desync';
+        surface.blockReason = '已提交视图已移除';
+        touch();
+        return { status: 'desync', surfaceId: request.surfaceId, reason: '已提交视图已移除' };
+      }
+      const view = runtime.createViewRuntime();
+      view.restoreSurfaceView(current);
       const draftSnapshot = runtime.extractLatestInputDrafts(request.surfaceId);
       const actionId = request.actionId ?? options.createActionId?.() ?? defaultActionId();
       const body = {
@@ -598,7 +693,7 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
             surfaceId: request.surfaceId,
             sourceComponentId: request.sourceComponentId,
             timestamp: new Date().toISOString(),
-            context: request.context ?? {},
+            context: structuredClone(request.context ?? {}),
             actionId,
           },
         },
@@ -613,8 +708,10 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       surface.busy = true;
       const ctx: RunContext = {
         kind: 'action',
+        view,
         controller: new AbortController(),
         runIdHeader: null,
+        superseded: false,
         catalogId: baseline.catalogId,
         surfaceId: request.surfaceId,
         baseline,
@@ -625,14 +722,109 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
         canceled: null,
         attempted: false,
         ownsTracking: false,
-        applied: 0,
       };
       return runStream(ctx, options.endpoints.event, body);
+    },
+
+    recover(input: RecoverInput): RunResult {
+      assertLive();
+      // 纯校验先行：任一失败在触碰状态前抛错（恢复拒绝保持原状态）。
+      const checked = parseSurfaceCommit(input.commit);
+      if (!checked) throw fail('恢复提交基准无效');
+      const parsed = Object.freeze({
+        sessionVersion: checked.sessionVersion,
+        contractVersion: checked.contractVersion,
+        runId: checked.runId,
+        surfaceId: checked.surfaceId,
+        catalogId: checked.catalogId,
+        catalogHash: checked.catalogHash,
+        surfaceRevision: checked.surfaceRevision,
+      });
+      const view = input.view;
+      if (!view || typeof view !== 'object') throw fail('恢复输入缺少完整视图快照');
+      if (view.surfaceId !== parsed.surfaceId) {
+        throw fail(`恢复视图 surface 与提交身份不一致: ${view.surfaceId} ≠ ${parsed.surfaceId}`);
+      }
+      if (view.catalogId !== parsed.catalogId) {
+        throw fail(`恢复视图 Catalog 与提交身份不一致: ${view.catalogId} ≠ ${parsed.catalogId}`);
+      }
+      const expectedHash = options.catalogHashes?.get(parsed.catalogId);
+      if (expectedHash === undefined || parsed.catalogHash !== expectedHash) {
+        throw fail('恢复提交的 Catalog/hash 与已加载契约不一致');
+      }
+      const previous = committedViews.get(parsed.surfaceId);
+      const sameCommit =
+        previous !== undefined &&
+        (Object.keys(parsed) as Array<keyof NexusSurfaceCommit>).every(
+          (key) => parsed[key] === previous.commit[key],
+        );
+      if (
+        previous &&
+        (parsed.surfaceRevision < previous.commit.surfaceRevision ||
+          (parsed.surfaceRevision === previous.commit.surfaceRevision &&
+            (!sameCommit || !sameView(view, previous.view))))
+      ) {
+        throw fail('恢复快照已过期或与同版本固定提交冲突');
+      }
+      if (recovering.has(parsed.surfaceId)) throw fail('该 surface 正在恢复');
+      // 先以同一配置纯重验并持有冻结副本；观察者不能改写本次恢复输入。
+      const validated = runtime.createViewRuntime();
+      validated.restoreSurfaceView(view);
+      const owned = validated.getSurfaceView(parsed.surfaceId)!;
+      recovering.add(parsed.surfaceId);
+      try {
+        runtime.restoreSurfaceView(owned);
+        for (const run of [...runs]) {
+          if (run.surfaceId !== parsed.surfaceId) continue;
+          run.superseded = true;
+          runs.delete(run);
+          run.controller.abort('恢复取代');
+        }
+        if (!disposed) {
+          const fixed = sameCommit
+            ? previous!
+            : Object.freeze({ view: owned, commit: Object.freeze({ ...parsed }) });
+          committedViews.set(parsed.surfaceId, fixed);
+          const surface = requireSurfaceById(parsed.surfaceId);
+          surface.phase = 'ready';
+          surface.busy = false;
+          surface.baseline = fixed.commit;
+          surface.blockReason = null;
+          touch();
+        }
+        return { status: 'committed', surfaceId: parsed.surfaceId, commit: parsed };
+      } finally {
+        recovering.delete(parsed.surfaceId);
+      }
+    },
+
+    getCommittedSurface(surfaceId: string): Readonly<RecoverInput> | undefined {
+      return committedViews.get(surfaceId);
+    },
+
+    subscribeSurface(surfaceId: string, listener: () => void): () => void {
+      assertLive();
+      let callbacks = surfaceListeners.get(surfaceId);
+      if (!callbacks) {
+        callbacks = new Set();
+        surfaceListeners.set(surfaceId, callbacks);
+        observed.set(surfaceId, session.getSurface(surfaceId));
+      }
+      callbacks.add(listener);
+      return () => {
+        const set = surfaceListeners.get(surfaceId);
+        set?.delete(listener);
+        if (!set?.size) {
+          surfaceListeners.delete(surfaceId);
+          observed.delete(surfaceId);
+        }
+      };
     },
 
     cancel(reason?: string): void {
       const message = reason ?? '会话取消';
       for (const run of [...runs]) {
+        if (run.publishing) continue;
         run.canceled = message;
         run.controller.abort(message);
       }
@@ -647,7 +839,15 @@ export function createClientSession(options: ClientSessionOptions): ClientSessio
       }
       runs.clear();
       surfaces.clear();
+      if (options.runtime === undefined) {
+        for (const id of Object.keys(runtime.store.getState().surfaces))
+          runtime.removeSurfaceView(id);
+      }
       listeners.clear();
+      surfaceListeners.clear();
+      observed.clear();
+      statusCache.clear();
+      committedViews.clear();
     },
 
     getSurface(surfaceId: string): SurfaceStatus | undefined {
@@ -674,4 +874,19 @@ function defaultActionId(): string {
   const cryptoRef = globalThis.crypto;
   if (cryptoRef && typeof cryptoRef.randomUUID === 'function') return cryptoRef.randomUUID();
   return `action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function sameView(a: SurfaceViewSnapshot, b: SurfaceViewSnapshot): boolean {
+  // 比较 JSON 内容而非键插入顺序；不把本地编辑模型当固定提交快照。
+  const normalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => [key, normalize(item)]),
+      );
+    return value;
+  };
+  return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }

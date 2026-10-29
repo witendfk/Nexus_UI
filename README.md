@@ -6,17 +6,17 @@ Nexus UI 是基于 A2UI v0.9 消息模型的受宿主约束的 Agent UI Runtime 
 
 ## 当前状态
 
-Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard → SSE → 渲染 → action → 同 surface patch。Catalog Contract 带版本与 hash，可发现、校验并用于外部 Agent 接入。三包 `dist` 根入口可在 workspace 使用，当前仍为私有包；当前产物尚未通过完整的 SDK 发行门禁。内存 surface 快照和 action ledger 不代替业务事务。
+Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard → SSE → 渲染 → action → 同 surface patch。Catalog Contract 带版本与 hash，可发现、校验并用于外部 Agent 接入。四包 `dist` 根入口可在 workspace 使用，当前仍为私有包；当前产物尚未通过完整的 SDK 发行门禁。内存 surface 快照和 action ledger 不代替业务事务。
 
 **S1/S2 已交付并验收**：安全基线与业务中立装配、Catalog Contract v2、声明式输入与 action、服务端权威准入、固定运行结果，以及参考消费方迁移。S2 于 2026-10-21 完成验收，随 `eb5f8cd` 于 2026-10-22 推送；验收证据与限制见 [S2 验收报告](docs/tasks/S2-ACCEPTANCE.md)。
 
 **S3 已交付并验收（2026-10-28）**：传输无关 server runtime、唯一 surface 调度、Session v1、提交事实三态、访问准入、双端背压、资源预算与取消隔离。验收证据、公开入口迁移和限制见 [S3 验收报告](docs/tasks/S3-ACCEPTANCE.md)。
 
-**S4 进行中（2026-10-28）**：S4.0 core 数组寻址、模型字节与组件数量边界已完成并通过本轮复核，契约见 [SPEC §1.1](docs/SPEC.md)。S4.1 的会话契约（`recover` 除外）与 fetch/SSE 传输已完成：新增 `packages/nexus-client`（逐条本地准入、发送不确定性与过期基准门控、取消/销毁竞态防护、SSE 分帧预算与超时释放），见 [SPEC §7](docs/SPEC.md)；视图隔离/恢复（S4.1.2）与 headless 验收矩阵（S4.1.4）待实施，随后推进 Provider/Surface 与消费方迁移。当前为四包，client 尚未声明可安装；仓外产物与发行验收在 S5，详见 [当前计划](docs/tasks/CURRENT.md)。
+**S4 进行中（2026-10-29）**：S4.0 已完成；S4.1 会话/传输、候选隔离、完整恢复与稳定订阅已实现并完成本轮缺陷整改，完整 headless 矩阵仍待独立签收。S4.2 Provider/Surface 主体已落地，React API 为 2（显式 Surface、样式按需选择）；S4.3 两处浏览器已统一消费 client，隔离只读预览与已提交 Surface，复制的 SSE/基准/草稿状态机已删除。完整矩阵、联合验收及 S4.4 浏览器/阶段验收仍待签收。当前为四个私有包，alpha 安装与仓外发行验收归 S5，详见 [当前计划](docs/tasks/CURRENT.md) 与 [SPEC §7](docs/SPEC.md)。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
-  → @nexus-ui/core 状态 → @nexus-ui/react + Host renderMap
+  → @nexus-ui/client 会话 → @nexus-ui/core 状态 → @nexus-ui/react + Host renderMap
   → 人工输入与 action → Host 业务 handler → 同 surface patch
 ```
 
@@ -50,7 +50,7 @@ Nexus_UI/
 └─ docs/                PRD → SPEC → ARCHITECTURE → DESIGN → tasks/CURRENT
 ```
 
-依赖单向：`core ← client / react / server`；`core + react ← playground`；`core + server ← playground-server`；业务宿主应用、standalone-host-demo 与 playground-server 只消费公开根入口，Nexus 不反向依赖业务。client 不依赖 React 或 server；两个浏览器示例的迁移归 S4.3。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
+依赖单向：`core ← client / react / server`；`core + client + react ← playground`；`core + server ← playground-server`；业务宿主应用、standalone-host-demo 与 playground-server 只消费公开根入口，Nexus 不反向依赖业务。client 不依赖 React 或 server；两个浏览器示例已随 S4.3 接入同一 client。完整职责与验收归属见 [ARCHITECTURE §2.0](docs/ARCHITECTURE.md)。
 
 ## 本地运行
 

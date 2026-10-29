@@ -1,7 +1,7 @@
 import { CORE_API_VERSION, PROTOCOL_VERSION, VERSION as CORE_VERSION } from '@nexus-ui/core';
 
 export const REACT_RENDERER_VERSION = '0.1.0';
-export const REACT_API_VERSION = 1;
+export const REACT_API_VERSION = 2;
 export const SUPPORTED_CORE_API_VERSION = 1;
 export const SUPPORTED_CORE_VERSION_RANGE = '0.1.x';
 

@@ -142,3 +142,6 @@ The browser run should finish with no page errors or console errors. The automat
 - The approval catalog allows only `ApprovalSummary`, `Text`, and `Button`, and only the `approve` action; the neutral scorecard catalog allows `FeedbackSummary`, `ScoreDial`, `PinnedToggle`, `SubmitCard`, `Text`, `Column` and only the `record` action. The two catalogs share nothing but the SDK.
 - No Playground catalog, built-in fallback, or browser-generated code is used.
 - Authentication, tenant isolation, audit logging, retries, and durable state are intentionally outside this demo.
+
+
+S4.3 browser integration: the app consumes `@nexus-ui/client` through the public workspace root. Session/SSE validation, fixed commits, input acknowledgement and cancellation belong to the SDK. `A2UIPreview` shows a read-only generation candidate; committed `A2UISurface` uses `actionOpen` for visible and callback gating while inputs remain editable during an action. Regeneration explicitly replaces/disposes the session; unmount releases subscriptions and readers. Canceling does not undo host business effects. Actual browser stage acceptance remains S4.4.

@@ -39,11 +39,11 @@ Agent 输出与浏览器输入都不是业务事实。Catalog hash 表示契约�
 | 包                 | 职责                                                                        | 当前情况                          |
 | ------------------ | --------------------------------------------------------------------------- | --------------------------------- |
 | `@nexus-ui/core`   | 框架与传输无关的协议、Catalog、绑定、surface 状态和 action 事件             | 已有；Catalog v2 与通用交互扩展已交付（S2） |
-| `@nexus-ui/client` | 框架无关的浏览器会话；fetch/SSE 适配、终态识别、预览/提交、取消及交互门控   | 目标新增；当前逻辑散在两个示例    |
-| `@nexus-ui/react`  | Provider、按 surface 渲染的视图、hooks、标准与自定义组件映射                | 已有；Provider/Surface 分离待实现 |
-| `@nexus-ui/server` | 框架无关的 guard、运行调度、action 准入和状态；可选 Koa/SSE 与外部 RPC 适配 | 已有；运行逻辑与 Koa 分离待实现   |
+| `@nexus-ui/client` | 框架无关的浏览器会话；fetch/SSE 适配、终态识别、预览/提交、取消及交互门控   | 已新增；会话/传输、隔离与恢复已实施，完整矩阵待签收（S4）    |
+| `@nexus-ui/react`  | Provider、按 surface 渲染的视图、hooks、标准与自定义组件映射                | 已有；Provider/Surface 主体已实施，联合验收待完成（S4） |
+| `@nexus-ui/server` | 框架无关的 guard、运行调度、action 准入和状态；可选 Koa/SSE 与外部 RPC 适配 | 已有；通用运行模块与 Koa 薄适配已交付（S3）   |
 
-目标是四包；当前仍只有 core/react/server 三包。client 的抽取依据是 playground 和 standalone-host-demo 已重复实现浏览器流消费，且缺少统一运行语义。guard、Catalog、Policy 暂作为包内模块维护。具体结构见 ARCHITECTURE，决策依据见 DESIGN。
+当前为 core/client/react/server 四个私有包，完整 client 与 React 组合仍在 S4 推进。client 的抽取依据是 playground 和 standalone-host-demo 重复实现浏览器流消费；两处消费方已随 S4.3 统一迁移，真实浏览器和完整阶段验收仍归 S4.4。guard、Catalog、Policy 暂作为包内模块维护。具体结构见 ARCHITECTURE，决策依据见 DESIGN。
 
 ### 3.2 最小接入旅程
 

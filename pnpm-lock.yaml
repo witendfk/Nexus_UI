@@ -78,6 +78,9 @@ importers:
       '@koa/cors':
         specifier: ^5.0.0
         version: 5.0.0
+      '@nexus-ui/client':
+        specifier: workspace:*
+        version: link:../../packages/nexus-client
       '@nexus-ui/core':
         specifier: workspace:*
         version: link:../../packages/nexus-core
@@ -251,6 +254,9 @@ importers:
 
   web/nexus-playground:
     dependencies:
+      '@nexus-ui/client':
+        specifier: workspace:*
+        version: link:../../packages/nexus-client
       '@nexus-ui/core':
         specifier: workspace:*
         version: link:../../packages/nexus-core

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { CatalogRegistry, toDisplayString } from '@nexus-ui/core';
 import type { ActionEvent } from '@nexus-ui/core';
-import { A2UIProvider, useA2UI } from '../src';
+import { A2UIProvider, A2UISurface, useA2UI } from '../src';
 import type { RenderMap } from '../src';
 
 export const MINIMAL_CATALOG_ID = 'https://example.com/catalogs/nexus-minimal/v1';
@@ -147,6 +147,7 @@ export function MinimalA2UIHost({ onAction }: { onAction?: (event: ActionEvent) 
       onAction={onAction}
     >
       <MinimalHostTransport />
+      <A2UISurface surfaceId="approval-001" />
     </A2UIProvider>
   );
 }

@@ -1,6 +1,6 @@
 # ARCHITECTURE — SDK 架构与接入模型
 
-更新：2026-10-27。本文同时描述现状和已决策目标，各节显式标注。需求见 [PRD](PRD.md)，字段与 wire 契约见 [SPEC](SPEC.md)，取舍见 [DESIGN](DESIGN.md)，实施状态只见 [CURRENT](tasks/CURRENT.md)。目标图与示意 API 不代表当前已经交付。
+更新：2026-10-29。本文同时描述现状和已决策目标，各节显式标注。需求见 [PRD](PRD.md)，字段与 wire 契约见 [SPEC](SPEC.md)，取舍见 [DESIGN](DESIGN.md)，实施状态只见 [CURRENT](tasks/CURRENT.md)。目标图与示意 API 不代表当前已经交付。
 
 ## 1. 系统定位与架构约束
 
@@ -34,7 +34,7 @@ Nexus_UI/
 └─ docs/                     PRD / SPEC / ARCHITECTURE / DESIGN / tasks/CURRENT
 ```
 
-当前依赖为 `react → core`、`client → core`、`server → core`、`playground-server → core + server`；浏览器流处理仍散在 playground 与 standalone-host-demo（迁移归 S4.3）。`packages/nexus-client/` 已随 S4.1 创建（2026-10-28），会话与传输已实现，恢复归 S4.1.2、React 接入归 S4.2；两个示例消费方尚未切换。自定义交互和非 Koa 接入尚未完成。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
+当前依赖为 `react → core`、`client → core`、`server → core`、`playground-server → core + server`；两处浏览器均通过 `client` 处理网络会话（S4.3，2026-10-29）。`packages/nexus-client/` 已随 S4.1 创建（2026-10-28），会话/传输、视图隔离与恢复已实现，React Provider/Surface 已有主体代码；两个示例已切换到 client；独立矩阵、联合与浏览器阶段验收见 CURRENT。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
 
 四包构建先清理各自 dist，再编译并完成现有 ESM import 修补；根 build/build:packages 串行执行，避免依赖包清理竞态；产物清单对照当前 src，防止源码迁出后遗留旧 listener、模型 SDK、业务模块或测试。此为 S1 产物卫生检查，不替代 S5 的仓外发行验收。
 
@@ -55,7 +55,7 @@ flowchart TB
 
 箭头为代码依赖；虚线为通信。client 与 server 不互相 import 实现，React 不强依赖 client。共享的纯消息、运行元数据与组件能力类型放在 core；请求读取、SSE framing 和 HTTP 对象留在适配层。
 
-`packages/nexus-client/` 已随 S4.1 新增（2026-10-28）：会话状态机与可注入 transport（自带 fetch/SSE），React 接入归 S4.2。参考程序已在 `examples/playground-server/`，只通过 SDK 根入口消费三包/后续四包。现有 web 路径保留，不为整齐重命名无关目录；根 dev/递归脚本已随迁移更新。
+`packages/nexus-client/` 已随 S4.1 新增（2026-10-28）：会话状态机与可注入 transport（自带 fetch/SSE），React 接入归 S4.2。参考程序已在 `examples/playground-server/`，只通过 SDK 根入口消费对应包，client 消费迁移已随 S4.3 落地。现有 web 路径保留，不为整齐重命名无关目录；根 dev/递归脚本已随迁移更新。
 
 不额外拆分 guard、Catalog、Policy 或 Agent 包。Node server 的根入口不启动 listener、不读取项目环境、不隐式依赖模型 SDK；Koa/RPC 适配为显式可选能力。实际产物验证框架无关入口的可加载性。
 
@@ -120,9 +120,9 @@ dispatch(message) ────────────────────�
 
 CoreStore 每 runtime 一份，按 surfaceId 隔离。JSON Pointer 更新不可变；树构建使用显式栈、环检测、共享子树 memo、节点/深度预算。继续使用有界整树重建，不自研 reconciler。
 
-### 4.2 目标状态接口
+### 4.2 受控状态接口（S4.1.2 已实施）
 
-core 提供稳定订阅、状态快照/恢复与受控写回原语；订阅可解除，快照适合 React 稳定读取。client 基于这些原语隔离预览、已提交视图和用户本地输入草稿。core 不读取 SSE done，也不拥有网络连接。
+core 提供 `getSurfaceView/subscribeSurface`、完整重验的 `restoreSurfaceView`、协调发送代次与新草稿的 `commitSurfaceView`、级联渲染清理的 `removeSurfaceView`，以及只复用 Catalog/预算的 `createViewRuntime`。完整快照包含 surfaceId/catalogId、组件、模型及可选 theme/sendDataModel；入界隔离、出界冻结、未变引用稳定。渲染层经 `getLastRoot/subscribeSurfaceRender` 读取稳定根与可解除订阅。client 将每次流写入隔离 runtime，成功后发布到身份稳定的公开 runtime；候选与固定提交快照分别由状态 preview 和 getCommittedSurface 公开。core 不读取 SSE done，也不拥有网络连接。
 
 输入绑定和 action context 仍由 core 的通用解释器解析。组件能力来自 Catalog；读/写路径必须防保留段与继承链，值按声明校验。原始低层 runtime 继续支持宿主本地消息流；高层 client 管理的 surface 经 client 的门控 action 出口提交。
 
@@ -141,7 +141,7 @@ client session 创建并持有稳定 runtime、运行状态和 transport；React
       → Surface(surfaceId=B)
 ```
 
-`createClientSession` 已由 client 根入口导出（S4.1.1/§7 会话与传输）；`A2UISurface` 仍为 S4.2 目标名称，当前未导出。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
+`createClientSession` 已由 client 根入口导出（S4.1.1/§7 会话与传输）；`A2UISurface` 已从 React 根入口导出（API 2）；仍需完成 S4.2 联合验收。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。`A2UIPreview(view, renderMap)` 是无需 Provider 的只读展示，不接 transport、不写 runtime，展示已准入但可能未到齐的候选引用；宿主选择布局，预览不授予动作资格。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
 
 外部 runtime/session 由创建者销毁；Provider 自建 runtime 在卸载时释放。视图层使用可取消且稳定快照的订阅，避免 React 并发渲染下的状态撕裂。标准样式显式选择，不在 import 时注入全局动画。
 
@@ -156,7 +156,7 @@ client session 创建并持有稳定 runtime、运行状态和 transport；React
   → error / cancel / 缺失终态：丢弃预览，按 commitState 决定是否失同步
 ```
 
-当前实现（S4.1.1/S4.1.3）：client 通过 core 的 `dispatchChecked` 取得每条消息的完整准入结果，不读取有界错误日志推断接受。运行先登记再通知；发送前、写入前与 EOF 后的终态副作用前检查取消/销毁。open 已调用即可能送达宿主；网络失败、发送后取消及未细分原因的准入拒绝均关闭 action。默认 transport 对正常流/错误体执行同一超时和取消边界，按单帧内容限制缓冲，详情见 SPEC §7。上图的隔离预览/完整视图恢复仍待 S4.1.2，当前部分写入失败以失同步门控收敛。
+当前实现（S4.1.1/S4.1.3）：client 通过 core 的 `dispatchChecked` 取得每条消息的完整准入结果，不读取有界错误日志推断接受。运行先登记再通知；发送前、写入前与 EOF 后的终态副作用前检查取消/销毁。open 已调用即可能送达宿主；网络失败、发送后取消及未细分原因的准入拒绝均关闭 action。默认 transport 对正常流/错误体执行同一超时和取消边界，按单帧内容限制缓冲，详情见 SPEC §7。隔离候选/完整恢复已随 S4.1.2 落地；候选不写公开 runtime，两个应用通过纯展示 `A2UIPreview` 渐进渲染，成功后挂载已提交 `A2UISurface`。
 
 EOF 不是 done。失败后可以保留上次已提交视图展示，但提交结果未知时不能继续执行其 action。取消须关闭 reader/监听器并阻止晚到事件覆盖新 run；frame、响应大小和处理时间有上限。恢复使用重新生成或宿主提供的受控快照；不盲目重发业务操作。
 
@@ -218,7 +218,7 @@ S3.1 锁定（2026-10-22）：调度队列按 runtime 实例隔离、generation 
 
 `done` 只证明本次 UI 提交；`error`、断线或 canceled 都不能证明业务未执行。SDK 不回滚已执行的宿主副作用，不自动重试 action。宿主可提供不透明操作关联标识，client 把结果未知交给宿主恢复流程。
 
-当前实现没有完整 client 会话隔离；server 仍存在双锁和模块全局队列，ledger 的 failed 可能允许重入。这些属于迁移差距，不能作为已实现的上述保证。
+当前 client 已实现候选隔离与受控恢复，server 已随 S3 完成唯一调度与提交事实整改；完整 S4 矩阵及浏览器验收仍待签收，不以当前实现替代阶段验收。
 
 ## 8. 安全、资源与诊断
 

@@ -22,7 +22,8 @@
     "@nexus-ui/server": "workspace:*",
     "koa": "^2.15.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@nexus-ui/client": "workspace:*"
   },
   "devDependencies": {
     "@testing-library/react": "^15.0.7",

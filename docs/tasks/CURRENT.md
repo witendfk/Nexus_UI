@@ -1,12 +1,12 @@
 # CURRENT — 唯一任务与进度源
 
-更新：2026-10-28。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
+更新：2026-10-29。需求、契约、结构、决策分别见 [PRD](../PRD.md)、[SPEC](../SPEC.md)、[ARCHITECTURE](../ARCHITECTURE.md)、[DESIGN](../DESIGN.md)。本文件只保留当前详细计划、后续阶段概要、已验收摘要与待办；已完成阶段的拆分、修复过程和中间快照从 Git 历史追溯，最终验收证据保留在阶段报告。
 
 ## 当前结论
 
 **产品方向：宿主约束的 Agent UI Runtime SDK。** SDK 提供协议、Catalog、绑定、渲染、运行与交互基建；业务 prompt、模型/工具编排、业务权限与副作用由宿主负责。评审覆盖 SDK 与公开接入契约，不评审接入方业务工程；验证宿主与 Agent 尚未选定，不阻塞确定性夹具验收。
 
-**当前节点：S4 进行中（2026-10-28）。** S4.0 core 资源边界已完成并通过复核；S4.1 的会话契约（S4.1.1，`recover` 除外）与传输适配（S4.1.3）已实现并完成六项 P1 复核整改，`packages/nexus-client/` 已落地；S4.1.2 视图隔离/恢复与 S4.1.4 headless 验收待实施。S3.1–S3.7 已验收，S3.7 随 `021f27f` 推送，历史矩阵与限制见 [S3-ACCEPTANCE](S3-ACCEPTANCE.md)。S1/S2 已验收；当前 core/react/server/client 四包，client 为 S4 新增、alpha 安装声明归 S5。按 DESIGN D12 保留分包，通过层内高层 API 简化接入，暂不新增总门面包。
+**当前节点：S4 进行中（2026-10-29）。** S4.0 已完成并复核；S4.1 会话/传输主体随 `be6a9df` 交付。本轮补齐并整改 core 完整视图准入/发布/删除、client 独立候选与固定提交快照、草稿协调、recover 过期/冲突拒绝及按 surface 稳定订阅；S4.1.4 已有 7 项公开产物验收和配套定向回归，仍待完整矩阵独立签收。S4.2 Provider/Surface 主体已落地，本轮修复配置更新、稳定订阅与自定义动作门控，React API 提升为 2；S4.3 两处 client 消费迁移已实施，S4.1 完整矩阵独立签收、S4.2 联合验收与 S4.4 浏览器/阶段验收仍待完成。S3.1–S3.7 已验收，随 `021f27f` 推送，历史矩阵与限制见 [S3-ACCEPTANCE](S3-ACCEPTANCE.md)。S1/S2 已验收；当前四个私有包，alpha 安装声明归 S5。按 DESIGN D12 保留分包，通过层内高层 API 简化接入。
 
 ## 阶段与依赖
 
@@ -16,7 +16,7 @@
 | S1 安全基线与业务中立 | 已验收 | 安全防护、显式装配、参考程序迁出、早期产物检查 |
 | S2 Catalog v2 与交互扩展 | 已验收 | 声明驱动交互、共享准入、固定运行结果与消费方迁移 |
 | S3 通用 server runtime | 已完成（2026-10-28，验收报告 [S3-ACCEPTANCE](S3-ACCEPTANCE.md)） | 依赖 S2；单一调度、Session 与提交语义、Koa/RPC 薄适配 |
-| S4 client 与可嵌入 React | 进行中（S4.0 完成，S4.1.1/S4.1.3 完成，S4.1.2 待实施） | 依赖 S2/S3；core 边界、新 client、Provider/Surface、消费方迁移 |
+| S4 client 与可嵌入 React | 进行中（S4.1 整改及 S4.2 主体已实施，完整矩阵/联合验收待签收） | 依赖 S2/S3；core 边界、新 client、Provider/Surface、消费方迁移 |
 | S5 独立契约验收与发行 | 待实施 | 依赖 S1–S4；仓外安装、公开 API/兼容、浏览器和 CI 门禁 |
 
 各实施切片同步消费方与迁移说明，保持已交付路径可运行；破坏性变化明确版本，不长期保留两套通用解释器。
@@ -57,36 +57,52 @@ S3 验收时仍为私有三包，未执行仓外安装、真实浏览器或远�
 
 完成判据：自定义控件、双 surface 独立更新/删除、缺失 done、坏流顺序、取消/晚到响应、unknown、恢复、卸载释放在 headless 和相关 React 用例验证；真实浏览器验证宿主布局嵌入、输入、action、错误反馈与基本可访问性。使用契约 fixture 即可，不依赖真实模型或指定业务应用。
 
-### S4 拆分（2026-10-28）
+### S4 交付单元与依赖（2026-10-28）
 
-| ID | 交付 | 主要位置 | 完成判据 |
-| --- | --- | --- | --- |
-| S4.0 | core 直调用边界收紧（入口优先） | core `dataModel/strict-path.ts`、runtime 写回/协议更新路径 | **已完成并复核（2026-10-28）**：数组越界/模型字节/组件数量上限，合法声明下输入与确认的证伪测试、生成/action 资源分类；契约见 SPEC §1.1 |
-| S4.1 | client 会话与传输 | 新建 `packages/nexus-client/`（依赖 core，不依赖 React/server）及必要 core 原语 | 按下方 S4.1.1–.4 逐项验收：契约/包骨架 → 视图与草稿恢复 → fetch/SSE → headless 公开入口验收；全部完成后才交付 client |
-| S4.2 | React Provider/Surface | `packages/nexus-react` | `A2UIProvider` 只提供上下文与订阅所有权；`A2UISurface(surfaceId)` 按宿主布局渲染；renderMap/回调/父重渲不重置 runtime；外部 runtime 创建者销毁、自建卸载释放；订阅可解除、并发渲染无状态撕裂；样式显式选择不随 import 注入 |
-| S4.3 | 消费方迁移 | `web/nexus-playground`、`examples/standalone-host-demo` 浏览器侧 | 两处删除复制的 SSE 消费逻辑，改用同一 client 状态机；展示禁用态与动作出口双重门控；核对 S1 遗留 React 重复 key 警告 |
-| S4.4 | 阶段验收 | `docs/tasks/S4-ACCEPTANCE.md` | 完成判据矩阵（自定义控件、双 surface、坏流、取消/晚到、unknown、恢复、卸载释放）在 headless 与 React 用例证据化；真实浏览器验收（布局嵌入/输入/action/错误反馈/可访问性）实际执行记录；conformance/门禁记录；S5 交接 |
+保留 S4.0–S4.4 与已有 S4.1.1–S4.1.4 编号。每个交付单元按能力验收；S4.1.2 内用 A/B/C 表示提交与复核检查点，进度只在本文件维护。每个检查点随实现补单测/证伪并执行相关门禁，S4.1.4 做跨场景验收，不承担延后的基础测试。
 
-实施顺序：S4.0 验收 → S4.1.1 → S4.1.2 → S4.1.3 → S4.1.4 → S4.2 → S4.3 → S4.4。工程门禁随每个切片执行；client 精确类型在 S4.1.1 同步 SPEC §7，职责与恢复决策同步 ARCHITECTURE §4/§5、DESIGN D5/D6/D7，不提前宣称目标能力已交付。
-
-### S4.1 子任务（S4.1.1 与 S4.1.3 已完成，2026-10-28；S4.1.2/S4.1.4 待实施）
-
-**S4.1 实施进度（2026-10-28）**：`packages/nexus-client/` 已落地——`createClientSession`（稳定 runtime 外部注入或自建、per-surface `streaming/ready/desync` 快照与 `actionOpen` 门控、可解除订阅、`generate/action/cancel/dispose`、`RunResult` 五态 committed/failed/canceled/desync/ignored）、可注入 `SessionTransport` 契约（`{ runIdHeader, frames, close? }`）与 `fetchSseTransport`（POST fetch/SSE、content-type 门控、非 2xx 抛错、幂等 close 释放 reader）。会话状态机语义抽取自两个参考浏览器：响应头权威 runId 关联（缺失不采信 done）、done 身份/catalogHash 按宿主契约 hash 表门控、action 基准 revision 前进、生成视图归属与 root 校验、草稿随 `nexus.inputs` 发送并在成功后 confirm、终态后额外事件使整条流无效（done 已验证但流无效则不生效）、在途重复 action 显式 ignored、双 surface 独立。事件解释复用 core `parseSessionEvent`+`createSessionStreamCheck`，未复制协议解释器。
-
-**当前整改结果（2026-10-28）**：原有运行级取消、失败分级、资源预算、close、常量同源与构建类型边界已保留；本轮 SDK 复核发现的六项 P1 已修复：①core 新增 `dispatchChecked`，client 逐条核对完整准入结果，本地拒绝不能借 done 提升基准/确认草稿；②open 未返回的网络失败及已发送取消按提交不确定关闭 action；③准入拒绝统一失同步，error（含 beforeStart）核对 runId/surface；④运行先登记再通知，发送/写入/EOF 与终态副作用前检查失效，防同步 cancel/dispose 和正常 EOF 复活；⑤错误响应体共用空闲/总时长/字节与取消边界，处理 reader 接管竞态，关闭不等待自定义 cancel；⑥按完整帧与残余半帧分别检查限额，UTF-8/CRLF 切分不改变接受结果。详细契约归 SPEC §1.1/§7，不在此重复实现日志。
-
-**本轮验证（2026-10-28，Node v24.16.0）**：core 360 项、client 62 项通过；新增 29 项回归（core 2/client 27），含模型预算/Catalog 本地拒绝的生成与 action、草稿保留、响应丢失、准入拒绝、beforeStart 绑定、同步取消/销毁、done 后取消再正常 EOF、挂起错误体、reader 接管窗口、消费暂停总时长、所有单切点/逐字节 UTF-8 与混合换行。七组临时撤销保护实验对应失败 4/1/2/1/1/1/4 项，恢复源码后通过。先构建 core，再完成根 build、构建后 typecheck、根 lint、递归包 lint、根 test，均 exit 0；根测试 **1106 项通过**（core 360/client 62/server 448/React 51/playground 38/standalone 45+11/参考服务 91）。根 test 首次因沙箱内 tsx IPC `listen EPERM` 退出 1，经授权在沙箱外重跑同一命令后通过。变更源码格式、文档链接/表格结构与 diff 检查通过。未执行真实浏览器、仓外安装、远端 CI；本轮定向反例不代替 S4.1.4 共享 oracle/公开入口完整验收。
-
-**待实施**：S4.1.1 的 `recover` API 与状态转移文档随 S4.1.2 交付（恢复原语是其前置）；S4.1.2 core 受控快照/恢复原语与恢复流程、预览隔离（当前以「已应用补丁即 desync」代替，见 SPEC §7 失败分级）；S4.1.4 验收矩阵。
-
-| ID | 核心交付 | 子任务与验收边界 |
+| ID | 交付 | 当前状态与完成判据 |
 | --- | --- | --- |
-| S4.1.1 | 会话契约与包骨架 | 定型 `createClientSession`、稳定 runtime、session/per-surface 快照与可解除订阅、generate/action/cancel/recover/dispose、可注入 transport 类型；列出状态转移、错误与所有权。会话内同 surface 至多一个活动 run，重复 action 显式拒绝，不同 surface 独立；取消/恢复/dispose 使旧 run 失效。区分展示视图、固定提交基准、可交互状态；恢复输入包含完整视图与提交身份，不接受仅刷新元数据。建立包配置、根导出/API 快照与最小契约测试，依赖只指向 core |
-| S4.1.2 | 视图隔离、草稿协调与恢复 | 先盘点并补齐 core 的受控 surface 快照/恢复/订阅原语：入界出界隔离、完整校验与资源预算、单 surface 原子替换及删除，不以裸 store 修改绕过检查。client 保持 runtime 身份稳定，按 surface 隔离预览、已提交视图与草稿；仅本次生成完整建立的视图可提升，action 基于真实提交基准；发送时 extract，成功且完整接受后 confirm，保留请求期间新编辑与 serial。失败丢弃预览，unknown/身份不符/本地拒绝标失同步并禁用 action；恢复须重验完整快照及 surface/Catalog/hash/revision 与提交身份，一次恢复视图和基准，不能查询最新 revision 给旧视图续资格。用注入的确定性 transport 验证原子失败、引用隔离、双 surface 与取消/晚到，不实现业务结果库或自动 action 重试 |
-| S4.1.3 | fetch/SSE 适配 | 实现可替换的 POST fetch/SSE transport，复用 core Session 解析/序列校验，不复制协议解释器；HTTP 以响应头 runId 关联 start/done，非 HTTP transport 显式提供同等运行身份。content-type、UTF-8 分片、frame/总响应、超时及非法配置均有明确预算/拒绝行为；EOF 缺终态、重复终态/终态后事件失败；每次 runtime 写入前检查 run 是否仍有效。取消/失败/dispose 关闭 reader、移除监听与 timer，晚到结果不能覆盖新运行；用真实 Response/ReadableStream 与挂起请求验证清理、请求期间编辑和失同步，不依赖 React/server 实现 |
-| S4.1.4 | headless 公开契约验收 | 从本次构建的 core/client 公开根入口验证生成 → 提交 → 输入/action → patch → 失败/unknown → 恢复链路；实际读取共享正常/非法 Session 与 Catalog fixture。矩阵覆盖自定义输入/action、两个 Catalog、双 surface 更新/删除、缺失 done、坏顺序、done-only 生成、身份/版本不符、取消/晚到、恢复拒绝、请求期间编辑、订阅与 dispose 幂等释放；断言视图、草稿、固定基准、动作门控与资源清理，而非仅计数或状态字符串。完成相关单测、根 test、构建/typecheck/lint 和迁移说明后进入 S4.2；真实浏览器与仓外发行分别留 S4.4/S5 |
+| S4.0 | core 直调用边界 | **已完成并复核**：数组寻址、模型字节与组件数量上限；合法声明下输入与确认反例、生成/action 资源分类。契约见 SPEC §1.1 |
+| S4.1 | 框架无关 client | **实现与复核整改已落地，完整矩阵待签收**：独立候选/原子发布、草稿协调、固定提交快照、recover、稳定订阅与传输；依赖 core，与 React/server 实现无依赖 |
+| S4.2 | React Provider/Surface | **主体已落地，依赖 S4.1 完整矩阵后做联合验收**：Provider 只提供上下文；A2UISurface 按宿主布局与 surfaceId 独立渲染。稳定 runtime/快照、可解除订阅、无并发状态撕裂；标准/自定义动作禁用态和出口门控；外部实例归创建者销毁，自建实例卸载释放；样式显式选择；配置/父重渲不重置状态 |
+| S4.3 | 消费方迁移 | **已实施（2026-10-29）**：两处浏览器只经公开 client 根入口生成/action/取消/销毁；复制的 SSE、基准、信封与草稿确认逻辑已删除。只读 A2UIPreview、已提交 Surface 和自定义动作禁用/出口双门控；共享 DAG 重复 key 修复并验证 patch/重排 DOM 身份。验收证据见下方 S4.3 记录 |
+| S4.4 | S4 阶段验收 | **待实施，依赖 S4.3**：汇总 headless/React 矩阵，实际执行浏览器布局/输入/action/错误反馈/可访问性与根门禁、conformance；记录 S4-ACCEPTANCE 和 S5 交接。仓外安装、发行产物与远端 CI 仍归 S5 |
 
-受控恢复快照由宿主提供可信来源，SDK 验证结构与视图/提交身份一致性；不因此新增业务查询模型或强制 server 恢复 HTTP 路由。React 仍可只消费本地 core runtime，不强依赖 client。以上只细化既定 S4 范围，不启动实现。
+当前剩余验收：**S4.1 完整矩阵独立签收 → S4.2 联合验收 → S4.4 浏览器与阶段验收**。S4.3 实施和定向回归不替代前两项独立签收，也不代表 S4 整体完成。
+
+### S4.1 子任务与状态
+
+| ID | 核心交付 | 当前状态、职责与退出条件 |
+| --- | --- | --- |
+| S4.1.1 | 会话契约与包骨架 | **契约已收口（2026-10-29）**：SPEC §7 已明确 recover 输入/拒绝/状态转移、按 surface 订阅与稳定快照、runtime 装配与销毁所有权；重复 action 显式 ignored，不同 surface 独立 |
+| S4.1.2 | 视图隔离、草稿协调与恢复 | **A/B/C 三个检查点已实现（2026-10-29）**：core 完整 Protocol/Profile/Catalog/引用/预算重验、原子发布、草稿协调与渲染清理；client 独立候选、固定提交快照、recover 过期/冲突拒绝及旧 run 失效、按 surface 稳定订阅；需随完整矩阵独立签收 |
+| S4.1.3 | fetch/SSE 传输适配 | **已实现，定向传输回归通过**：POST、运行标识头透传、content-type 门控（非 event-stream 拒绝）、UTF-8/分帧、abort/reader 释放；可注入替换。Session 事件语义与顺序由会话层复用 core 解析/检查。帧/总字节/建连/空闲/总时长预算已明确并实现（SPEC §7），不延期到 React |
+| S4.1.4 | headless 公开契约验收 | **已有公开产物验收，完整矩阵待独立签收**：`test/acceptance.test.ts` 7 项从构建产物入口驱动共享 fixture oracle（accept-generation/accept-action-with-inputs），矩阵覆盖双 Catalog、done-only、本地拒绝、请求期间编辑、稳定快照、订阅/dispose 幂等 |
+
+**S4.1.2 的三个检查点**（主体及本轮整改已实现；最终以矩阵签收为准）：
+
+| 检查点 | 交付边界 |
+| --- | --- |
+| A · core 受控状态原语 | 先盘点现有 store/订阅/草稿原语；补完整 surface 快照读取、校验后原子替换与删除、稳定读取和按 surface 订阅。入界/出界引用隔离，替换与删除协调草稿；完整执行 Protocol/Profile/Catalog、引用完整性与资源边界。core 只处理视图内容/声明，不解释 Session done、不联网。精确公开类型随实现写回 SPEC/ARCHITECTURE |
+| B · client 预览与提交隔离 | 基于 A 分开预览和已提交视图，保持公开 runtime 身份稳定；按 surface 管理运行所有权和订阅快照，向 S4.2 提供稳定读取。仅本次完整生成的视图可提升；action 基于实际提交基准；成功完整接受后提升视图与基准，失败丢弃预览，按提交事实及基准可信度保留或关闭 action。所有收敛路径使用受控原语 |
+| C · 草稿协调与完整恢复 | **已实现**：发送时 extract，成功只 confirm 发送代次；recover 重验完整视图与提交身份，成功一次恢复视图/基准/动作资格并使旧 run 失效（superseded 晚到防护）；恢复拒绝保持原状态 |
+
+各检查点的验收清单：
+
+- **A**：同 Catalog/路径合法替换成功后，非法 schema/引用/预算整体拒绝，视图/有效草稿不变；修改传入或返回嵌套对象不污染内部状态；替换/删除 surface B 不改变 surface A，也不触发 A 的专属订阅；状态未变时快照引用稳定；解除订阅后不再通知。
+- **B**：正常生成/action 成功提升；done-only、缺 root、坏消息或缺 done 不提升；notCommitted/unknown/取消后预览不污染提交视图；失同步保持动作关闭；同步 dispose、晚到帧及同 surface 运行竞争不复活/覆盖视图；双 surface 独立。基础输入仍可用，完整请求期间编辑语义在 C 验收。
+- **C**：挂起真实请求后继续编辑，验证可见值与下次 inputs 一致；成功不误删新 serial，失败/取消不误确认。合法恢复重新启用匹配视图；过期/身份错配/非法/超预算恢复不改视图、基准与草稿；恢复后旧响应不能再写入。recover 不用查询到的最新 revision 给旧视图续资格，不自动重试业务 action。
+
+**S4.1.4 验收矩阵**：自定义输入/action、两个 Catalog、双 surface 独立更新/删除、缺失 done、坏顺序、done-only 生成、身份/版本错配、本地拒绝、发送不确定性、同步取消/销毁、晚到响应、unknown、合法/非法恢复、请求期间编辑、稳定快照、订阅与 dispose 幂等释放。断言视图、草稿、固定基准、动作门控和资源清理；复用 A/B/C 的定向证据并补跨模块公开入口对测，不复制同名手写场景替代共享 oracle。当前已有 `packages/nexus-client/test/acceptance.test.ts` 7 项公开产物对测；core/client/React 定向回归补足本轮缺陷反例。完整矩阵需列明各 cell 对应证据并独立签收，不以后续消费方迁移替代 S4.1 门禁；真实浏览器归 S4.4。
+
+受控恢复数据由宿主提供可信来源，SDK 验证结构与视图/提交身份的一致性，不建设业务结果库或强制新增恢复 HTTP 路由。React 仍可只消费本地 core runtime；S4.2 的此路径用不依赖 client 的用例单独验收。
+
+**2026-10-29 复核整改范围**：已授权的全部 P1/P2——隔离候选、恢复全链准入/版本拒绝/可信来源边界、观察者异常隔离、受控删除渲染清理、renderMap 更新、自定义动作统一门控、消费入口构建与订阅释放、稳定会话快照及文档一致性。core 仍不解释 Session；恢复权威来源由宿主保证，不声称任意 JSON 可认证。React API 2 的显式 Surface/样式迁移见包 README。
+
+本轮 Node v24.16.0 实测：先构建 core，最终根 build、构建后 typecheck、根/递归包 lint、根 test 全部 exit 0；**1149 项通过**（core 360+14/client 84/server 448/React 58/playground 38/standalone 45+11/参考服务 91），conformance 36 pass / 44 已决策偏差 / 0 fail。相对评审快照新增 26 项定向反例（core 7/client 12/React 7）。临时撤销候选隔离、恢复 Profile、删除根缓存、自定义 action 门控、renderMap 更新五组保护，对应测试均 exit 1，失败数 5/1/1/2/1；完整恢复源码后最终门禁通过。根 test 首次受沙箱 tsx IPC EPERM 阻止，授权原命令重跑 exit 0。变更源码格式、文档本地链接/结构、diff 检查通过；按 SDK review 四维复核，本轮已授权缺陷已关闭。真实浏览器、仓外安装、远端 CI 与 S4 阶段验收仍未执行；该次快照的 React 共享 DAG 重复 key 警告已由下方 S4.3 修复。
+
+**已交付与验证基线（2026-10-28，`be6a9df`）**：会话主体与传输已实现，六项 P1 已关闭（逐条本地准入、发送不确定性、准入门控、重入/EOF 失效、错误体有界清理、分片无关帧预算）。Node v24.16.0 下先构建 core，再执行根 build、构建后 typecheck、根/递归包 lint、根 test，均 exit 0，**1106 项通过**（core 360/client 62/server 448/React 51/playground 38/standalone 45+11/参考服务 91）；新增 core 2/client 27 项，七组撤销保护实验失败 4/1/2/1/1/1/4 项，恢复源码后通过。根 test 首次因沙箱 tsx IPC EPERM 退出，经授权原命令重跑通过；源码格式、文档链接/结构和 diff 检查通过。此为已提交快照的历史证据，不代表本次任务重划或完整 S4.1 已验收；真实浏览器、仓外安装、远端 CI 未执行。
 
 **S4.0 实施与复核记录（2026-10-28）**：core 直调用边界收紧落地，三项评审整改已关闭；本切片提交从 Git 历史追溯。
 
@@ -94,6 +110,18 @@ S3 验收时仍为私有三包，未执行仓外安装、真实浏览器或远�
 - 模型规模上限（RuntimeOptions 新增，默认常开，非法值构造抛错）：`maxDataModelBytes`（默认 1 MiB，UTF-8 JSON）——updateDataModel 应用后超限整条消息以 FEATURE_UNSUPPORTED 结构化拒绝（状态不变），setInputValue/confirmInputDrafts 超限返回 false（全或无语义不变）；`maxComponentsPerSurface`（默认 10000，与渲染 maxNodes 同量级）——updateComponents 超限整条消息拒绝。均不依赖 catalogRegistry 注入。
 - 证伪入口改为 core `test/runtime/model-bounds.test.ts`（12 项），合法 Catalog 下证明输入界内/恰好上限可写、超 UTF-8 字节拒绝且模型/草稿不变；补实际输入数组越界/紧凑追加与 confirm 恢复超限的整体拒绝/合法恢复对照。server `test/agent/storage-budgets.test.ts` 补生成/action 同类错误与 revision 原子性。临时移除输入字节检查、确认字节检查、生成资源映射时，对应三组测试均断言失败（exit 1），随后完整恢复源码。此前缺声明的假阳性测试已替换。
 - 本轮 Node v24.16.0 实测：先构建 core，再执行根 `pnpm build`、构建后 `pnpm typecheck`、根 `pnpm lint`、`pnpm -r --if-present lint`、根 `pnpm test`，均最终 exit 0；根测试 **1042 项通过**（core 358、server 448、React 51、playground 38、standalone 45+11、参考服务 91），含 conformance 36 pass / 44 已决策偏差 / 0 fail。根 test 首次在沙箱内因 tsx IPC socket `listen EPERM` 退出 1，经授权在沙箱外重跑同一命令后完整通过；不以单包重跑代替根门禁，不对未复现的并行失败归因环境。变更 TypeScript 格式、文档链接/表格结构与 `git diff --check` 通过；SDK review 四维复核未发现未关闭项。未执行真实浏览器、仓外安装或远端 CI。
+
+### S4.3 消费方迁移（2026-10-29）
+
+- 两处应用新增 `@nexus-ui/client: workspace:*`，只经公开根入口装配同一个 client 实现；会话拥有稳定 runtime，Provider 显式注入。生成/action/失败/取消/晚到/卸载的 Session 判断、固定基准与草稿发送确认由 client 负责；宿主只保留布局、Catalog 加载和控件状态。
+- `A2UIPreview` 是不依赖 client 的纯 React 展示入口，从已准入候选快照构建 VNode；原生 fieldset 禁用，输入写回和 action 回调均关闭。生成逐步预览，完整成功才挂载 `A2UISurface`；action 期间保持提交界面及输入可编辑。业务结果仍由宿主认定。
+- 宿主重新生成明确销毁旧会话并 keyed 重挂 Provider；切换 Catalog、卸载解除订阅并 dispose；取消只作用于在途请求，失同步旧视图保留展示并禁动作。标准和自定义 action 组件同时展示禁用态与统一回调门控，非 Button 夹具补键盘入口。
+- 删除两份 SSE 工具、playground action 信封工具与其 9 项实现专属测试；公共 transport 保留分片/超时/取消/资源回归，补 metadata/多行/尾帧证据。浏览器夹具补 Session v1 start，失败生成验证候选清除，卸载断言真实准入/发布边界。
+- renderer 以同父级的 `[componentId, occurrence]` 标识引用，涵盖正常、占位、未知和预算降级，重复引用无 React key 警告；普通 patch、不同 id 重排保留 DOM 身份。
+
+本轮 Node v24.16.0 实测：根 build（含两处 Vite 生产构建）、构建后 typecheck、根/递归包 lint、根 test 均 exit 0；**1150 项通过**（core 360+14/client 85/server 448/React 61/playground 34/standalone 45+12/参考服务 91），conformance 36 pass / 44 已决策偏差 / 0 fail。新增 10 项回归，删除旧工具专属 9 项，净增 1 项。根测试首次因沙箱 tsx IPC EPERM 中止，授权同命令重跑后完成。新 transport 断言按实际公开可选 id 形状校准；未放宽实现契约。key 保护撤销实验 exit 1（重排残留旧输入），恢复后 React 61 项通过；冻结只读预览 context 后补构建 React 并再次通过定向测试。源码格式、40 个本地文档链接/结构与 diff 检查通过。SDK review 四维复核无本轮未关闭的 actionable finding。
+
+真实浏览器布局/可访问性验收仍归 S4.4，S4.1 完整矩阵独立签收和 S4.2 联合验收未由本轮定向证据替代；仓外安装和远端 CI 归 S5。
 
 ## S5 — 当前产物验收与发行
 
@@ -108,8 +136,8 @@ S3 验收时仍为私有三包，未执行仓外安装、真实浏览器或远�
 
 | 待办 | 归属与处置 |
 | --- | --- |
-| 草稿失败后的完整视图恢复 | 现有 confirm 原子 false 与重新生成路径保持；checks 已明确为提交门控，输入仍执行 inputs schema。S4 承接恢复与统一动作门控，见 S3 报告 §5 |
-| Provider 固定布局/runtime 重建、两处 SSE 消费、预览隔离/恢复、草稿读取入口收敛 | S4；同时核对 S1 留下的 React 重复 key 警告与渲染稳定性 |
+| 视图/草稿/恢复完整矩阵签收 | 本轮原语和定向反例已实现；S4.1.4 按 cell 核对公开入口与失败证据，不再作为未实现 API 挂账 |
+| Provider/Surface 联合验收、两处 SSE 消费迁移 | S4.3 已迁移并验证重复 key、卸载与接线；S4.2 联合/阶段矩阵仍待签收 |
 | NodeNext/ESM 修补脚本、运行环境声明一致性、仓外安装/真实浏览器/远端 CI | 按 S4/S5 实际验收范围推进，不引用历史单测替代 |
 | 每消息全量组件重校验的增量优化 | 保持有界正确行为；优化暂缓，依据真实瓶颈决定 |
 | 独立 Catalog 包、Vue、完整 v0.9/v1.0、分布式调度 | 非首发范围，暂缓 |

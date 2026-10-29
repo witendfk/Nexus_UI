@@ -1,6 +1,6 @@
 # DESIGN — SDK 设计决策
 
-更新：2026-10-27。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
+更新：2026-10-29。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
 
 ## 决策索引
 
@@ -10,9 +10,9 @@
 | D2   | 以独立接入和 SDK 门禁验收                       | 更新；业务应用不再是发行前置            |
 | D3   | Koa 适配器调用时同步占用 SSE 响应               | 保留已有修复，限定在 Koa 适配层         |
 | D4   | SDK 中立默认值与显式宿主装配                    | server 侧已实施（含 runs 准入默认拒绝） |
-| D5   | 区分消息状态、运行提交与业务结果                | server 已实施；client 视图隔离与恢复归 S4 |
+| D5   | 区分消息状态、运行提交与业务结果                | server/client 已实施；阶段验收见 CURRENT |
 | D6   | 四包目标与可选框架适配                          | 已决策；client 包已创建（S4.1，2026-10-28），可安装声明归 S5 |
-| D7   | Provider / Surface 分离，runtime 身份稳定       | 已决策，待改造                          |
+| D7   | Provider / Surface 分离，runtime 身份稳定       | 主体已实施，阶段验收见 CURRENT          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
 | D9   | 单一运行调度与有界资源                          | S3 已实施并验收（2026-10-28），证据见 S3-ACCEPTANCE |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
@@ -59,19 +59,19 @@
 
 client 只在明确成功终态且本地校验通过后开放当前 revision 的 action。失败丢弃本次预览；已有提交视图可保留展示，但在提交结果未知或版本不一致时必须标记失同步并禁用 action。缺失终态、网络中断和提交确认丢失不能推断服务端未提交。
 
-**S4.1 门控决定（2026-10-28）**：是否已调用 transport.open 是客户端能可靠观察的发送边界，未收到响应头不证明未送达；发送后取消/网络失败按失同步处理。准入错误暂未细分 revision/hash 原因，统一关闭旧动作资格，不通过错误文案猜测安全性；确定未发送的取消与可信 notCommitted、未改动视图且无准入拒绝的失败可保留旧基准。消息接受结果由 core 显式返回，避免复制校验器或依赖有界日志长度。预览隔离/恢复仍归 S4.1.2。
+**S4.1 门控决定（2026-10-28）**：是否已调用 transport.open 是客户端能可靠观察的发送边界，未收到响应头不证明未送达；发送后取消/网络失败按失同步处理。准入错误暂未细分 revision/hash 原因，统一关闭旧动作资格，不通过错误文案猜测安全性；确定未发送的取消与可信 notCommitted、未改动视图且无准入拒绝的失败可保留旧基准。消息接受结果由 core 显式返回，避免复制校验器或依赖有界日志长度。S4.1.2 已实现独立候选 runtime、成功发布时草稿协调与受控恢复（2026-10-29）；可信 notCommitted 即使已有候选 patch 也保留原提交视图与动作资格。
 
 **提交事实口径（S3.1 补充，2026-10-22）**：服务端 commitState 由 store 结果契约三分（SPEC §6.3）——确定性拒绝为 notCommitted，确认提交为 committed，store 异常且无法证明未写入为 unknown（不得凭异常推断未提交）；确认后不可倒写。客户端在未获得可信终态时保守使用 unknown。
 
 **副作用边界**：取消与 patch 失败不回滚宿主事务。SDK 不自动重试业务 action，不把 ledger 的 failed 当作业务可重试。宿主可提供不透明操作关联标识及恢复回调；SDK 不内建领域结果库。
 
-**代价**：需要已提交状态与预览的隔离存储，以及明确的恢复/重新生成路径；仅增加一个 loading 布尔值不足以实现这些语义。
+**代价**：每次运行持有独立候选 runtime，增加一份有界视图；公开 runtime 保留提交视图与本地草稿，固定提交快照不含编辑。recover 只检查结构、身份、已知版本与内容一致性，来源与同次权威读取由可信宿主保证，不虚构对任意 JSON 的提交认证。
 
 ## D6. 四包目标与适配分层
 
 **选择**：目标为 core/client/react/server。core 负责协议与状态；client 依赖 core，提供无 React 依赖的浏览器会话和 fetch/SSE 适配；React 依赖 core，接收稳定 runtime/视图状态，不强制使用 client；server 依赖 core，内部区分通用运行模块与可选 HTTP/RPC 适配。client 与 server 不互相 import 实现。
 
-**证据**：playground 与 standalone-host-demo 已重复实现 SSE 消费，EOF/终态/取消清理尚未统一；这足以支持抽取 client。Provider 的固定渲染槽仍待 S4 分离；server 的通用运行逻辑已随 S3 从 Koa sender 移出。
+**依据与现状**：两个浏览器曾重复实现 SSE 消费，促成 client 抽取；S4.3 已统一使用 client 并删除复制实现。Provider/Surface 已分离；server 的通用运行逻辑已随 S3 从 Koa sender 移出，阶段验收见 CURRENT。
 
 **约束**：client 已随 S4.1 新增（2026-10-28，`packages/nexus-client`，依赖 core，无 React/server 依赖），alpha 安装声明仍归 S5。共享协议与运行元数据类型放在 core 的纯契约模块；不额外拆 guard、Policy、Catalog 或 Agent 包。Koa 入口可留在 server 公开根入口，框架无关入口的加载不执行 listener/环境读取，也不要求模型 SDK。
 
@@ -81,7 +81,9 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **选择**：Provider 管理上下文与订阅所有权；Surface 按 surfaceId 渲染到宿主选择的位置。外部 runtime 的销毁由创建者负责；Provider 自建 runtime 在卸载时释放。React 使用稳定快照订阅，renderMap/onAction 变化不意外清空已有 surface。
 
-**依据**：当前一个 `tree` 接收全部 surface 的 onRender，且固定输出在 children 前。多 surface 和已有页面布局无法通过常规接线完整使用。
+**依据**：原 Provider 以一个 `tree` 接收全部 surface 且固定输出在 children 前，不适合多 surface 和宿主布局。现已改为按 surface 的显式槽位。
+
+**只读预览（S4.3）**：React 提供 `A2UIPreview` 展示 client 暴露的候选快照，关闭输入/action 回调且不读写 Provider 状态；React 不依赖 client。生成可渐进展示，action 运行期间保留可编辑的已提交视图。示例重新生成是显式替换会话，不以意外 Provider 重渲重置状态；切换与卸载由创建者解除订阅并 dispose。
 
 **代价**：Provider 的隐式输出迁到显式 Surface，是公开行为变更。提供迁移示例；保留轻量 core 接入，不要求本地 JSONL 使用者配置 HTTP。
 
@@ -143,7 +145,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **选择**：首发提供 ESM JavaScript 与 `.d.ts`，建议提供可用的 `.js.map`；React/后续 Vue 可提供显式导入的独立样式。暂不双发 CJS，不提供 UMD/IIFE；有明确消费需求再评估。SDK 保留模块结构，由宿主负责最终应用打包，React/Vue 为 peer dependency，内部包间依赖不重复内嵌。
 
-**构建方向**：源码使用显式 `.js` 模块路径，以 TypeScript NodeNext 检查 Node ESM 可解析性；浏览器包同时验证现代构建工具接入。当前 `scripts/fix-esm-imports.mjs` 是三包构建中的产物修补步骤，先保留；完成路径迁移、构建与原生 Node 加载验收后删除，不要求宿主运行该脚本。
+**构建方向**：源码使用显式 `.js` 模块路径，以 TypeScript NodeNext 检查 Node ESM 可解析性；浏览器包同时验证现代构建工具接入。当前 `scripts/fix-esm-imports.mjs` 是四包构建中的产物修补步骤，先保留；完成路径迁移、构建与原生 Node 加载验收后删除，不要求宿主运行该脚本。
 
 **代价与验收**：源码路径需要统一迁移，兼顾类型导出和包边界；S5 用当前构建产物验证 Node、浏览器打包和 TS 消费。source map 若发布须包含可用的源码映射，不发布指向缺失源文件的调试资源。此决策不代表当前已有独立 CSS 或 NodeNext 配置。
 

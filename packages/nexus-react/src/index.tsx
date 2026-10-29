@@ -7,7 +7,6 @@
  *
  * 本文件仅为 barrel（聚合导出）；实现见 renderer / components / provider。
  */
-import './style'; // 副作用：注入挂载淡入样式
 
 export {
   CORE_VERSION,
@@ -41,6 +40,11 @@ export {
   Video,
   AudioPlayer,
 } from './components';
-export { A2UIProvider, useA2UI } from './provider';
+export { A2UIProvider, useA2UI, useA2UIContext } from './provider';
+export { A2UISurface } from './surface';
+export type { A2UISurfaceProps } from './surface';
+export { A2UIPreview } from './surface/preview';
+export type { A2UIPreviewProps } from './surface/preview';
 export type { A2UIProviderProps } from './provider';
+export { injectNexusStyle } from './style';
 export type { ActionEvent, VNode } from '@nexus-ui/core';

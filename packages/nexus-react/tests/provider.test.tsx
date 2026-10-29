@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createElement, useEffect } from 'react';
+import { createElement, Fragment, useEffect } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { CatalogRegistry, standardCatalogComponentDeclarations } from '@nexus-ui/core';
-import { A2UIProvider, useA2UI } from '../src';
+import { A2UIProvider, A2UISurface, useA2UI } from '../src';
 import type { A2UIError, ActionEvent } from '@nexus-ui/core';
 import type { RenderMap } from '../src';
 
@@ -31,6 +31,21 @@ function Harness({ lines }: { lines: string[] }) {
     runtime.end();
   }, [runtime, lines]);
   return null;
+}
+
+/** 从 fixture 首行取 surfaceId（createSurface 必为首条消息）。 */
+function surfaceIdOf(lines: string[]): string {
+  return (JSON.parse(lines[0]) as { createSurface: { surfaceId: string } }).createSurface.surfaceId;
+}
+
+/** S4.2：显式 Surface + 喂流 Harness 的组合（provider 不再隐式输出）。 */
+function SurfaceHarness({ lines }: { lines: string[] }) {
+  return createElement(
+    Fragment,
+    null,
+    createElement(A2UISurface, { surfaceId: surfaceIdOf(lines) }),
+    createElement(Harness, { lines }),
+  );
 }
 
 const FIXTURE = [
@@ -174,13 +189,13 @@ const CUSTOM_CATALOG = [
 
 describe('A2UIProvider', () => {
   it('流式渲染：组件出现在 DOM', () => {
-    render(createElement(A2UIProvider, {}, createElement(Harness, { lines: FIXTURE })));
+    render(createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: FIXTURE })));
     expect(screen.getByText('你好')).to.exist;
     expect(screen.getByText('点我')).to.exist;
   });
 
   it('Text variant=h1 渲染为 <h1>', () => {
-    render(createElement(A2UIProvider, {}, createElement(Harness, { lines: FIXTURE })));
+    render(createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: FIXTURE })));
     expect((screen.getByText('你好') as HTMLElement).tagName).to.equal('H1');
   });
 
@@ -190,7 +205,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (e) => events.push(e) },
-        createElement(Harness, { lines: FIXTURE }),
+        createElement(SurfaceHarness, { lines: FIXTURE }),
       ),
     );
     fireEvent.click(screen.getByRole('button'));
@@ -209,7 +224,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: SEARCH_FORM }),
+        createElement(SurfaceHarness, { lines: SEARCH_FORM }),
       ),
     );
 
@@ -233,7 +248,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: SUBMIT_FORM }),
+        createElement(SurfaceHarness, { lines: SUBMIT_FORM }),
       ),
     );
 
@@ -261,7 +276,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: CHOICE_FORM }),
+        createElement(SurfaceHarness, { lines: CHOICE_FORM }),
       ),
     );
 
@@ -290,7 +305,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: DATE_TIME_FORM }),
+        createElement(SurfaceHarness, { lines: DATE_TIME_FORM }),
       ),
     );
 
@@ -318,7 +333,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: SLIDER_FORM }),
+        createElement(SurfaceHarness, { lines: SLIDER_FORM }),
       ),
     );
 
@@ -350,7 +365,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { onAction: (event) => events.push(event), catalogRegistry: basicRegistry() },
-        createElement(Harness, { lines: CHECK_FORM }),
+        createElement(SurfaceHarness, { lines: CHECK_FORM }),
       ),
     );
 
@@ -394,7 +409,7 @@ describe('A2UIProvider', () => {
         createElement(
           A2UIProvider,
           {},
-          createElement(Harness, { lines: textFieldForm(`v${index}`, item.props) }),
+          createElement(SurfaceHarness, { lines: textFieldForm(`v${index}`, item.props) }),
         ),
       );
       const control = screen.getByLabelText('字段') as HTMLElement;
@@ -408,7 +423,7 @@ describe('A2UIProvider', () => {
       createElement(
         A2UIProvider,
         { catalogRegistry: basicRegistry() },
-        createElement(Harness, {
+        createElement(SurfaceHarness, {
           lines: textFieldForm('validation', { validationRegexp: '^[A-Z0-9]{6}$' }),
         }),
       ),
@@ -427,7 +442,7 @@ describe('A2UIProvider', () => {
 
   it('Card/Image/Divider 组件渲染（含 {path} 绑定）', () => {
     const { container } = render(
-      createElement(A2UIProvider, {}, createElement(Harness, { lines: CARD })),
+      createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: CARD })),
     );
     expect(screen.getByText('Hi')).to.exist; // title 经 {path:/t} 解析
     expect(container.querySelector('img')).to.exist; // Image
@@ -439,7 +454,7 @@ describe('A2UIProvider', () => {
 
   it('Video 与 AudioPlayer 渲染原生媒体控件和动态 URL', () => {
     const { container } = render(
-      createElement(A2UIProvider, {}, createElement(Harness, { lines: MEDIA })),
+      createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: MEDIA })),
     );
     const video = container.querySelector('video');
     const audio = container.querySelector('audio');
@@ -456,7 +471,7 @@ describe('A2UIProvider', () => {
 
   it('List 渲染静态 children 并支持 {path} 数据绑定', () => {
     const { container } = render(
-      createElement(A2UIProvider, {}, createElement(Harness, { lines: LIST })),
+      createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: LIST })),
     );
 
     expect(container.querySelector('ul')).to.exist;
@@ -466,7 +481,7 @@ describe('A2UIProvider', () => {
   });
 
   it('Tabs 渲染静态 tabs，并支持本地切换激活项', () => {
-    render(createElement(A2UIProvider, {}, createElement(Harness, { lines: TABS })));
+    render(createElement(A2UIProvider, {}, createElement(SurfaceHarness, { lines: TABS })));
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).to.have.length(2);
@@ -502,7 +517,7 @@ describe('A2UIProvider', () => {
           catalogRenderMaps: { 'task-catalog': customRenderMap },
           onAction: (event) => events.push(event),
         },
-        createElement(Harness, { lines: CUSTOM_CATALOG }),
+        createElement(SurfaceHarness, { lines: CUSTOM_CATALOG }),
       ),
     );
 
@@ -549,7 +564,7 @@ describe('A2UIProvider', () => {
             },
           },
         },
-        createElement(Harness, {
+        createElement(SurfaceHarness, {
           lines: [
             CUSTOM_CATALOG[0],
             '{"version":"v0.9","updateComponents":{"surfaceId":"task","components":[{"id":"root","component":"TaskSummary","title":"字面量","children":["button"]}]}}',

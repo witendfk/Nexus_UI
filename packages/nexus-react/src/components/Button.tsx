@@ -35,7 +35,10 @@ export const Button: RenderFn = (vnode, children, ctx) =>
       key: vnode.id,
       type: 'button',
       style: variantStyles[String(vnode.props.variant)] ?? variantStyles.default,
-      disabled: vnode.props.disabled === true || vnode.validation?.valid === false,
+      disabled:
+        ctx.actionsEnabled === false ||
+        vnode.props.disabled === true ||
+        vnode.validation?.valid === false,
       onClick: () => ctx.triggerAction(vnode.id, vnode.surfaceId),
     },
     ...children,

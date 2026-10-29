@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { A2UIRuntime } from '@nexus-ui/core';
@@ -68,4 +68,49 @@ describe('ReactRenderer lookup and configuration boundaries', () => {
       );
     },
   );
+});
+
+it('共享引用、占位与预算降级无重复 key；patch/重排保持各出现位置的 DOM 身份', () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const leaf = { ...vnode('TextField'), id: 'shared', props: { value: 'before' } };
+    const sibling = { ...vnode('Text'), id: 'other', props: { text: 'other' } };
+    const tree: VNode = { ...vnode('Column'), children: [leaf, sibling, leaf] };
+    const renderer = new ReactRenderer();
+    const { container, rerender } = render(
+      createElement('div', null, renderer.renderTree(tree, ctx)),
+    );
+    const before = [...container.querySelectorAll('input')];
+    expect(before).toHaveLength(2);
+    expect(before[0]).not.toBe(before[1]);
+    const changed = { ...leaf, props: { value: 'after' } };
+    rerender(
+      createElement(
+        'div',
+        null,
+        renderer.renderTree({ ...tree, children: [sibling, changed, changed] }, ctx),
+      ),
+    );
+    const after = [...container.querySelectorAll('input')];
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after.map((input) => input.value)).toEqual(['after', 'after']);
+    const missing = { ...vnode('__placeholder__'), id: 'missing' };
+    const unknown = { ...vnode('Unknown'), id: 'unknown' };
+    rerender(
+      createElement(
+        'div',
+        null,
+        renderer.renderTree({ ...tree, children: [missing, missing, unknown, unknown] }, ctx),
+      ),
+    );
+    rerender(createElement('div', null, renderer.renderTree(tree, ctx, { maxElements: 1 })));
+    expect(
+      error.mock.calls.filter((args) =>
+        args.some((arg) => /same key|unique.*key/i.test(String(arg))),
+      ),
+    ).toEqual([]);
+  } finally {
+    error.mockRestore();
+  }
 });

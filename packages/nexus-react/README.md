@@ -26,6 +26,7 @@ A2UI v0.9 官方 Basic Catalog 共有 18 个组件；当前 Profile 只开放上
 src/
   index.tsx       对外唯一出口
   provider/       A2UIProvider、useA2UI
+  surface/        A2UISurface 独立订阅、A2UIPreview 只读候选展示
   renderer/       ReactRenderer
   components/     标准 17 组件与 standardRenderMap
   types/          RenderMap 等渲染契约
@@ -36,13 +37,16 @@ src/
 
 ## 公开 API
 
-`src/index.tsx` 是唯一公开入口，当前 `REACT_API_VERSION = 1`。Provider / hook、Renderer、RenderMap 类型、`standardRenderMap` 和 17 个标准组件均从根入口导出。当前渲染层支持 core `0.1.x`、core API `1` 和 A2UI `v0.9`；宿主可用 `getReactCoreCompatibility()` 做装配期诊断。内部组件、renderer 和 style 路径不承诺兼容。
+`src/index.tsx` 是唯一公开入口，当前 `REACT_API_VERSION = 2`。Provider / hook、Renderer、RenderMap 类型、`standardRenderMap` 和 17 个标准组件均从根入口导出。当前渲染层支持 core `0.1.x`、core API `1` 和 A2UI `v0.9`；宿主可用 `getReactCoreCompatibility()` 做装配期诊断。内部组件、renderer 和 style 路径不承诺兼容。
 
 ## 使用
 
 ```tsx
 import { CatalogRegistry, standardCatalogComponentDeclarations } from '@nexus-ui/core';
-import { A2UIProvider } from '@nexus-ui/react';
+import { A2UIProvider, A2UISurface, injectNexusStyle } from '@nexus-ui/react';
+
+// 可选：显式选择基线动画；import 本身无全局样式副作用。
+injectNexusStyle();
 
 // 宿主可信装配；实际接入使用与服务端同源的 Catalog v2 声明。
 const registry = new CatalogRegistry([{
@@ -63,10 +67,15 @@ function App() {
       }}
     >
       <Controls />
+      <A2UISurface surfaceId="form" />
     </A2UIProvider>
   );
 }
 ```
+
+API 2 不再由 Provider 隐式输出界面，宿主须显式放置 `A2UISurface`。外部 runtime 回调由创建者装配；Provider 自建 runtime 通过 `onAction/onError` 接收当前回调。Surface 使用稳定快照订阅，卸载解除；`actionsEnabled={false}` 统一关闭 action 出口并禁用标准按钮，自定义控件读取 `ctx.actionsEnabled` 提供可见状态。
+
+`A2UIPreview` 无需 Provider，以 `view={surface.preview}` 和可选 `renderMap/maxElements` 展示已准入候选；外层禁用 fieldset，输入写回返回 false，action 无操作。它不授予提交资格，完整成功后使用 Surface；action 请求期间可继续显示已提交 Surface，关闭 actionsEnabled 但允许新输入。
 
 `A2UIProviderProps.renderMap` 可以替换当前组件实现。企业设计系统可以通过它覆盖协议组件的实现，但组件行为和 props 语义仍以 catalog 契约为准。
 
@@ -76,7 +85,7 @@ function App() {
 
 自定义控件调用 `ctx.setInputValue(componentId, surfaceId, property, value)`；五个标准输入控件上报 `property='value'`。绑定路径和值域由 core 解释，拒绝时返回 `false`。宿主可通过 `useA2UI()` 获取 runtime，再调用 `getLatestInputs(surfaceId)` 读取独立输入快照；React 不组装 action 请求或代替服务端准入。
 
-最小宿主示例见 [`examples/minimal-host.tsx`](examples/minimal-host.tsx)。它演示本地 JSONL 输入、catalog registry、自定义 props schema、自定义 renderMap 和 action 出口；真实宿主只需把示例中的本地 JSONL 替换为 SSE / WebSocket 读取逻辑。
+最小宿主示例见 [`examples/minimal-host.tsx`](examples/minimal-host.tsx)。它演示本地 JSONL 输入、catalog registry、自定义 props schema、自定义 renderMap 和 action 出口；网络宿主使用 `@nexus-ui/client` 管理 Session；React 不解析网络流，两个仓内浏览器提供公开入口接线示例。
 
 ```tsx
 <A2UIProvider

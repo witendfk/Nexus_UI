@@ -5,6 +5,7 @@ export type {
   ClientSessionEndpoints,
   ClientSessionOptions,
   GenerateRequest,
+  RecoverInput,
   RunResult,
   SurfacePhase,
   SurfaceStatus,

@@ -23,6 +23,7 @@ import type {
   A2UIError,
   A2UIMessage,
   ActionEvent,
+  Component,
   ParseResult,
   VNode,
 } from '../protocol/types';
@@ -103,6 +104,16 @@ export interface RuntimeOptions {
   maxComponentsPerSurface?: number;
 }
 
+/** 单 surface 完整视图快照（S4.1.2-A）：出界深拷贝，恢复时整体验重验。 */
+export interface SurfaceViewSnapshot {
+  surfaceId: string;
+  catalogId: string;
+  components: Component[];
+  dataModel: unknown;
+  theme?: Record<string, unknown>;
+  sendDataModel?: boolean;
+}
+
 /** 协议运行时：把 A2UI 流式协议渐进渲染成框架无关 VNode，并经 onAction 吐出交互。 */
 export class A2UIRuntime {
   /** 内核 store（公开，供宿主按需订阅/读取 surface 状态）。 */
@@ -114,6 +125,24 @@ export class A2UIRuntime {
     }),
   );
   private readonly options: RuntimeOptions;
+  /** [S4.1.2-A] 稳定视图快照缓存：底层引用不变时重复读取返回同一对象。 */
+  private readonly viewCache = new Map<
+    string,
+    {
+      refs: { components: unknown; dataModel: unknown; catalogId: string };
+      snapshot: SurfaceViewSnapshot;
+    }
+  >();
+  /** [S4.1.2-A] per-surface 订阅与上次通知时的引用基线。 */
+  private readonly surfaceListeners = new Map<string, Set<() => void>>();
+  /** [S4.2] per-surface 渲染订阅：外部渲染层（如 React Provider）无需注入 onRender。 */
+  private readonly renderListeners = new Map<string, Set<(root: VNode | null) => void>>();
+  private readonly lastRoots = new Map<string, VNode | null>();
+  private readonly lastSeenRefs = new Map<
+    string,
+    { surface: unknown; components: unknown; dataModel: unknown }
+  >();
+
   /**
    * 按 surface 记录的最新输入草稿（组件 + 绑定属性 → 最新合法值）。这是本地编辑
    * 日志，不是已提交状态：仅声明驱动写回成功时更新，deleteSurface 时清理；
@@ -142,6 +171,279 @@ export class A2UIRuntime {
       throw new Error('maxComponentsPerSurface 必须是正安全整数');
     }
     this.options = { ...options };
+    // [S4.1.2-A] 内部订阅一次 store：按 surface 比较引用，只通知有专属订阅且
+    // 该 surface 确实发生变化的监听器；同步失效稳定快照缓存。
+    // runtime 与 store 同生命周期；订阅句柄无需显式退订。
+    this.store.subscribe(() => this.dispatchSurfaceChanges());
+  }
+
+  /**
+   * [S4.1.2-A] store 变化后按 surface 精确分发：仅通知「有专属订阅且该 surface
+   * 三维引用（surface 元数据/组件表/数据模型）发生变化」的监听器。基线在订阅时
+   * 捕获；getSurfaceView 的稳定缓存按底层引用自校验，无需此处失效。
+   */
+  private dispatchSurfaceChanges(): void {
+    const st = this.store.getState();
+    for (const [surfaceId, listeners] of [...this.surfaceListeners]) {
+      const current = {
+        surface: st.surfaces[surfaceId],
+        components: st.componentsBySurface[surfaceId],
+        dataModel: st.dataModelBySurface[surfaceId],
+      };
+      const seen = this.lastSeenRefs.get(surfaceId);
+      if (
+        seen !== undefined &&
+        seen.surface === current.surface &&
+        seen.components === current.components &&
+        seen.dataModel === current.dataModel
+      ) {
+        continue;
+      }
+      this.lastSeenRefs.set(surfaceId, current);
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {
+          /* 观察者不改变已发布事实或阻断其他订阅。 */
+        }
+      }
+    }
+  }
+
+  /** [S4.1.2-A] 读取单 surface 完整视图快照（深拷贝出界，底层未变时引用稳定）。 */
+  getSurfaceView(surfaceId: string): SurfaceViewSnapshot | undefined {
+    const st = this.store.getState();
+    if (
+      !Object.prototype.hasOwnProperty.call(st.surfaces, surfaceId) ||
+      !Object.prototype.hasOwnProperty.call(st.componentsBySurface, surfaceId)
+    )
+      return undefined;
+    const surface = st.surfaces[surfaceId];
+    const components = st.componentsBySurface[surfaceId];
+    const dataModel = st.dataModelBySurface[surfaceId] ?? null;
+    const cached = this.viewCache.get(surfaceId);
+    if (
+      cached &&
+      cached.refs.components === components &&
+      cached.refs.dataModel === dataModel &&
+      cached.refs.catalogId === surface.catalogId
+    ) {
+      return cached.snapshot;
+    }
+    const refs = { components, dataModel, catalogId: surface.catalogId };
+    const snapshot = deepFreeze({
+      surfaceId,
+      catalogId: surface.catalogId,
+      components: Object.values(components).map((component) => structuredClone(component)),
+      dataModel: structuredClone(dataModel),
+      ...(surface.theme === undefined ? {} : { theme: structuredClone(surface.theme) }),
+      ...(surface.sendDataModel === undefined ? {} : { sendDataModel: surface.sendDataModel }),
+    } as SurfaceViewSnapshot);
+    this.viewCache.set(surfaceId, { refs, snapshot });
+    return snapshot;
+  }
+
+  /**
+   * [S4.1.2-A] 校验后原子恢复单 surface 完整视图：入界深拷贝 → 资源预算 →
+   * 完整 Catalog 重验（组件声明/checks 一致性 + root 存在 + id 唯一）→ 一次
+   * 原子替换三维并清除该 surface 本地草稿（恢复视图即权威状态；恢复拒绝时
+   * 原视图、基准与草稿完全不变）。已存在 surface 的 catalogId 不允许变更。
+   */
+  restoreSurfaceView(snapshot: SurfaceViewSnapshot): void {
+    const owned = this.validateSurfaceView(snapshot);
+    this.latestInputs.delete(owned.surfaceId);
+    this.publishView(owned);
+  }
+
+  /** 创建同 Catalog/预算的独立视图运行时；不继承宿主回调、状态或草稿。 */
+  createViewRuntime(): A2UIRuntime {
+    return new A2UIRuntime({
+      ...this.options,
+      onRender: undefined,
+      onAction: undefined,
+      onError: undefined,
+    });
+  }
+
+  /**
+   * 发布完整候选视图并原子协调本地草稿：只确认发送代次，保留仍有效的新编辑。
+   * 所有校验与模型合并先完成，失败不发布视图或确认草稿。
+   */
+  commitSurfaceView(snapshot: SurfaceViewSnapshot, sent: InputDraftSnapshot): void {
+    if (sent.runtimeId !== this.runtimeId || sent.surfaceId !== snapshot.surfaceId) {
+      throw new Error('草稿快照与运行时/surface 不一致');
+    }
+    const owned = this.validateSurfaceView(snapshot);
+    const confirmed = new Map(
+      sent.entries.map((entry) => [
+        JSON.stringify([entry.input.componentId, entry.input.property]),
+        entry.serial,
+      ]),
+    );
+    const remaining = new Map<string, InputDraft>();
+    const components = Object.fromEntries(owned.components.map((c) => [c.id, c]));
+    for (const [key, draft] of this.latestInputs.get(owned.surfaceId) ?? []) {
+      if (confirmed.get(key) === draft.serial) continue;
+      const component = components[draft.input.componentId];
+      const binding = component?.[draft.input.property];
+      const registry = this.options.catalogRegistry;
+      if (
+        !component ||
+        !registry ||
+        draft.catalogId !== owned.catalogId ||
+        component.component !== draft.componentType ||
+        !isDataBinding(binding) ||
+        binding.path !== draft.bindingPath ||
+        isUnsafeDataPath(binding.path) ||
+        registry.getInputValueSchema(owned.catalogId, component.component, draft.input.property) ===
+          undefined ||
+        JSON.stringify(registry.getComponentDeclaration(owned.catalogId, component.component)) !==
+          draft.declarationKey
+      )
+        continue;
+      owned.dataModel = setStrictPath(
+        owned.dataModel,
+        binding.path,
+        structuredClone(draft.input.value),
+      );
+      remaining.set(key, draft);
+    }
+    if (
+      jsonByteLength(owned.dataModel) >
+      (this.options.maxDataModelBytes ?? DEFAULT_MAX_DATA_MODEL_BYTES)
+    ) {
+      throw new DataModelResourceLimitError('候选视图与本地草稿合并超过模型字节上限');
+    }
+    // 草稿先协调，所有观察者读取的都是同一次发布的视图/草稿。
+    if (remaining.size) this.latestInputs.set(owned.surfaceId, remaining);
+    else this.latestInputs.delete(owned.surfaceId);
+    this.publishView(owned);
+  }
+
+  private validateSurfaceView(snapshot: SurfaceViewSnapshot): SurfaceViewSnapshot {
+    if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      throw new Error('恢复快照必须是 SurfaceViewSnapshot 对象');
+    }
+    const owned = structuredClone(snapshot);
+    const { surfaceId, catalogId, components } = owned;
+    if (
+      typeof surfaceId !== 'string' ||
+      !surfaceId ||
+      typeof catalogId !== 'string' ||
+      !catalogId
+    ) {
+      throw new Error('恢复快照缺少非空 surfaceId/catalogId');
+    }
+    if (!Array.isArray(components)) throw new Error('恢复快照 components 必须是数组');
+    owned.dataModel = owned.dataModel ?? null;
+    const surfaces = this.store.getState().surfaces;
+    const existing = Object.prototype.hasOwnProperty.call(surfaces, surfaceId)
+      ? surfaces[surfaceId]
+      : undefined;
+    if (existing && existing.catalogId !== catalogId) {
+      throw new Error(`恢复快照 catalogId 与既有 surface 绑定不一致: ${surfaceId}`);
+    }
+    const componentCap = this.options.maxComponentsPerSurface ?? DEFAULT_MAX_COMPONENTS_PER_SURFACE;
+    if (components.length > componentCap) {
+      throw new DataModelResourceLimitError(`恢复视图组件数量超过上限 ${componentCap}`);
+    }
+    if (
+      jsonByteLength(owned.dataModel) >
+      (this.options.maxDataModelBytes ?? DEFAULT_MAX_DATA_MODEL_BYTES)
+    ) {
+      throw new DataModelResourceLimitError('恢复视图数据模型字节超过上限');
+    }
+    // 完整复用协议与 Profile；不借临时 store 中间态的 Catalog 检查否决合法绑定。
+    const messages: unknown[] = [
+      {
+        version: 'v0.9',
+        createSurface: {
+          surfaceId,
+          catalogId,
+          ...(owned.theme === undefined ? {} : { theme: owned.theme }),
+          ...(owned.sendDataModel === undefined ? {} : { sendDataModel: owned.sendDataModel }),
+        },
+      },
+      { version: 'v0.9', updateComponents: { surfaceId, components } },
+      { version: 'v0.9', updateDataModel: { surfaceId, value: owned.dataModel } },
+    ];
+    for (const message of messages) {
+      const protocol = validateProtocolMessage(message);
+      if (!protocol.ok) throw new Error(`恢复视图 Protocol 校验失败: ${protocol.error?.message}`);
+      const profile = validateNexusProfileMessage(message);
+      if (profile) throw new Error(`恢复视图 Profile 校验失败: ${profile.message}`);
+    }
+    const componentMap = new Map<string, Component>();
+    for (const component of components) {
+      if (componentMap.has(component.id))
+        throw new Error(`恢复视图存在重复组件 id: ${component.id}`);
+      componentMap.set(component.id, component);
+    }
+    if (!componentMap.has('root')) throw new Error('恢复视图缺少 id 为 root 的组件');
+    validateReferences(componentMap);
+    const registry = this.options.catalogRegistry;
+    if (registry) {
+      if (!registry.has(catalogId)) throw new Error(`恢复快照的 Catalog 未注册: ${catalogId}`);
+      const diagnostics = components.flatMap((component) =>
+        registry.getComponentDiagnostics(catalogId, component, owned.dataModel),
+      );
+      if (diagnostics.length)
+        throw new Error(`恢复视图未通过 Catalog 校验: ${formatDiagnostics(diagnostics)}`);
+    }
+    return owned;
+  }
+
+  private publishView(view: SurfaceViewSnapshot): void {
+    this.viewCache.delete(view.surfaceId);
+    this.store.getState().replaceSurfaceView({
+      ...view,
+      components: Object.fromEntries(view.components.map((component) => [component.id, component])),
+    });
+    this.rerender(view.surfaceId);
+  }
+
+  /**
+   * [S4.1.2-A] 按 surface 订阅：仅该 surface 三维引用变化时通知；解除后不再
+   * 通知。监听器内经 `getSurfaceView` 读取稳定快照。
+   */
+  subscribeSurface(surfaceId: string, listener: () => void): () => void {
+    let listeners = this.surfaceListeners.get(surfaceId);
+    if (!listeners) {
+      listeners = new Set();
+      this.surfaceListeners.set(surfaceId, listeners);
+      const st = this.store.getState();
+      this.lastSeenRefs.set(surfaceId, {
+        surface: st.surfaces[surfaceId],
+        components: st.componentsBySurface[surfaceId],
+        dataModel: st.dataModelBySurface[surfaceId],
+      });
+    }
+    listeners.add(listener);
+    return () => {
+      const set = this.surfaceListeners.get(surfaceId);
+      if (!set) return;
+      set.delete(listener);
+      if (set.size === 0) {
+        this.surfaceListeners.delete(surfaceId);
+        this.lastSeenRefs.delete(surfaceId);
+      }
+    };
+  }
+
+  /**
+   * [S4.1.2-A] 受控删除单 surface（级联清理组件表/数据模型/本地草稿）；受订阅
+   * 的监听器经引用变化收到通知。删除是确定性的：目标不存在时无操作。
+   */
+  removeSurfaceView(surfaceId: string): void {
+    this.latestInputs.delete(surfaceId);
+    this.store.getState().deleteSurface(surfaceId);
+    this.viewCache.delete(surfaceId);
+    this.dropRoot(surfaceId);
+    try {
+      this.options.onRender?.(null, surfaceId);
+    } catch {
+      /* 观察者异常隔离。 */
+    }
   }
 
   /** 喂入一段流文本（可含多条 JSONL，或跨 chunk 的半行）。 */
@@ -560,9 +862,7 @@ export class A2UIRuntime {
       this.rerender(p.surfaceId);
     } else {
       const p = message.deleteSurface;
-      st.deleteSurface(p.surfaceId);
-      this.latestInputs.delete(p.surfaceId);
-      this.options.onRender?.(null, p.surfaceId);
+      this.removeSurfaceView(p.surfaceId);
     }
   }
 
@@ -584,13 +884,86 @@ export class A2UIRuntime {
           surfaceId,
         }),
     });
-    this.options.onRender?.(root, surfaceId);
+    // 渲染订阅（S4.2）与遗留 onRender 出口并行分发；任一侧异常互不影响。
+    this.lastRoots.set(surfaceId, root);
+    const renderListeners = this.renderListeners.get(surfaceId);
+    if (renderListeners) {
+      for (const listener of [...renderListeners]) {
+        try {
+          listener(root);
+        } catch {
+          // 渲染层回调失败不阻断 runtime 状态机。
+        }
+      }
+    }
+    try {
+      this.options.onRender?.(root, surfaceId);
+    } catch (error) {
+      try {
+        this.reportError({
+          message: `渲染观察者失败: ${error instanceof Error ? error.message : String(error)}`,
+          surfaceId,
+        });
+      } catch {
+        /* 诊断观察者异常隔离。 */
+      }
+    }
+  }
+
+  /**
+   * [S4.2] 订阅单 surface 的渲染输出（VNode 根树）：外部渲染层无需在构造时注入
+   * onRender 即可接入既有 runtime。解除后不再通知。
+   */
+  subscribeSurfaceRender(surfaceId: string, listener: (root: VNode | null) => void): () => void {
+    let listeners = this.renderListeners.get(surfaceId);
+    if (!listeners) {
+      listeners = new Set();
+      this.renderListeners.set(surfaceId, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const set = this.renderListeners.get(surfaceId);
+      if (!set) return;
+      set.delete(listener);
+      if (set.size === 0) this.renderListeners.delete(surfaceId);
+    };
+  }
+
+  /** [S4.2] 读取某 surface 最近一次渲染的 VNode 根（无渲染记录返回 null）。 */
+  getLastRoot(surfaceId: string): VNode | null {
+    return this.lastRoots.get(surfaceId) ?? null;
+  }
+
+  /** [S4.2] 删除 surface 时同步清空渲染缓存并通知渲染层卸载。 */
+  private dropRoot(surfaceId: string): void {
+    this.lastRoots.delete(surfaceId);
+    const listeners = this.renderListeners.get(surfaceId);
+    if (listeners) {
+      for (const listener of [...listeners]) {
+        try {
+          listener(null);
+        } catch {
+          // 同上：渲染层回调失败不阻断。
+        }
+      }
+    }
   }
 }
 
 const DEFAULT_MAX_DATA_MODEL_BYTES = 1_048_576;
 const DEFAULT_MAX_COMPONENTS_PER_SURFACE = 10_000;
 const textEncoder = new TextEncoder();
+
+/** 深冻结快照：消费方误改在严格模式下直接暴露，而非静默撕裂状态。 */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      deepFreeze((value as Record<string, unknown>)[key]);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
 
 /** UTF-8 JSON 序列化字节（与 wire 预算同口径）；不可序列化按超限拒绝。 */
 function jsonByteLength(value: unknown): number {
@@ -623,5 +996,43 @@ function stringifyMessage(message: unknown): string {
     return JSON.stringify(message);
   } catch {
     return '[无法序列化的 A2UI 消息]';
+  }
+}
+
+/** 完整视图引用必须存在且无环；共享子树合法，迭代 DFS 不受链深影响。 */
+function validateReferences(components: Map<string, Component>): void {
+  const edges = new Map<string, string[]>();
+  for (const component of components.values()) {
+    const refs = [
+      ...(component.children ?? []),
+      ...(component.child === undefined ? [] : [component.child]),
+      ...(component.tabs ?? []).map((tab) => tab.child),
+    ];
+    for (const id of refs)
+      if (!components.has(id)) throw new Error(`恢复视图引用不存在: ${component.id} → ${id}`);
+    edges.set(component.id, refs);
+  }
+  const visited = new Set<string>();
+  const active = new Set<string>();
+  for (const id of components.keys()) {
+    if (visited.has(id)) continue;
+    const stack = [{ id, index: 0 }];
+    active.add(id);
+    while (stack.length) {
+      const frame = stack[stack.length - 1];
+      const refs = edges.get(frame.id)!;
+      if (frame.index === refs.length) {
+        visited.add(frame.id);
+        active.delete(frame.id);
+        stack.pop();
+        continue;
+      }
+      const child = refs[frame.index++];
+      if (active.has(child)) throw new Error(`恢复视图存在引用环: ${child}`);
+      if (!visited.has(child)) {
+        active.add(child);
+        stack.push({ id: child, index: 0 });
+      }
+    }
   }
 }

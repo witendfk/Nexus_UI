@@ -212,6 +212,20 @@ const actionMessages = [
   },
 ];
 
+function sessionStart(runId: string, surfaceId: string, catalogId: string, revision = 1): string {
+  return `event: start\ndata: ${JSON.stringify({
+    sessionVersion: 1,
+    runId,
+    surfaceId,
+    catalogId,
+    contractVersion: 2,
+    catalogHash: contractHashOf(
+      catalogId === SCORECARD_CATALOG_ID ? scorecardHostCatalog : standaloneHostCatalog,
+    ),
+    ...(revision > 1 ? { surfaceRevision: revision - 1 } : {}),
+  })}\n\n`;
+}
+
 function toSseResponse(
   messages: unknown[],
   catalogId: string,
@@ -251,7 +265,7 @@ function toSseResponse(
     start(controller) {
       controller.enqueue(
         encoder.encode(
-          `${output}event: done\nid: ${surfaceId}:done\ndata: ${JSON.stringify(doneCommit)}\n\n`,
+          `${sessionStart(runId, surfaceId, catalogId, options.revision)}${output}event: done\nid: ${surfaceId}:done\ndata: ${JSON.stringify(doneCommit)}\n\n`,
         ),
       );
       controller.close();
@@ -273,15 +287,17 @@ function toScorecardSse(messages: unknown[], surface: string, revision = 1): Res
     start(controller) {
       controller.enqueue(
         encoder.encode(
-          `${output}event: done\nid: ${surface}:done\ndata: ${JSON.stringify({
-            sessionVersion: 1,
-            runId,
-            surfaceId: surface,
-            catalogId: SCORECARD_CATALOG_ID,
-            contractVersion: 2,
-            catalogHash: scorecardContract.contractHash,
-            surfaceRevision: revision,
-          })}\n\n`,
+          `${sessionStart(runId, surface, SCORECARD_CATALOG_ID, revision)}${output}event: done\nid: ${surface}:done\ndata: ${JSON.stringify(
+            {
+              sessionVersion: 1,
+              runId,
+              surfaceId: surface,
+              catalogId: SCORECARD_CATALOG_ID,
+              contractVersion: 2,
+              catalogHash: scorecardContract.contractHash,
+              surfaceRevision: revision,
+            },
+          )}\n\n`,
         ),
       );
       controller.close();
@@ -587,7 +603,7 @@ describe('standalone host browser app', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '生成审批面' }));
     await waitFor(() => {
-      expect(screen.getByText(/done 运行标识与响应头不一致/)).to.exist;
+      expect(screen.getByText(/start.runId 与响应头不一致/)).to.exist;
     });
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/a2ui/event')).length,
@@ -609,7 +625,7 @@ describe('standalone host browser app', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '生成审批面' }));
     await waitFor(() => {
-      expect(screen.getByText(/与已加载契约不一致/)).to.exist;
+      expect(screen.getByText(/done catalogHash 与 start 不一致/)).to.exist;
     });
   });
 });
@@ -739,7 +755,7 @@ it('standalone 第二次生成只有 done，旧 surface 不取得新基准', asy
   await waitFor(() =>
     expect(container.querySelector('span.status')?.textContent).toContain('error:'),
   );
-  fireEvent.click(screen.getByRole('button', { name: '记录反馈' }));
+  expect(screen.queryByRole('button', { name: '记录反馈' })).toBeNull();
   expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/event'))).toHaveLength(0);
 });
 
@@ -823,4 +839,83 @@ it('standalone 取消后另一次生成完成，晚到 fetch 不替换新视图�
   expect(JSON.parse(String(call[1]?.body)).message.action.surfaceId).toBe(
     'surface-scorecard-browser',
   );
+});
+
+it('自定义 action 在流中预览、运行中和 unknown 后均显示禁用且 click/key 无请求出口', async () => {
+  let generationControl!: ReadableStreamDefaultController<Uint8Array>;
+  let generationTail = '';
+  let actionControl!: ReadableStreamDefaultController<Uint8Array>;
+  const fetchMock = hostFetchMock();
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input, init) => {
+    const response = await original(input, init);
+    if (String(input).endsWith('/generate')) {
+      const text = await response.text();
+      const split = text.lastIndexOf('event: done');
+      generationTail = text.slice(split);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            generationControl = c;
+            c.enqueue(new TextEncoder().encode(text.slice(0, split)));
+          },
+        }),
+        { headers: response.headers },
+      );
+    }
+    if (String(input).endsWith('/event')) {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            actionControl = c;
+          },
+        }),
+        {
+          headers: { 'Content-Type': 'text/event-stream', 'X-Nexus-Run-Id': 'uncertain-action' },
+        },
+      );
+    }
+    return response;
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const { container } = render(createElement(DemoApp));
+  await waitFor(() => expect(screen.getByRole('button', { name: '生成反馈卡' })).to.exist);
+  fireEvent.click(screen.getByRole('button', { name: '生成反馈卡' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '记录反馈' })).to.exist);
+  const previewAction = screen.getByRole('button', { name: '记录反馈' });
+  expect(previewAction.getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(previewAction);
+  fireEvent.keyDown(previewAction, { key: 'Enter' });
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/event'))).toHaveLength(0);
+  await act(async () => {
+    generationControl.enqueue(new TextEncoder().encode(generationTail));
+    generationControl.close();
+  });
+  const action = screen.getByRole('button', { name: '记录反馈' });
+  expect(action.getAttribute('aria-disabled')).toBe('false');
+  // 键盘路径真正能发起合法 action，避免“永远禁用”的假阳性。
+  fireEvent.keyDown(action, { key: 'Enter' });
+  await waitFor(() => expect(actionControl).toBeDefined());
+  expect(action.getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(action);
+  fireEvent.keyDown(action, { key: ' ' });
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/event'))).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText('评分（0-100 整数）'), { target: { value: '73' } });
+  await act(async () => {
+    actionControl.enqueue(
+      new TextEncoder().encode(
+        sessionStart('uncertain-action', 'surface-scorecard-browser', SCORECARD_CATALOG_ID, 2) +
+          `event: message\ndata: ${JSON.stringify({ version: 'v0.9', updateDataModel: { surfaceId: 'surface-scorecard-browser', path: '/score', value: 10 } })}\n\n` +
+          `event: error\ndata: ${JSON.stringify({ sessionVersion: 1, runId: 'uncertain-action', surfaceId: 'surface-scorecard-browser', code: 'RUN_FAILED', commitState: 'unknown', message: 'unknown outcome' })}\n\n`,
+      ),
+    );
+    actionControl.close();
+  });
+  expect(container.querySelector('span.status')?.textContent).toContain('unknown outcome');
+  expect((screen.getByLabelText('评分（0-100 整数）') as HTMLInputElement).value).toBe('73');
+  expect(action.getAttribute('aria-disabled')).toBe('true');
+  expect(action.tabIndex).toBe(-1);
+  fireEvent.click(action);
+  fireEvent.keyDown(action, { key: 'Enter' });
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/event'))).toHaveLength(1);
 });

@@ -395,3 +395,21 @@ it('总时长也覆盖消费暂停：到期关闭底层流，继续读取明确�
   await bounded(canceled.promise);
   await assert.rejects(() => iterator.next(), /总时长上限/);
 });
+
+it('迁移的 SSE metadata/多行 data/尾帧解析语义由公开 transport 承担', async () => {
+  const transport = fetchSseTransport({
+    fetch: async () =>
+      sseResponse([
+        ': comment\nretry: 10\nid: ignored\n\n',
+        'event: message\nid: frame-1\ndata: first\nda',
+        'ta: second\n\ndata: tail',
+      ]),
+  });
+  const response = await transport.open({ url: '/g', body: {} });
+  const frames = [];
+  for await (const frame of response.frames) frames.push(frame);
+  assert.deepEqual(frames, [
+    { event: 'message', id: 'frame-1', data: 'first\nsecond' },
+    { event: 'message', data: 'tail', id: undefined },
+  ]);
+});

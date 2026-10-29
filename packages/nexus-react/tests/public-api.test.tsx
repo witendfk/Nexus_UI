@@ -5,7 +5,9 @@ import * as publicApi from '../src/index';
 describe('React public API surface', () => {
   it('exports only the documented root-entry contract', () => {
     assert.deepEqual(Object.keys(publicApi).sort(), [
+      'A2UIPreview',
       'A2UIProvider',
+      'A2UISurface',
       'AudioPlayer',
       'Button',
       'CORE_VERSION',
@@ -31,8 +33,10 @@ describe('React public API surface', () => {
       'TextField',
       'Video',
       'getReactCoreCompatibility',
+      'injectNexusStyle',
       'standardRenderMap',
       'useA2UI',
+      'useA2UIContext',
     ]);
   });
 
@@ -40,6 +44,7 @@ describe('React public API surface', () => {
     const compatibility = publicApi.getReactCoreCompatibility();
 
     assert.equal(compatibility.compatible, true);
+    assert.equal(compatibility.reactApiVersion, 2);
     assert.equal(compatibility.coreVersion, publicApi.CORE_VERSION);
     assert.equal(compatibility.coreApiVersion, publicApi.SUPPORTED_CORE_API_VERSION);
     assert.equal(compatibility.supportedCoreVersionRange, '0.1.x');
