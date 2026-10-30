@@ -57,6 +57,8 @@
 
 23. 候选隔离必须用候选 patch 后失败/取消的原视图对照证伪，关闭动作资格不能代替隔离。恢复复用完整 Protocol/Profile/Catalog 并校验引用；观察者异常不能制造“报错但已发布”的假拒绝。恢复来源由可信宿主保证，SDK 拒绝已知版本倒退与同版本冲突，不用重复身份字段伪造内容认证。React 动作门控放在 renderer 回调出口，覆盖自定义键盘/变更事件；配置更新、订阅间隙与受控删除须有实际渲染回归。
 
+24. 公开契约验收须捕获实际请求体，输入测试贯通当前发送、请求期间编辑后的可见模型与下次 inputs。销毁/释放在真实在途请求上观测 abort、response.close 与 reader cancel；同一 revision 对照同时验证流内 start 与本地固定基准。共享 oracle 的 expected 须参与独立断言，不能只读取 setup/source；取消/晚到用消费屏障，不用固定 sleep 推断已到达。
+
 ## Code Review 标准（强制）
 
 所有代码 review（如 "review 这次改动"、"审查代码"、提交前检查）必须按工程级 skill

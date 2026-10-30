@@ -12,7 +12,7 @@ Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard →
 
 **S3 已交付并验收（2026-10-28）**：传输无关 server runtime、唯一 surface 调度、Session v1、提交事实三态、访问准入、双端背压、资源预算与取消隔离。验收证据、公开入口迁移和限制见 [S3 验收报告](docs/tasks/S3-ACCEPTANCE.md)。
 
-**S4 进行中（2026-10-29）**：S4.0 已完成；S4.1 会话/传输、候选隔离、完整恢复与稳定订阅已实现并完成本轮缺陷整改，完整 headless 矩阵仍待独立签收。S4.2 Provider/Surface 主体已落地，React API 为 2（显式 Surface、样式按需选择）；S4.3 两处浏览器已统一消费 client，隔离只读预览与已提交 Surface，复制的 SSE/基准/草稿状态机已删除。完整矩阵、联合验收及 S4.4 浏览器/阶段验收仍待签收。当前为四个私有包，alpha 安装与仓外发行验收归 S5，详见 [当前计划](docs/tasks/CURRENT.md) 与 [SPEC §7](docs/SPEC.md)。
+**S4 进行中（2026-10-30）**：S4.0 已完成；S4.1 会话/传输、候选隔离、完整恢复与稳定订阅已实现，headless 完整矩阵已于 2026-10-30 独立签收（公开产物验收 30 项覆盖 17 cell，四项评审缺口已补强并复核）。S4.2 Provider/Surface 主体已落地，React API 为 2（显式 Surface、样式按需选择）；S4.3 两处浏览器已统一消费 client，隔离只读预览与已提交 Surface，复制的 SSE/基准/草稿状态机已删除。S4.2 联合验收与 S4.4 浏览器/阶段验收仍待完成。当前为四个私有包，alpha 安装与仓外发行验收归 S5，详见 [当前计划](docs/tasks/CURRENT.md) 与 [SPEC §7](docs/SPEC.md)。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE
