@@ -1,5 +1,5 @@
 /** Slider：官方 Basic Catalog 数值输入；value 绑定经 core 受控写回。 */
-import { createElement } from 'react';
+import { createElement, useId } from 'react';
 import type { ChangeEvent } from 'react';
 import { toDisplayString } from '@nexus-ui/core';
 import type { RenderContext, RenderFn } from '../types';
@@ -59,6 +59,7 @@ function SliderView({
   checkMessage,
   setInputValue,
 }: SliderViewProps) {
+  const errorId = `${useId()}-error`;
   return createElement(
     'label',
     { key: id, style: labelStyle },
@@ -77,13 +78,11 @@ function SliderView({
         style: sliderStyle,
         'aria-label': label || '数值',
         'aria-invalid': Boolean(checkMessage),
-        'aria-describedby': checkMessage ? `${id}-error` : undefined,
+        'aria-describedby': checkMessage ? errorId : undefined,
       }),
       createElement('output', { style: valueStyle }, String(value)),
     ),
-    checkMessage
-      ? createElement('span', { id: `${id}-error`, style: errorStyle }, checkMessage)
-      : null,
+    checkMessage ? createElement('span', { id: errorId, style: errorStyle }, checkMessage) : null,
   );
 }
 

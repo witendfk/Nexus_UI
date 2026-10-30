@@ -59,6 +59,8 @@
 
 24. 公开契约验收须捕获实际请求体，输入测试贯通当前发送、请求期间编辑后的可见模型与下次 inputs。销毁/释放在真实在途请求上观测 abort、response.close 与 reader cancel；同一 revision 对照同时验证流内 start 与本地固定基准。共享 oracle 的 expected 须参与独立断言，不能只读取 setup/source；取消/晚到用消费屏障，不用固定 sleep 推断已到达。
 
+25. 协议 componentId 只在 surface 内唯一，DOM 标签/错误说明须按控件实例生成身份，验证跨 surface、预览共存、重复挂载与 patch 稳定性。只读反例在已有提交视图上触发真实输入写回/自定义 action；晚到测试必须实际交付目标帧并等待运行结束，卸载后 DOM 为空或 reader 已取消不能替代候选、视图、草稿与基准隔离断言。
+
 ## Code Review 标准（强制）
 
 所有代码 review（如 "review 这次改动"、"审查代码"、提交前检查）必须按工程级 skill

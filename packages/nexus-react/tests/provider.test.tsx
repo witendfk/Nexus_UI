@@ -373,7 +373,9 @@ describe('A2UIProvider', () => {
     const button = screen.getByRole('button', { name: '提交' }) as HTMLButtonElement;
     expect(screen.getByText('请输入合法邮箱')).to.exist;
     expect(input.getAttribute('aria-invalid')).to.equal('true');
-    expect(input.getAttribute('aria-describedby')).to.equal('email-error');
+    const errorId = input.getAttribute('aria-describedby');
+    expect(errorId).not.to.equal(null);
+    expect(document.getElementById(errorId!)?.textContent).to.equal('请输入合法邮箱');
     expect(button.disabled).to.equal(true);
 
     fireEvent.click(button);

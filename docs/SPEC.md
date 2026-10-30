@@ -404,7 +404,7 @@ client 对外提供会话控制器（`@nexus-ui/client`，会话、传输与 S4.
 
 **传输资源边界**（S4.1.3）：`fetchSseTransport` 默认建连 30s、空闲 60s、总时长 600s 超时，单帧 1e6 UTF-16 代码单元（不含空行分隔符）、单次响应 16 MiB 原始字节预算。先拆完整帧再按帧检查，剩余半帧单独限额；同一内容不因网络分片/合并而改变接受结果。错误响应体读取同受空闲/总时长/字节预算及取消约束，诊断最多保留 500 字符；非法 content-type 直接关闭响应体。总时长从 open 开始计量，也覆盖消费暂停；关闭时不等待宿主自定义 cancel 钩子完成。超时/越界抛错（action 归 desync）。预算须为非负安全整数，非法配置在工厂入口报错，`0` 关闭该项。按 surface 的交互可用状态经 `getSurface/surfaces/subscribeSurface` 提供；订阅与 `onListenerError` 回调异常均隔离。
 
-React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话消费方经 client 按 surface 订阅后传入 `actionsEnabled`；Surface 在 renderer 的 `ctx.triggerAction` 统一门控（包含自定义 keyboard/change 等事件），标准 Button 显示 disabled，自定义控件通过 `ctx.actionsEnabled` 展示状态。本地输入写回不随 action 禁用而关闭。两个参考浏览器已随 S4.3 接入此装配；重新生成显式替换会话，切换/卸载释放旧会话，原有 action 请求期间保持提交视图及输入可编辑。
+React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话消费方经 client 按 surface 订阅后传入 `actionsEnabled`；Surface 在 renderer 的 `ctx.triggerAction` 统一门控（包含自定义 keyboard/change 等事件），标准 Button 显示 disabled，自定义控件通过 `ctx.actionsEnabled` 展示状态。本地输入写回不随 action 禁用而关闭。标准输入控件的 DOM id 与协议 componentId 分离，标签和错误说明按挂载实例关联；同名组件跨 surface、预览/提交或重复挂载不串联，写回仍使用原 componentId + surfaceId。两个参考浏览器已随 S4.3 接入此装配；重新生成显式替换会话，切换/卸载释放旧会话，原有 action 请求期间保持提交视图及输入可编辑。
 
 订阅必须可解除；外部 runtime/session 由创建者销毁，Provider 自建 runtime 由 Provider 销毁。renderMap、catalogRenderMaps 更新会重新渲染，回调经 ref 更新，父组件重渲不重置 runtime；Surface 使用 `useSyncExternalStore` 订阅稳定的 VNode 根，切换 surface 与 render/订阅间更新不会沿用旧视图。受控删除同步清空根缓存并通知 null，surface/render 观察者异常不阻断状态发布。外部 runtime 的回调仍由创建者装配。样式需显式调用根入口 `injectNexusStyle()`，import 不注入全局动画。
 

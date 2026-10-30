@@ -1,6 +1,6 @@
 /** TextField：官方 Basic Catalog 输入组件；value 绑定经 core 受控写回。 */
 import { createElement } from 'react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { ChangeEvent, FocusEvent } from 'react';
 import { compileSafeRegExp, toDisplayString } from '@nexus-ui/core';
 import type { RenderContext, RenderFn } from '../types';
@@ -56,6 +56,8 @@ function TextFieldView({
   checkMessage,
   setInputValue,
 }: TextFieldViewProps) {
+  // 组件 id 只在 surface 内唯一；预览、重复挂载也需要各自的 DOM 身份。
+  const controlId = useId();
   const [touched, setTouched] = useState(false);
   // 走 core 的线性时间引擎：不受信 pattern 不经 new RegExp，杜绝灾难性回溯
   const validationPattern = useMemo(() => {
@@ -71,10 +73,10 @@ function TextFieldView({
     setTouched(true);
   };
 
-  const errorId = `${id}-error`;
+  const errorId = `${controlId}-error`;
   const describedBy = invalid ? errorId : undefined;
   const commonProps = {
-    id,
+    id: controlId,
     value,
     onChange,
     onBlur,
@@ -99,7 +101,7 @@ function TextFieldView({
   return createElement(
     'div',
     { key: id, style: labelStyle },
-    createElement('label', { htmlFor: id }, label),
+    createElement('label', { htmlFor: controlId }, label),
     control,
     invalid
       ? createElement('span', { id: errorId, style: errorStyle }, checkMessage || '格式不符合要求')
