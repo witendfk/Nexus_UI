@@ -1,6 +1,6 @@
 # PRD — Nexus UI SDK
 
-更新：2026-10-21。本文定义产品目标与验收要求；当前实现、目标契约、结构、决策和进度分别见 [SPEC](SPEC.md)、[ARCHITECTURE](ARCHITECTURE.md)、[DESIGN](DESIGN.md)、[CURRENT](tasks/CURRENT.md)。本文的要求不代表能力已经交付。
+更新：2026-10-30。本文定义产品目标与验收要求；当前实现、目标契约、结构、决策和进度分别见 [SPEC](SPEC.md)、[ARCHITECTURE](ARCHITECTURE.md)、[DESIGN](DESIGN.md)、[CURRENT](tasks/CURRENT.md)。本文的要求不代表能力已经交付。
 
 ## 1. 产品定位
 
@@ -39,11 +39,11 @@ Agent 输出与浏览器输入都不是业务事实。Catalog hash 表示契约�
 | 包                 | 职责                                                                        | 当前情况                          |
 | ------------------ | --------------------------------------------------------------------------- | --------------------------------- |
 | `@nexus-ui/core`   | 框架与传输无关的协议、Catalog、绑定、surface 状态和 action 事件             | 已有；Catalog v2 与通用交互扩展已交付（S2） |
-| `@nexus-ui/client` | 框架无关的浏览器会话；fetch/SSE 适配、终态识别、预览/提交、取消及交互门控   | 已新增；会话/传输、隔离与恢复已实施，完整矩阵待签收（S4）    |
-| `@nexus-ui/react`  | Provider、按 surface 渲染的视图、hooks、标准与自定义组件映射                | 已有；Provider/Surface 主体已实施，联合验收待完成（S4） |
+| `@nexus-ui/client` | 框架无关的浏览器会话；fetch/SSE 适配、终态识别、预览/提交、取消及交互门控   | 已交付并阶段验收；会话/传输、隔离与恢复（S4）    |
+| `@nexus-ui/react`  | Provider、按 surface 渲染的视图、hooks、标准与自定义组件映射                | 已交付并阶段验收；Provider/Surface 与联合接入（S4） |
 | `@nexus-ui/server` | 框架无关的 guard、运行调度、action 准入和状态；可选 Koa/SSE 与外部 RPC 适配 | 已有；通用运行模块与 Koa 薄适配已交付（S3）   |
 
-当前为 core/client/react/server 四个私有包，完整 client 与 React 组合仍在 S4 推进。client 的抽取依据是 playground 和 standalone-host-demo 重复实现浏览器流消费；两处消费方已随 S4.3 统一迁移，真实浏览器和完整阶段验收仍归 S4.4。guard、Catalog、Policy 暂作为包内模块维护。具体结构见 ARCHITECTURE，决策依据见 DESIGN。
+当前为 core/client/react/server 四个私有包，client 与 React 组合已完成 S4 阶段验收。client 抽取自两处浏览器的重复会话逻辑，两处消费方已统一迁移；实际浏览器关键路径与限制见 [S4-ACCEPTANCE](tasks/S4-ACCEPTANCE.md)。仓外安装与最终发行门禁仍归 S5。guard、Catalog、Policy 暂作为包内模块维护；结构见 ARCHITECTURE，依据见 DESIGN。
 
 ### 3.2 最小接入旅程
 

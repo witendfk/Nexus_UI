@@ -1,6 +1,6 @@
 # ARCHITECTURE — SDK 架构与接入模型
 
-更新：2026-10-29。本文同时描述现状和已决策目标，各节显式标注。需求见 [PRD](PRD.md)，字段与 wire 契约见 [SPEC](SPEC.md)，取舍见 [DESIGN](DESIGN.md)，实施状态只见 [CURRENT](tasks/CURRENT.md)。目标图与示意 API 不代表当前已经交付。
+更新：2026-10-30。本文同时描述现状和已决策目标，各节显式标注。需求见 [PRD](PRD.md)，字段与 wire 契约见 [SPEC](SPEC.md)，取舍见 [DESIGN](DESIGN.md)，实施状态只见 [CURRENT](tasks/CURRENT.md)。目标图与示意 API 不代表当前已经交付。
 
 ## 1. 系统定位与架构约束
 
@@ -22,6 +22,7 @@ Nexus 是嵌入宿主应用的 Agent UI Runtime。它消费候选 A2UI 消息，
 ```text
 Nexus_UI/
 ├─ packages/
+│  ├─ nexus-client/           框架无关会话、预览/提交与 fetch/SSE transport
 │  ├─ nexus-core/             现有协议、Catalog、状态与绑定内核
 │  ├─ nexus-react/            现有 Provider、renderer、17 标准组件
 │  └─ nexus-server/           SDK 装配、guard、SSE 传输（参考服务已迁出，无 src/main.ts）
@@ -34,7 +35,7 @@ Nexus_UI/
 └─ docs/                     PRD / SPEC / ARCHITECTURE / DESIGN / tasks/CURRENT
 ```
 
-当前依赖为 `react → core`、`client → core`、`server → core`、`playground-server → core + server`；两处浏览器均通过 `client` 处理网络会话（S4.3，2026-10-29）。`packages/nexus-client/` 已随 S4.1 创建（2026-10-28），会话/传输、视图隔离与恢复已实现，React Provider/Surface 已有主体代码；两个示例已切换到 client；独立矩阵、联合与浏览器阶段验收见 CURRENT。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
+当前依赖为 `react → core`、`client → core`、`server → core`、`playground-server → core + server`；两处浏览器均通过 `client` 处理网络会话（S4.3，2026-10-29）。`packages/nexus-client/` 已随 S4.1 创建（2026-10-28），会话/传输、视图隔离与恢复已实现，React Provider/Surface 已交付；两个示例已切换到 client；独立矩阵、联合与浏览器验收已完成，见 [S4-ACCEPTANCE](tasks/S4-ACCEPTANCE.md)。参考工厂显式装配自己的演示 Policy，SDK 缺省 Policy 保持中立。
 
 四包构建先清理各自 dist，再编译并完成现有 ESM import 修补；根 build/build:packages 串行执行，避免依赖包清理竞态；产物清单对照当前 src，防止源码迁出后遗留旧 listener、模型 SDK、业务模块或测试。此为 S1 产物卫生检查，不替代 S5 的仓外发行验收。
 
@@ -66,7 +67,7 @@ flowchart TB
 | 模块            | 负责                                                                          | 验收归属                                   |
 | --------------- | ----------------------------------------------------------------------------- | ------------------------------------------ |
 | core            | 协议/Profile、Catalog/schema、JSON Pointer、状态更新、VNode、输入/action 原语 | conformance、纯状态与安全反例              |
-| client（目标）  | run/surface 会话状态、预览与提交协调、终态、取消、恢复、transport 适配        | headless 会话测试与浏览器接入              |
+| client  | run/surface 会话状态、预览与提交协调、终态、取消、恢复、transport 适配        | headless 会话测试与浏览器接入              |
 | React           | runtime/context、按 surface 订阅、组件映射与交互门控                          | 布局嵌入、多 surface、自定义控件与可访问性 |
 | server          | 候选准入、surface 快照、action 输入准入、调度与提交；Koa/RPC 薄适配           | 通用运行测试、HTTP 时序与资源反例          |
 | playground      | 模型装配、联系人/任务/Workbench 演示、调试 UI                                 | 示例可用性，不决定 SDK 业务范围            |
@@ -141,7 +142,7 @@ client session 创建并持有稳定 runtime、运行状态和 transport；React
       → Surface(surfaceId=B)
 ```
 
-`createClientSession` 已由 client 根入口导出（S4.1.1/§7 会话与传输）；`A2UISurface` 已从 React 根入口导出（API 2）；仍需完成 S4.2 联合验收。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。`A2UIPreview(view, renderMap)` 是无需 Provider 的只读展示，不接 transport、不写 runtime，展示已准入但可能未到齐的候选引用；宿主选择布局，预览不授予动作资格。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
+`createClientSession` 已由 client 根入口导出（S4.1.1/§7 会话与传输）；`A2UISurface` 已从 React 根入口导出（API 2）；S4.2 联合与 S4.4 阶段验收已完成。Provider 不输出固定 div；Surface 决定渲染位置并按 id 独立订阅。`A2UIPreview(view, renderMap)` 是无需 Provider 的只读展示，不接 transport、不写 runtime，展示已准入但可能未到齐的候选引用；宿主选择布局，预览不授予动作资格。更新/删除 B 不清空 A，Provider 配置重渲不重建 runtime。
 
 外部 runtime/session 由创建者销毁；Provider 自建 runtime 在卸载时释放。视图层使用可取消且稳定快照的订阅，避免 React 并发渲染下的状态撕裂。标准样式显式选择，不在 import 时注入全局动画。
 
@@ -218,7 +219,7 @@ S3.1 锁定（2026-10-22）：调度队列按 runtime 实例隔离、generation 
 
 `done` 只证明本次 UI 提交；`error`、断线或 canceled 都不能证明业务未执行。SDK 不回滚已执行的宿主副作用，不自动重试 action。宿主可提供不透明操作关联标识，client 把结果未知交给宿主恢复流程。
 
-当前 client 已实现候选隔离与受控恢复，server 已随 S3 完成唯一调度与提交事实整改；完整 S4 矩阵及浏览器验收仍待签收，不以当前实现替代阶段验收。
+当前 client 已实现候选隔离与受控恢复，server 已随 S3 完成唯一调度与提交事实整改；完整 S4 矩阵及实际浏览器关键路径已于 2026-10-30 签收，范围与限制见 [S4-ACCEPTANCE](tasks/S4-ACCEPTANCE.md)。
 
 ## 8. 安全、资源与诊断
 

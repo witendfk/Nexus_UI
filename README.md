@@ -12,7 +12,7 @@ Nexus core/React/参考 server、独立宿主 Demo 已证明生成 → guard →
 
 **S3 已交付并验收（2026-10-28）**：传输无关 server runtime、唯一 surface 调度、Session v1、提交事实三态、访问准入、双端背压、资源预算与取消隔离。验收证据、公开入口迁移和限制见 [S3 验收报告](docs/tasks/S3-ACCEPTANCE.md)。
 
-**S4 进行中（2026-10-30）**：S4.0 已完成；S4.1 会话/传输、候选隔离、完整恢复与稳定订阅已实现，headless 完整矩阵已于 2026-10-30 独立签收（公开产物验收 30 项覆盖 17 cell，四项评审缺口已补强并复核）。S4.2 Provider/Surface 主体已落地（React API 2：显式 Surface、样式按需选择），React+client 联合验收已于 2026-10-30 签收（dist 联合矩阵 14 项 + 控件 DOM 身份回归 3 项；已修复标签串联并补强预览写回、晚到响应证据）；S4.3 两处浏览器已统一消费 client，隔离只读预览与已提交 Surface，复制的 SSE/基准/草稿状态机已删除。仅剩 S4.4 浏览器/阶段验收。当前为四个私有包，alpha 安装与仓外发行验收归 S5，详见 [当前计划](docs/tasks/CURRENT.md) 与 [SPEC §7](docs/SPEC.md)。
+**S4 已完成阶段验收（2026-10-30）**：框架无关 client、预览/提交/草稿隔离与恢复、Provider/Surface 分离（React API 2）及两处浏览器消费迁移。公开产物 headless 30 项 / React 联合 14 项，真实浏览器验证双 surface、输入/action、失败反馈与基本可访问性；本轮修复动作禁用向输入传播的 ARIA 语义问题。根构建/类型/lint/1190 项测试通过；全仓格式检查仍有 5 处既有问题。证据与边界见 [S4 验收报告](docs/tasks/S4-ACCEPTANCE.md)。四包仍为私有包，下一阶段 S5 验证当前产物仓外安装、兼容与完整发行门禁，尚未开工。
 
 ```text
 Agent / LLM → A2UI v0.9 JSONL → Host guard → SSE

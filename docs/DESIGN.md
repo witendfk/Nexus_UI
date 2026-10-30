@@ -1,6 +1,6 @@
 # DESIGN — SDK 设计决策
 
-更新：2026-10-29。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
+更新：2026-10-30。需求见 [PRD](PRD.md)，精确契约见 [SPEC](SPEC.md)，结构见 [ARCHITECTURE](ARCHITECTURE.md)，实施顺序见 [CURRENT](tasks/CURRENT.md)。已决策不代表已实现；本文不记录应用业务决策。
 
 ## 决策索引
 
@@ -12,7 +12,7 @@
 | D4   | SDK 中立默认值与显式宿主装配                    | server 侧已实施（含 runs 准入默认拒绝） |
 | D5   | 区分消息状态、运行提交与业务结果                | server/client 已实施；阶段验收见 CURRENT |
 | D6   | 四包目标与可选框架适配                          | 已决策；client 包已创建（S4.1，2026-10-28），可安装声明归 S5 |
-| D7   | Provider / Surface 分离，runtime 身份稳定       | 主体已实施，阶段验收见 CURRENT          |
+| D7   | Provider / Surface 分离，runtime 身份稳定       | 已实施并验收，证据见 S4-ACCEPTANCE          |
 | D8   | 声明式输入与 action 能力                        | 已实施（S2.2–S2.6，草稿确认语义 2026-10-20） |
 | D9   | 单一运行调度与有界资源                          | S3 已实施并验收（2026-10-28），证据见 S3-ACCEPTANCE |
 | D10  | ESM 与类型声明为首发产物，消除产物路径修补      | 已决策，构建迁移待实施                  |
@@ -83,7 +83,7 @@ client 只在明确成功终态且本地校验通过后开放当前 revision 的
 
 **依据**：原 Provider 以一个 `tree` 接收全部 surface 且固定输出在 children 前，不适合多 surface 和宿主布局。现已改为按 surface 的显式槽位。
 
-**只读预览（S4.3）**：React 提供 `A2UIPreview` 展示 client 暴露的候选快照，关闭输入/action 回调且不读写 Provider 状态；React 不依赖 client。生成可渐进展示，action 运行期间保留可编辑的已提交视图。示例重新生成是显式替换会话，不以意外 Provider 重渲重置状态；切换与卸载由创建者解除订阅并 dispose。
+**只读预览（S4.3）**：React 提供 `A2UIPreview` 展示 client 暴露的候选快照，关闭输入/action 回调且不读写 Provider 状态；React 不依赖 client。生成可渐进展示，action 运行期间保留可编辑的已提交视图。动作禁用仅作用于动作控件与回调出口；Surface 根使用普通状态标记，避免 ARIA 禁用语义传播到可编辑输入（S4.4 浏览器复验）。示例重新生成是显式替换会话，不以意外 Provider 重渲重置状态；切换与卸载由创建者解除订阅并 dispose。
 
 **代价**：Provider 的隐式输出迁到显式 Surface，是公开行为变更。提供迁移示例；保留轻量 core 接入，不要求本地 JSONL 使用者配置 HTTP。
 

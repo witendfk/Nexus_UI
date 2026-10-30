@@ -1,6 +1,6 @@
 # SPEC — SDK 契约
 
-更新：2026-10-28。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
+更新：2026-10-30。上游 [PRD](PRD.md)，结构 [ARCHITECTURE](ARCHITECTURE.md)，决策 [DESIGN](DESIGN.md)，交付状态 [CURRENT](tasks/CURRENT.md)。§1–§3 描述当前实现，§4 的 Catalog/交互准入已实施；§5–§8 按条目标明已交付和后续目标，不能将待实施能力当作当前保证。
 
 ## 0. 术语与权威
 
@@ -64,7 +64,7 @@ CatalogDefinition 已切换为 v2 形状（S2.2，2026-10-16）：`catalogId`、
 
 `createCatalogPromptContract` 从声明生成提示。server 发布 Catalog Contract v2 与 SHA-256 hash，并提供 discovery。它们用于契约识别和缓存，不是鉴权凭据。
 
-**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路待 S4；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；按运行结果留存与发布一致性已在 S2.5.1/.2/.5 实施；按运行查询路由与 `X-Nexus-Run-Id` 响应头已在 S2.5.3/.4 实施（2026-10-20）；RPC 完整序列化与 verifier 按本次 done 固定结果对账已在 S2.5.6 实施（2026-10-20）。消费方迁移已在 S2.6 实施（2026-10-20）：参考服务实际入口发布执行 Catalog 并装配可信可编辑白名单；core 公开 `getCatalogContractHashInput`/`isCatalogContractHash`（server hash 与浏览器 Web Crypto 复算共用同一规范化）与草稿发送快照/确认原语；两个参考浏览器挂载前校验契约、以响应头关联 done、按快照确认草稿；`sendAgentRun` 旧 idPrefix 四参槽位已删除。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
+**当前差距**：注册闸门已实施 §4.2 全部拒绝规则（含配置类型校验：布尔 enabled/componentRef、非负安全整数预算、非空字符串 catalogId），Catalog Contract 版本已升至 2；Profile 只校验 checks 结构与受支持函数的安全基线，不按组件名决定启用能力；当前 Catalog 的 checks 声明是能力、函数子集与预算的权威，action 挂载来源由 Catalog `sources` 决定；字段结构契约（含 Slider min<max 等跨字段约束与媒体 URL/validationRegexp 正则、原型与预算基线）保留在 Profile。标准声明工厂返回深拷贝，跨实例互不共享；inputs 值 schema 全树禁止 `dynamic`；未注册 action 名与 sources 越权由共享 Catalog 诊断统一报告（runtime 不再另设一套）；成员判断统一只读自有属性。浏览器本地写回与输入收集已按 §4.3 第一条实施（S2.3，2026-10-18）：`setInputValue` 与输入草稿由当前 Catalog `inputs` 声明驱动。server 权威准入已按 §4.3 其余条目实施（S2.4，2026-10-18）：nexus 元数据核对、来源能力、整批输入校验、临时模型参数重算与 resolver 后置接线于 `AgentAdapter.prepareAction`，并以 `fixtures/catalog-v2/` 全部请求夹具对测。client 输入链路已按 §7 完成会话隔离、草稿协调与 S4 阶段验收；action HTTP envelope 解析与旧格式拒绝已在 S2.4 复审修复中接通，成功 `done` 直接携带本次固定提交结果，两个浏览器消费方据此提交最新输入；按运行结果留存与发布一致性已在 S2.5.1/.2/.5 实施；按运行查询路由与 `X-Nexus-Run-Id` 响应头已在 S2.5.3/.4 实施（2026-10-20）；RPC 完整序列化与 verifier 按本次 done 固定结果对账已在 S2.5.6 实施（2026-10-20）。消费方迁移已在 S2.6 实施（2026-10-20）：参考服务实际入口发布执行 Catalog 并装配可信可编辑白名单；core 公开 `getCatalogContractHashInput`/`isCatalogContractHash`（server hash 与浏览器 Web Crypto 复算共用同一规范化）与草稿发送快照/确认原语；两个参考浏览器挂载前校验契约、以响应头关联 done、按快照确认草稿；`sendAgentRun` 旧 idPrefix 四参槽位已删除。server 侧已移除示例 actions 回退与默认业务 Policy：示例 Catalog、LLM 调用、演示 handler 与搜索/表单/Workbench 流程 Policy 已迁至 `examples/playground-server/`。
 
 当前公开根入口为 `@nexus-ui/core`、`@nexus-ui/client`、`@nexus-ui/react`、`@nexus-ui/server`，均为私有 0.1.x 包。core/server API 为 1；React API 为 2（Provider 显式 Surface、样式显式选择），其兼容声明仍为 core 0.1.x / core API 1 / v0.9。client 在 S4 定型，深路径和源码路径不承诺兼容。
 
@@ -404,7 +404,7 @@ client 对外提供会话控制器（`@nexus-ui/client`，会话、传输与 S4.
 
 **传输资源边界**（S4.1.3）：`fetchSseTransport` 默认建连 30s、空闲 60s、总时长 600s 超时，单帧 1e6 UTF-16 代码单元（不含空行分隔符）、单次响应 16 MiB 原始字节预算。先拆完整帧再按帧检查，剩余半帧单独限额；同一内容不因网络分片/合并而改变接受结果。错误响应体读取同受空闲/总时长/字节预算及取消约束，诊断最多保留 500 字符；非法 content-type 直接关闭响应体。总时长从 open 开始计量，也覆盖消费暂停；关闭时不等待宿主自定义 cancel 钩子完成。超时/越界抛错（action 归 desync）。预算须为非负安全整数，非法配置在工厂入口报错，`0` 关闭该项。按 surface 的交互可用状态经 `getSurface/surfaces/subscribeSurface` 提供；订阅与 `onListenerError` 回调异常均隔离。
 
-React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话消费方经 client 按 surface 订阅后传入 `actionsEnabled`；Surface 在 renderer 的 `ctx.triggerAction` 统一门控（包含自定义 keyboard/change 等事件），标准 Button 显示 disabled，自定义控件通过 `ctx.actionsEnabled` 展示状态。本地输入写回不随 action 禁用而关闭。标准输入控件的 DOM id 与协议 componentId 分离，标签和错误说明按挂载实例关联；同名组件跨 surface、预览/提交或重复挂载不串联，写回仍使用原 componentId + surfaceId。两个参考浏览器已随 S4.3 接入此装配；重新生成显式替换会话，切换/卸载释放旧会话，原有 action 请求期间保持提交视图及输入可编辑。
+React 以 `A2UIProvider` 提供稳定 runtime/context，以新增 `A2UISurface` 按 surfaceId 渲染；Provider 不隐式输出 surface。宿主可只传本地 runtime，不必创建网络 session。会话消费方经 client 按 surface 订阅后传入 `actionsEnabled`；Surface 在 renderer 的 `ctx.triggerAction` 统一门控（包含自定义 keyboard/change 等事件），标准 Button 显示 disabled，自定义控件通过 `ctx.actionsEnabled` 展示状态。本地输入写回不随 action 禁用而关闭。Surface 根以 data-actions-disabled 标记动作状态，不设置会影响后代输入的 aria-disabled；具体动作控件表达其 disabled/aria-disabled，预览仍用禁用 fieldset。标准输入控件的 DOM id 与协议 componentId 分离，标签和错误说明按挂载实例关联；同名组件跨 surface、预览/提交或重复挂载不串联，写回仍使用原 componentId + surfaceId。两个参考浏览器已随 S4.3 接入此装配；重新生成显式替换会话，切换/卸载释放旧会话，原有 action 请求期间保持提交视图及输入可编辑。
 
 订阅必须可解除；外部 runtime/session 由创建者销毁，Provider 自建 runtime 由 Provider 销毁。renderMap、catalogRenderMaps 更新会重新渲染，回调经 ref 更新，父组件重渲不重置 runtime；Surface 使用 `useSyncExternalStore` 订阅稳定的 VNode 根，切换 surface 与 render/订阅间更新不会沿用旧视图。受控删除同步清空根缓存并通知 null，surface/render 观察者异常不阻断状态发布。外部 runtime 的回调仍由创建者装配。样式需显式调用根入口 `injectNexusStyle()`，import 不注入全局动画。
 
@@ -426,7 +426,7 @@ Catalog Contract 版本在 S2 升至 2：hash 对 `{ contractVersion, catalog }`
 
 ### 8.1 目标发行产物（待实施）
 
-首发每包交付可原生加载的 ESM `.js` 与 `.d.ts`；建议 `.js.map`，发布时保证源码映射可用。视图包可提供显式公开的样式入口，宿主按需引入；当前 React 仍在 import 时注入动画，独立 CSS 尚未交付。不提供 CJS、UMD 或 IIFE；包内不重复捆绑 React/Vue，框架依赖以 peer dependency 声明，内部包按依赖关系消费。
+首发每包交付可原生加载的 ESM `.js` 与 `.d.ts`；建议 `.js.map`，发布时保证源码映射可用。视图包可提供显式公开的样式入口，宿主按需引入；当前 React import 不注入样式，动画由根入口 injectNexusStyle() 显式选择；独立 CSS 尚未交付。不提供 CJS、UMD 或 IIFE；包内不重复捆绑 React/Vue，框架依赖以 peer dependency 声明，内部包按依赖关系消费。
 
 当前构建仍使用 `fix-esm-imports.mjs` 补齐相对路径。目标以显式 `.js` 源码路径和 NodeNext 配置在编译时保证 Node ESM 可解析性；通过产物原生加载、类型解析和浏览器打包验证后才移除脚本。仓库内类型解析（含 SDK 包间与全部消费方）统一走 node_modules 的当前 dist 声明：tsconfig 不设源码 paths 别名（2026-10-21 验收移除），typecheck 依赖先构建的产物。宿主通过公开包入口消费，不运行 SDK 构建脚本。
 

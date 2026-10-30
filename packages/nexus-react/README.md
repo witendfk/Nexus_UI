@@ -73,7 +73,7 @@ function App() {
 }
 ```
 
-API 2 不再由 Provider 隐式输出界面，宿主须显式放置 `A2UISurface`。外部 runtime 回调由创建者装配；Provider 自建 runtime 通过 `onAction/onError` 接收当前回调。Surface 使用稳定快照订阅，卸载解除；`actionsEnabled={false}` 统一关闭 action 出口并禁用标准按钮，自定义控件读取 `ctx.actionsEnabled` 提供可见状态。
+API 2 不再由 Provider 隐式输出界面，宿主须显式放置 `A2UISurface`。外部 runtime 回调由创建者装配；Provider 自建 runtime 通过 `onAction/onError` 接收当前回调。Surface 使用稳定快照订阅，卸载解除；`actionsEnabled={false}` 统一关闭 action 出口并禁用标准按钮，自定义控件读取 `ctx.actionsEnabled` 提供可见状态。根节点 `data-actions-disabled` 仅标记动作状态，不通过 `aria-disabled` 把可编辑输入标为禁用。
 
 `A2UIPreview` 无需 Provider，以 `view={surface.preview}` 和可选 `renderMap/maxElements` 展示已准入候选；外层禁用 fieldset，输入写回返回 false，action 无操作。它不授予提交资格，完整成功后使用 Surface；action 请求期间可继续显示已提交 Surface，关闭 actionsEnabled 但允许新输入。
 

@@ -386,7 +386,7 @@ describe('S4.2 联合 · 生成、输入与 action（dist 公开入口）', () =
     });
     expect(screen.queryByLabelText('界面预览'), '候选预览已清除').to.equal(null);
     expect(
-      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('data-actions-disabled'),
     ).to.equal('false');
     expect(session.getSurface(S1)?.actionOpen).to.equal(true);
   });
@@ -445,6 +445,11 @@ describe('S4.2 联合 · 生成、输入与 action（dist 公开入口）', () =
         const original = document.querySelector('[data-surface-id="joint-1"]')!;
         const input = original.querySelector('input')!;
         const previewInput = preview.querySelector('input')!;
+        expect(
+          input.closest('[aria-disabled="true"], [disabled]'),
+          '提交输入不能继承动作禁用语义',
+        ).to.equal(null);
+        expect(previewInput.closest('fieldset[disabled]'), '候选输入保持只读').not.to.equal(null);
         if (!custom) {
           expect((original.querySelector('label') as HTMLLabelElement).control).to.equal(input);
           expect((preview.querySelector('label') as HTMLLabelElement).control).to.equal(
@@ -549,7 +554,7 @@ describe('S4.2 联合 · 失败收敛与恢复（dist 公开入口）', () => {
     expect(triggerSpy).not.toHaveBeenCalled();
     expect(calls.filter((call) => call.url.endsWith('/event'))).to.have.length(1);
     expect(
-      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('data-actions-disabled'),
     ).to.equal('true');
     expect(screen.getByText('提交'), '旧已提交视图保留展示').to.exist;
     expect(session.getSurface(S1)?.baseline?.surfaceRevision).to.equal(1);
@@ -620,7 +625,7 @@ describe('S4.2 联合 · 失败收敛与恢复（dist 公开入口）', () => {
     expect(calls.filter((call) => call.url.endsWith('/event'))).to.have.length(1);
     expect(field.getAttribute('aria-disabled')).to.equal('true');
     expect(
-      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('data-actions-disabled'),
     ).to.equal('true');
   });
 
@@ -649,7 +654,7 @@ describe('S4.2 联合 · 失败收敛与恢复（dist 公开入口）', () => {
       expect(session.getSurface(S1)?.actionOpen).to.equal(false);
     });
     expect(
-      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('data-actions-disabled'),
     ).to.equal('true');
 
     // 非法恢复：surface 与提交身份不一致 → 拒绝且 UI 保持禁用。
@@ -657,7 +662,7 @@ describe('S4.2 联合 · 失败收敛与恢复（dist 公开入口）', () => {
       /surface 与提交身份不一致/,
     );
     expect(
-      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+      document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('data-actions-disabled'),
     ).to.equal('true');
     expect(calls.filter((call) => call.url.endsWith('/event'))).to.have.length(1);
 
@@ -665,7 +670,9 @@ describe('S4.2 联合 · 失败收敛与恢复（dist 公开入口）', () => {
     expect(session.recover({ view, commit }).status).to.equal('committed');
     await waitFor(() => {
       expect(
-        document.querySelector('[data-surface-id="joint-1"]')?.getAttribute('aria-disabled'),
+        document
+          .querySelector('[data-surface-id="joint-1"]')
+          ?.getAttribute('data-actions-disabled'),
       ).to.equal('false');
     });
     fireEvent.click(screen.getByRole('button', { name: '提交' }));

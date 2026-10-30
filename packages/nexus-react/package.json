@@ -22,6 +22,8 @@
     "build": "pnpm --filter @nexus-ui/core build && rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs dist",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:browser": "vite --config test/browser/vite.config.ts",
+    "build:browser": "vite build --config test/browser/vite.config.ts",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {

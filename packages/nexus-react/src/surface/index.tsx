@@ -68,7 +68,7 @@ export function A2UISurface({
     {
       className,
       'data-surface-id': surfaceId,
-      'aria-disabled': !actionsEnabled,
+      'data-actions-disabled': !actionsEnabled,
     },
     elements,
   );
